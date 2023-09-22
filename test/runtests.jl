@@ -1,9 +1,8 @@
-using PeriodicStatsModels
+using SmoothPeriodicStatsModels
 using Test
 using Distributions, Random
 using Optimization, OptimizationOptimJL
 using Ipopt, OptimizationMOI
-using Test
 
 # EM for Mixture 
 @testset "fit_mle_trig_exp2_EM" begin

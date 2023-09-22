@@ -1,4 +1,4 @@
-module PeriodicStatsModels
+module SmoothPeriodicStatsModels
 
 # # Packages
 
@@ -58,6 +58,7 @@ include("HHMM_Bernoulli/viterbi.jl")
 include("HHMM_Bernoulli/update_A_B_jump.jl")
 include("HHMM_Bernoulli/trig_conversion.jl")
 include("HHMM_Bernoulli/mle_slice.jl")
+include("HHMM_Bernoulli/HMM_utilities.jl")
 
 export
     # periodichmm.jl
@@ -85,7 +86,7 @@ export
 
 export AR1
 export model_for_loglikelihood_AR1, initialvalue_optimize!, model_for_loglikelihood_AR1_full
-export μₜ, ρₜ, σₜ
+export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
 
 
