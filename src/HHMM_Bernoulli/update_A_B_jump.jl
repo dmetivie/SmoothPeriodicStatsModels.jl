@@ -35,7 +35,7 @@ function model_for_B(γₛ::AbstractMatrix, d::Int; silence = true, max_cpu_time
     @NLexpression(model, Pₙ[t = 1:T], sum(trig[t][j] * θ_jump[j] for j = 1:length(trig[t])))
 
     @NLparameter(model, πₛ[t = 1:T, y = 1:rain_cat] == γₛ[t, y])
-    πₛ
+    
     @NLexpression(model, mle,
         -sum(πₛ[t, 1] * log1p(exp(-Pₙ[t])) for t = 1:T) - sum(πₛ[t, 2] * log1p(exp(+Pₙ[t])) for t = 1:T)
     ) # 1 is where it did not rain # 2 where it rained

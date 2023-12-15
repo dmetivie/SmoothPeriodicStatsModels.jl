@@ -5,16 +5,19 @@ module SmoothPeriodicStatsModels
 # ## Utilities
 using ArgCheck
 using Base: OneTo
-using ShiftedArrays: lead
+using ShiftedArrays: lead, lag
 
 # ## Optimization
 using JuMP, Ipopt
 using Optimization
 using LsqFit
 
+# ## Multivariate
+using Copulas
+
 # Random and Distributions
 using Distributions
-using Random: AbstractRNG, GLOBAL_RNG
+using Random: AbstractRNG, GLOBAL_RNG, rand!
 
 # ## Special function
 using LogExpFunctions: logsumexp!, logsumexp
@@ -36,7 +39,6 @@ import HMMBase: fit_mle!, fit_mle
 import PeriodicHiddenMarkovModels: forward, backward, forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!
 
 # # Code
-
 include("utilities.jl")
 
 # ## Generic MLE problem solved with Optimization
@@ -60,6 +62,9 @@ include("HHMM_Bernoulli/trig_conversion.jl")
 include("HHMM_Bernoulli/mle_slice.jl")
 include("HHMM_Bernoulli/HMM_utilities.jl")
 
+# For sites added after the HMM training
+include("HHMM_Bernoulli/add_sites.jl")
+
 export
     # periodichmm.jl
     HierarchicalPeriodicHMM,
@@ -80,6 +85,7 @@ export
     fit_θᴮ!,
     polynomial_trigo,
     Trig2HierarchicalPeriodicHMM,
+    fit_mle_stations,
     # fit slice
     fit_mle_all_slices
 

@@ -56,7 +56,7 @@ function fit_θᴬ!(p::AbstractArray, A::AbstractArray{N,2} where {N}; silence=t
 end
 
 #TODO use α(t, p) instead
-m_Bernoulli(t, p, T) = 1 ./ (1 .+ exp.(polynomial_trigo(t, p; T=T)))
+m_Bernoulli(t, p, T) = 1 ./ (1 .+ exp.(polynomial_trigo(t, p, T)))
 # Fit (faster than JuMP) with LsqFit
 function fit_θᴮ!(p::AbstractVector, B::AbstractVector)
     T = size(B, 1)
