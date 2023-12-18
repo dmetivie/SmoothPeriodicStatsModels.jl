@@ -49,7 +49,7 @@ end
 
 function rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(Normal(0, AR.σ[1])))
     @assert length(z) == length(n2t)
-    @assert length(z) == length(ϵ)
+    @assert length(z) == length(ϵ) "got $(length(z)) == $(length(ϵ))"
     N = length(n2t)
     y = zeros(eltype(y₁), N)
     y[1] = y₁
@@ -59,50 +59,57 @@ function rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector
     return y
 end
 
-function rand2(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
-    @assert length(z) == length(n2t)
-    @assert size(ARs) == size(y₁)
-    N = length(n2t)
-    y = zeros(eltype(y₁), N, size(y₁)...)
-    ϵ = similar(y₁)
-    y[1, :] .= y₁
-    for n = 2:N
-        k = z[n]
-        tₙ = n2t[n]
-        C = GaussianCopula(Σ[k]) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
-        𝔇 = SklarDist(C, tuple(fill(Normal(), length(ARs))...)) 
-        @views ϵ .= rand(𝔇)
-        for j in eachindex(y₁)
-            y[n, j] = ARs[j].μ[k, tₙ] + ARs[j].ρ[k, tₙ] * y[n-1, j] + ARs[j].σ[k, tₙ] * ϵ[j]
-        end
-    end
-    return y
-end
+# function rand2(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
+#     @assert length(z) == length(n2t)
+#     @assert size(ARs) == size(y₁)
+#     N = length(n2t)
+#     y = zeros(eltype(y₁), N, size(y₁)...)
+#     ϵ = similar(y₁)
+#     y[1, :] .= y₁
+#     for n = 2:N
+#         k = z[n]
+#         tₙ = n2t[n]
+#         C = GaussianCopula(Σ[k]) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
+#         𝔇 = SklarDist(C, tuple(fill(Normal(), length(ARs))...)) 
+#         @views ϵ .= rand(𝔇)
+#         for j in eachindex(y₁)
+#             y[n, j] = ARs[j].μ[k, tₙ] + ARs[j].ρ[k, tₙ] * y[n-1, j] + ARs[j].σ[k, tₙ] * ϵ[j]
+#         end
+#     end
+#     return y
+# end
 
-function rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
+function rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1])), output_ϵ = false) where T<:AR1{<:AbstractMatrix}
     @assert length(z) == length(n2t)
     @assert size(ARs) == size(y₁)
     N = length(n2t)
     ϵ = similar(y₁, length(y₁), N)
-    for n = 1:N
-        k = z[n]
-        C = GaussianCopula(Σ[k]) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
-        𝔇 = SklarDist(C, tuple(fill(Normal(), length(ARs))...)) 
-        @views ϵ[:,n] .= rand(𝔇)
+    𝖀 = tuple(fill(Normal(), length(ARs))...)
+    for (k, Σₖ) in enumerate(Σ)
+        Nₖ = findall(z .== k)
+        C = GaussianCopula(Σₖ) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
+        𝔇 = SklarDist(C, 𝖀) 
+        @views ϵ[:,Nₖ] .= rand(𝔇, length(Nₖ))
     end
-    return rand(ARs, ϵ, n2t, z, Σ; y₁=y₁)
+    # for n = 1:N
+    #     k = z[n]
+    #     C = GaussianCopula(Σ[k]) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
+    #     𝔇 = SklarDist(C, 𝖀) 
+    #     @views ϵ[:,n] .= rand(𝔇)
+    # end
+    y = rand(ARs, ϵ, n2t, z, Σ; y₁=y₁)
+    return output_ϵ ? (y, ϵ) : y
 end
 
-#TODO: randmulti AR1 avec ϵ
 function rand(ARs::AbstractArray{T}, ϵ::AbstractMatrix, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
     @assert length(z) == length(n2t)
     @assert size(ARs) == size(y₁)
     N = length(n2t)
     y = zeros(eltype(y₁), N, size(y₁)...)
-    for AR in ARs
-        @views y[:, j] = rand(AR, ϵ[:, j], n2t, z, y₁ = y₁[j])
+    for (j, AR) in enumerate(ARs)
+        @views y[:, j] = rand(AR, ϵ[j, :], n2t, z, y₁ = y₁[j])
     end
-    return y
+    return permutedims(y)
 end
 
 function model_for_loglikelihood_AR1(d::Integer, T::Integer; silence=true)
