@@ -9,7 +9,7 @@ using ShiftedArrays: lead, lag
 
 # ## Optimization
 using JuMP, Ipopt
-using Optimization
+using Optimization, OptimizationMOI
 using LsqFit
 
 # ## Multivariate
@@ -94,6 +94,7 @@ export AR1
 export model_for_loglikelihood_AR1, initialvalue_optimize!, model_for_loglikelihood_AR1_full
 export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
+export fit_loss_optim
 
 
 end

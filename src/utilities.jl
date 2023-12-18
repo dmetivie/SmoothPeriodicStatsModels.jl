@@ -61,3 +61,4 @@ end
 μₜ(t, θ::AbstractArray) = polynomial_trigo(t, θ[:]) # not constrained
 αₜ(t, θ::AbstractArray) = 1 / (1 + exp(-polynomial_trigo(t, θ[:]))) # [0,1] parameter
 σₜ(t, θ::AbstractArray) = exp(polynomial_trigo(t, θ[:])) # >0 parameter
+ρₜ(t, θ::AbstractArray) = 2 / (1 + exp(-polynomial_trigo(t, θ[:]))) - 1 # [-1,1]

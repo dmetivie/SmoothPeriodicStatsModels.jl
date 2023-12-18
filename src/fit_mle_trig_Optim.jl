@@ -18,3 +18,5 @@ function Distributions.fit_mle(Opt::OptimMLE, y::AbstractArray; solvekwargs...)
 
     return solve(prob, Opt.solver; solvekwargs...)
 end
+
+fit_loss_optim(ℓ, y, θ0, method = :Ipopt; kwargs...) = fit_mle(OptimMLE(ℓ, Ipopt.Optimizer(), vec(θ0)), y; kwargs...)
