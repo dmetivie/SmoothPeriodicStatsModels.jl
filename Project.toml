@@ -19,15 +19,16 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ShiftedArrays = "1277b4bf-5013-50f5-be3d-901d8477a67a"
 
 [compat]
-LsqFit = "0.15"
 ArgCheck = "2"
-ShiftedArrays = "2"
-Optimization = "3"
 Copulas = "0.1"
-JuMP = "1"
-LogExpFunctions = "0.3"
 Distributions = "0.25"
 Ipopt = "1"
+JuMP = "1"
+LogExpFunctions = "0.3"
+LsqFit = "0.15"
+Optimization = "3"
+OptimizationMOI = "0.2"
+ShiftedArrays = "2"
 julia = "1"
 
 [extras]
