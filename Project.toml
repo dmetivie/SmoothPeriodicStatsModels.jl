@@ -27,7 +27,7 @@ JuMP = "1"
 LogExpFunctions = "0.3"
 LsqFit = "0.15"
 Optimization = "3"
-OptimizationMOI = "0.2"
+OptimizationMOI = "0.2, 0.3"
 ShiftedArrays = "2"
 julia = "1"
 
