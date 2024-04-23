@@ -37,24 +37,6 @@ using Ipopt, OptimizationMOI
         display=:none, maxiter=1000, tol=1e-5, robust=false, silence=true, warm_start=true)
     
     @test all(diff(history["logtots"]) .> 0) # increasing loglikelihood
-    # @btime fit_mle($mix0, $permutedims(θα0), $θσ0, $y, $n2t;display=:none, maxiter=1000, tol=1e-5, robust=false, silence=true, warm_start=true)
-    # 765.973 ms (1833703 allocations: 330.39 MiB)
-    # local minima though
-    # ([θ_Y2[1] θ_Y2[2] θ_α2'])
-    # 3×3 Matrix{Float64}:
-    #   1.01778    3.03886   0.106579
-    #   1.05301   -0.509514  0.234709
-    #  -0.280736   0.649009  0.901227
-    # 
-    # rangeT = (1:T)/T
-    # plot(rangeT,t̃-> σₜ(t̃, θσ1))
-    # plot!(rangeT,t̃-> σₜ(t̃, θσ2))
-    # plot!(rangeT,t̃-> σₜ(t̃, θ_Y[1]), c= 1,s=:dot)
-    # plot!(rangeT,t̃-> σₜ(t̃, θ_Y[2]), c= 2,s=:dot)
-    # plot!(rangeT,t̃-> σₜ(t̃, θ_Y2[1]), c= 1,s=:dot)
-    # plot!(rangeT,t̃-> σₜ(t̃, θ_Y2[2]), c= 2,s=:dot)
-    # plot(rangeT,t̃-> αₜ(t̃, θα))
-    # plot!(rangeT,t̃-> αₜ(t̃, permutedims(θ_α)))
 end
 
 # Optim for Mixture 

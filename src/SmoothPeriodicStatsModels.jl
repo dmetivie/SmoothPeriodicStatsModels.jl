@@ -23,6 +23,7 @@ using Random: AbstractRNG, GLOBAL_RNG, rand!
 using LogExpFunctions: logsumexp!, logsumexp
 
 # ## HMM
+#TODO: remove HHMBase dependancy and possibly PeriodicHiddenMarkovModels which are redefined anyway. I think I just use the AbstractHMM type
 #? Do we need both using ?
 using HMMBase
 using HMMBase: posteriors!, vec_maximum, EMHistory, update_a!, isprobvec # function not exported by default by HHMBase

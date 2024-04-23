@@ -89,6 +89,7 @@ end
 # JuMP model use to increase R(θ,θ^i) for the Q(t) matrix
 function model_for_A(s_ξ::AbstractArray, d::Int; silence = true)
     T, K = size(s_ξ)
+    @assert K>1 "To define a transition matrix K ≥ 2, here K = $K"
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "max_iter", 200)
     silence && set_silent(model)
@@ -177,6 +178,20 @@ function update_A!(
     end
 end
 
+update_A!(
+    A::AbstractArray{<:AbstractFloat,3},
+    θᴬ::AbstractArray{<:AbstractFloat,3},
+    ξ::AbstractArray,
+    s_ξ::AbstractArray,
+    α::AbstractMatrix,
+    β::AbstractMatrix,
+    LL::AbstractMatrix,
+    n2t::AbstractArray{Int},
+    n_in_t,
+    model_A::Nothing;
+    warm_start = true
+) = nothing
+
 function fit_mle_one_A(θᴬ, model, s_ξ; warm_start = true)
     T, K = size(s_ξ)
     pklj_jump = model[:pklj_jump]
@@ -242,7 +257,7 @@ function fit_mle!(
     n_occurence_history = [findall(.&(𝐘[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
-    model_A = model_for_A(s_ξ[:, 1, :], deg_θᴬ, silence=silence) # JuMP Model for transition matrix
+    model_A = K ≥ 2 ? model_for_A(s_ξ[:, 1, :], deg_θᴬ, silence=silence) : nothing # JuMP Model for transition matrix
     model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_θᴮ, silence=silence) # JuMP Model for Emmission distribution
 
     loglikelihoods!(LL, hmm, 𝐘, lag_cat; n2t=n2t)

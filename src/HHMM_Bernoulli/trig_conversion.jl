@@ -5,18 +5,21 @@ Takes trigonometric parameters `θᴬ[k∈[1,K], l∈[1,K-1]`, `d∈[1,𝐃𝐞�
 function Trig2HierarchicalPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::AbstractArray{<:AbstractFloat,4}, T::Integer)
     K, D, size_order = size(θᴮ)
     @assert K == size(θᴬ, 1)
-
-    A = zeros(K, K, T)
-    for k = 1:K, l = 1:K-1, t = 1:T
-        #TODO use μ, α, θ functions
-        A[k, l, t] = exp(polynomial_trigo(t, θᴬ[k, l, :], T))
-    end
-    for k = 1:K, t = 1:T
-        A[k, K, t] = 1  # last colum is 1/normalization (one could do otherwise)
-    end
-    normalization_polynomial = [1 + sum(A[k, l, t] for l = 1:K-1) for k = 1:K, t = 1:T]
-    for k = 1:K, l = 1:K, t = 1:T
-        A[k, l, t] /= normalization_polynomial[k, t]
+    if K == 1
+        A = ones(K, K, T)
+    else
+        A = zeros(K, K, T)
+        for k = 1:K, l = 1:K-1, t = 1:T
+            #TODO use μ, α, θ functions
+            A[k, l, t] = exp(polynomial_trigo(t, θᴬ[k, l, :], T))
+        end
+        for k = 1:K, t = 1:T
+            A[k, K, t] = 1  # last colum is 1/normalization (one could do otherwise)
+        end
+        normalization_polynomial = [1 + sum(A[k, l, t] for l = 1:K-1) for k = 1:K, t = 1:T]
+        for k = 1:K, l = 1:K, t = 1:T
+            A[k, l, t] /= normalization_polynomial[k, t]
+        end
     end
     #TODO use μ, α, θ functions
     p = [1 / (1 + exp(polynomial_trigo(t, θᴮ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
@@ -29,30 +32,34 @@ Trig2HierarchicalPeriodicHMM(θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::Abs
 function fit_θᴬ!(p::AbstractArray, A::AbstractArray{N,2} where {N}; silence=true)
     T, K = size(A, 2), size(A, 1)
     @assert K - 1 == size(p, 1)
-    d = (size(p, 2) - 1) ÷ 2
-    model = Model(Ipopt.Optimizer)
-    silence && set_silent(model)
-    f = 2π / T
-    cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
-    sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
+    if K == 1
+        return p
+    else
+        d = (size(p, 2) - 1) ÷ 2
+        model = Model(Ipopt.Optimizer)
+        silence && set_silent(model)
+        f = 2π / T
+        cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
+        sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
 
-    trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
+        trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
 
-    @variable(model, p_jump[k=1:(K-1), j=1:(2d+1)])
-    set_start_value.(p_jump, p)
-    # Polynomial P_kl
+        @variable(model, p_jump[k=1:(K-1), j=1:(2d+1)])
+        set_start_value.(p_jump, p)
+        # Polynomial P_kl
 
-    @NLexpression(model, Pol[t=1:T, k=1:K-1], sum(trig[t][j] * p_jump[k, j] for j = 1:length(trig[t])))
-    #TODO use μ, α, θ functions
-    @NLobjective(
-        model,
-        Min,
-        sum((A[k, t] - exp(Pol[t, k]) / (1 + sum(exp(Pol[t, l]) for l = 1:K-1)))^2 for k = 1:K-1, t = 1:T)
-        +
-        sum((A[K, t] - 1 / (1 + sum(exp(Pol[t, l]) for l = 1:K-1)))^2 for t = 1:T)
-    )
-    optimize!(model)
-    p[:, :] = value.(p_jump)
+        @NLexpression(model, Pol[t=1:T, k=1:K-1], sum(trig[t][j] * p_jump[k, j] for j = 1:length(trig[t])))
+        #TODO use μ, α, θ functions
+        @NLobjective(
+            model,
+            Min,
+            sum((A[k, t] - exp(Pol[t, k]) / (1 + sum(exp(Pol[t, l]) for l = 1:K-1)))^2 for k = 1:K-1, t = 1:T)
+            +
+            sum((A[K, t] - 1 / (1 + sum(exp(Pol[t, l]) for l = 1:K-1)))^2 for t = 1:T)
+        )
+        optimize!(model)
+        return p[:, :] = value.(p_jump)
+    end
 end
 
 #TODO use α(t, p) instead
