@@ -1,17 +1,17 @@
-function fit_mle_all_slices(hmm::HierarchicalPeriodicHMM, 𝐘::AbstractArray{<:Bool}, 𝐘_past::AbstractArray{<:Bool};
-    n2t=n_to_t(size(𝐘, 1), size(hmm, 3))::AbstractVector{<:Integer},
-    𝐘ₜ_extanted = [0],
+function fit_mle_all_slices(hmm::HierarchicalPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
+    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    Yₜ_extanted = [0],
     robust=false,
     history=false,
     kwargs...)
 
     hmm = copy(hmm)
 
-    N, K, T = size(𝐘, 1), size(hmm, 1), size(hmm, 3)
-    @argcheck size(𝐘, 1) == size(n2t, 1)
+    N, K, T = size(Y, 1), size(hmm, 1), size(hmm, 3)
+    @argcheck size(Y, 1) == size(n2t, 1)
 
-    # assign category for observation depending in the past 𝐘
-    lag_cat = conditional_to(𝐘, 𝐘_past)
+    # assign category for observation depending in the past Y
+    lag_cat = conditional_to(Y, Y_past)
 
     n_in_t = [findall(n2t .== t) for t = 1:T] #
 
@@ -21,14 +21,14 @@ function fit_mle_all_slices(hmm::HierarchicalPeriodicHMM, 𝐘::AbstractArray{<:
     α = hcat([vec(sum(hmm.A[:, :, t], dims=1) / K) for t = 1:T]...)
 
     for t = 1:T
-        n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle.(t .+ 𝐘ₜ_extanted, T)]...)) # extend dataset
+        n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle.(t .+ Yₜ_extanted, T)]...)) # extend dataset
         # n_in_t_extanded = n_in_t[t]#sort(vcat([n_in_t[tt] for tt in cycle[[t - 12, t - 7, t, t + 6, t + 13]]]...)) # extend dataset
-        hist[t] = fit_mle_B_slice!(@view(α[:, t]), @view(hmm.B[:, t, :, :]), 𝐘[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
+        hist[t] = fit_mle_B_slice!(@view(α[:, t]), @view(hmm.B[:, t, :, :]), Y[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
     end
 
     LL = zeros(N, K)
 
-    loglikelihoods!(LL, hmm.B, 𝐘, lag_cat; n2t=n2t)
+    loglikelihoods!(LL, hmm.B, Y, lag_cat; n2t=n2t)
     for k = 1:K, n = 1:N
         LL[n, k] += log(α[k, n2t[n]])
     end
@@ -70,7 +70,7 @@ function fit_mle_A_from_slice!(a::AbstractVector, A::AbstractArray{T,3} where {T
 end
 
 function fit_mle_B_slice!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bernoulli},
-    𝐘::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer};
+    Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer};
     rand_ini=true,
     n_random_ini=10, display_random=false,
     Dirichlet_α=0.8,
@@ -80,23 +80,23 @@ function fit_mle_B_slice!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Be
     Idx = idx_observation_of_past_cat(lag_cat, size_order)
 
     if rand_ini == true
-        α[:], B[:], h = fit_em_multiD_rand(α, B, 𝐘, lag_cat, Idx; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, display_random=display_random, kwargs...)
+        α[:], B[:], h = fit_em_multiD_rand(α, B, Y, lag_cat, Idx; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, display_random=display_random, kwargs...)
     else
-        h = fit_em_multiD!(α, B, 𝐘, lag_cat, Idx; kwargs...)
+        h = fit_em_multiD!(α, B, Y, lag_cat, Idx; kwargs...)
     end
     sort_wrt_ref!(α, B, ref_station)
     return h
 end
 
 function fit_em_multiD_rand(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bernoulli},
-    𝐘::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
+    Y::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
     n_random_ini=10, Dirichlet_α=0.8, display_random=false, kwargs...)
 
-    D = size(𝐘, 2)
+    D = size(Y, 2)
     K = size(α, 1)
     size_order = size(B, 3)
 
-    h = fit_em_multiD!(α, B, 𝐘, lag_cat, idx_j; kwargs...)
+    h = fit_em_multiD!(α, B, Y, lag_cat, idx_j; kwargs...)
     log_max = h.logtots[end]
     α_max, B_max = copy(α), copy(B)
     h_max = h
@@ -104,7 +104,7 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractArray{F,3} where {F<:
     for i = 1:(n_random_ini-1)
         B[:, :, :] = random_product_Bernoulli(D, K, size_order)
         α[:] = rand(Dirichlet(K, Dirichlet_α))
-        h = fit_em_multiD!(α, B, 𝐘, lag_cat, idx_j; kwargs...)
+        h = fit_em_multiD!(α, B, Y, lag_cat, idx_j; kwargs...)
         (display_random == :iter) && println("random IC $(i+1): logtot = $(h.logtots[end])")
         if h.logtots[end] > log_max
             log_max = h.logtots[end]
@@ -116,13 +116,13 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractArray{F,3} where {F<:
 end
 
 function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bernoulli},
-    𝐘::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
+    Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
     display=:none, maxiter=100, tol=1e-3, robust=false)
 
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
 
-    N, K, D, size_order = size(𝐘, 1), size(B, 1), size(B, 2), size(B, 3)
+    N, K, D, size_order = size(Y, 1), size(B, 1), size(B, 2), size(B, 3)
     history = EMHistory(false, 0, [])
 
     # Allocate order for in-place updates
@@ -136,7 +136,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
     # E-step
     # evaluate likelihood for each type k
     for k in OneTo(K), n in OneTo(N)
-        LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), 𝐘[n, :])
+        LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), Y[n, :])
     end
     for k = 1:K
         LL[:, k] .+= log(α[k])
@@ -159,7 +159,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
             for j = 1:D
                 for m = 1:size_order
                     if sum(γ[idx_j[j][m], k]) > 0
-                        B[k, j, m] = fit_mle(Bernoulli, 𝐘[idx_j[j][m], j], γ[idx_j[j][m], k])
+                        B[k, j, m] = fit_mle(Bernoulli, Y[idx_j[j][m], j], γ[idx_j[j][m], k])
                     else
                         B[k, j, m] = Bernoulli(1 / 2)
                     end
@@ -170,7 +170,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
         # E-step
         # evaluate likelihood for each type k
         @inbounds for k in OneTo(K), n in OneTo(N)
-            LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), 𝐘[n, :])
+            LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), Y[n, :])
         end
         [LL[:, k] .+= log(α[k]) for k = 1:K]
         robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
@@ -205,16 +205,16 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
 end
 
 #TODO PeriodicHMM version
-# function fit_mle_all_slices(hmm::PeriodicHMM, 𝐘;
-#     n2t=n_to_t(size(𝐘, 1), size(hmm, 3))::AbstractVector{<:Integer},
+# function fit_mle_all_slices(hmm::PeriodicHMM, Y;
+#     n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
 #     robust=false,
 #     smooth=true, window=-15:15, kernel=:step,
 #     history=false,
 #     kwargs...)
 
 #     hmm = copy(hmm)
-#     N = size(𝐘, 1)
-#     @argcheck size(𝐘, 1) == size(n2t, 1)
+#     N = size(Y, 1)
+#     @argcheck size(Y, 1) == size(n2t, 1)
 
 #     K, T = size(hmm, 1), size(hmm, 3)
 #     α = hcat([vec(sum(hmm.A[:, :, t], dims=1) / K) for t = 1:T]...)
@@ -223,8 +223,8 @@ end
 #     cycle = CyclicArray(1:T, "1D")
 #     for t = 1:T
 #         n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle[[t - 12, t - 6, t, t + 6, t + 12]]]...)) # extend dataset
-#         hist[t] = fit_mle_B_slice!(@view(α[:, t]), @view(hmm.B[:, t]), 𝐘[n_in_t_extanded, :]; kwargs...)
-#         # hist[t] = fit_mle_B_slice!(@view(α[:,t]), @view(hmm.B[:,t]), 𝐘[n_in_t[t],:]; kwargs...)
+#         hist[t] = fit_mle_B_slice!(@view(α[:, t]), @view(hmm.B[:, t]), Y[n_in_t_extanded, :]; kwargs...)
+#         # hist[t] = fit_mle_B_slice!(@view(α[:,t]), @view(hmm.B[:,t]), Y[n_in_t[t],:]; kwargs...)
 #     end
 
 #     LL = zeros(N, K)
@@ -234,11 +234,11 @@ end
 #         smooth_α = lagou(α, dims=2, window=window, kernel=kernel)
 
 #         # evaluate likelihood for each type k
-#         loglikelihoods!(LL, smooth_B, 𝐘, n2t)
+#         loglikelihoods!(LL, smooth_B, Y, n2t)
 #         [LL[n, k] += log(smooth_α[k, n2t[n]]) for k = 1:K, n = 1:N]
 #     else
 #         # evaluate likelihood for each type k
-#         loglikelihoods!(LL, hmm.B, 𝐘, n2t)
+#         loglikelihoods!(LL, hmm.B, Y, n2t)
 #         [LL[n, k] += log(α[k, n2t[n]]) for k = 1:K, n = 1:N]
 #     end
 #     robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
@@ -249,15 +249,15 @@ end
 # end
 
 #TODO PeriodicHMM version
-# function fit_mle_B_slice!(α::AbstractVector, B::AbstractVector{F} where {F<:Distribution}, 𝐘;
+# function fit_mle_B_slice!(α::AbstractVector, B::AbstractVector{F} where {F<:Distribution}, Y;
 #     rand_ini=true,
 #     n_random_ini=10, display_random=false,
 #     Dirichlet_α=0.8, Dirichlet_categories=0.85,
 #     ref_station=1, kwargs...)
 #     if rand_ini == true
-#         α[:], B[:], h = fit_em_multiD_rand(α, B, 𝐘; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, Dirichlet_categories=Dirichlet_categories, display_random=display_random, kwargs...)
+#         α[:], B[:], h = fit_em_multiD_rand(α, B, Y; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, Dirichlet_categories=Dirichlet_categories, display_random=display_random, kwargs...)
 #     else
-#         h = fit_em_multiD!(α, B, 𝐘; kwargs...)
+#         h = fit_em_multiD!(α, B, Y; kwargs...)
 #     end
 #     sort_wrt_ref!(α, B, ref_station)
 #     h

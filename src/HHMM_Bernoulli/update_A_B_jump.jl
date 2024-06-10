@@ -48,15 +48,15 @@ function model_for_B(γₛ::AbstractMatrix, d::Int; silence = true, max_cpu_time
     return model
 end
 
-function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, 𝐘, n_all, model_B::Model; warm_start = true)
-    @argcheck size(γ, 1) == size(𝐘, 1)
+function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, model_B::Model; warm_start = true)
+    @argcheck size(γ, 1) == size(Y, 1)
     @argcheck size(γ, 2) == size(B, 1)
     N = size(γ, 1)
     K = size(B, 1)
     T = size(B, 2)
     D = size(B, 3)
     size_order = size(B, 4)
-    ## For periodicHMM only the n 𝐘 corresponding to B(t) are used to update B(t)
+    ## For periodicHMM only the n Y corresponding to B(t) are used to update B(t)
     ## Update the smoothing parameters in the JuMP model
 
     γₛ!(γₛ, γ, n_all) # update coefficient in JuMP model
@@ -215,10 +215,10 @@ function fit_mle!(
     hmm::HierarchicalPeriodicHMM,
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
-    𝐘::AbstractArray{<:Bool},
-    𝐘_past::AbstractArray{<:Bool}
+    Y::AbstractArray{<:Bool},
+    Y_past::AbstractArray{<:Bool}
     ;
-    n2t=n_to_t(size(𝐘, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
     display=:none,
     maxiter=100,
     tol=1e-3,
@@ -229,7 +229,7 @@ function fit_mle!(
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
 
-    N, K, T, size_order, D = size(𝐘, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
+    N, K, T, size_order, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 
     deg_θᴬ = (size(θᴬ, 3) - 1) ÷ 2
     deg_θᴮ = (size(θᴮ, 4) - 1) ÷ 2
@@ -249,18 +249,18 @@ function fit_mle!(
     s_ξ = zeros(T, K, K)
     LL = zeros(N, K)
 
-    # assign category for observation depending in the 𝐘_past 𝐘
+    # assign category for observation depending in the Y_past Y
     order = Int(log2(size_order))
-    lag_cat = conditional_to(𝐘, 𝐘_past)
+    lag_cat = conditional_to(Y, Y_past)
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(𝐘[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
+    n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
     model_A = K ≥ 2 ? model_for_A(s_ξ[:, 1, :], deg_θᴬ, silence=silence) : nothing # JuMP Model for transition matrix
     model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_θᴮ, silence=silence) # JuMP Model for Emmission distribution
 
-    loglikelihoods!(LL, hmm, 𝐘, lag_cat; n2t=n2t)
+    loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
 
     forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
@@ -273,10 +273,10 @@ function fit_mle!(
     for it = 1:maxiter
         update_a!(hmm.a, α, β)
         update_A!(hmm.A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start=warm_start)
-        update_B!(hmm.B, θᴮ, γ, γₛ, 𝐘, n_all, model_B; warm_start=warm_start)
+        update_B!(hmm.B, θᴮ, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
         # Ensure the "connected-ness" of the states,
         # this prevents case where there is no transitions
-        # between two extremely likely 𝐘.
+        # between two extremely likely Y.
         robust && (hmm.A .+= eps())
     
         @check isprobvec(hmm.a)
@@ -285,8 +285,8 @@ function fit_mle!(
         push!(all_θᴬᵢ, copy(θᴬ))
         push!(all_θᴮᵢ, copy(θᴮ))
     
-        # loglikelihoods!(LL, hmm, 𝐘, n2t)
-        loglikelihoods!(LL, hmm, 𝐘, lag_cat; n2t=n2t)
+        # loglikelihoods!(LL, hmm, Y, n2t)
+        loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     
         robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
     
@@ -328,14 +328,14 @@ end
 function fit_mle(hmm::HierarchicalPeriodicHMM,
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
-    𝐘::AbstractArray{<:Bool},
-    𝐘_past::AbstractArray{<:Bool}; 
+    Y::AbstractArray{<:Bool},
+    Y_past::AbstractArray{<:Bool}; 
     θ_iters=false, kwargs...)
 
     hmm = copy(hmm)
     θᴬ = copy(θᴬ)
     θᴮ = copy(θᴮ)
-    history, all_θᴬᵢ, all_θᴮᵢ = fit_mle!(hmm, θᴬ, θᴮ, 𝐘, 𝐘_past; kwargs...)
+    history, all_θᴬᵢ, all_θᴮᵢ = fit_mle!(hmm, θᴬ, θᴮ, Y, Y_past; kwargs...)
     if θ_iters == true
         return hmm, θᴬ, θᴮ, history, all_θᴬᵢ, all_θᴮᵢ
     else
@@ -346,7 +346,7 @@ end
 #TODO add possibility of order size_memories = Vector different at each site
 # function fit_mle!(
 #     hmm::HierarchicalPeriodicHMM,
-#     𝐘::AbstractArray,
+#     Y::AbstractArray,
 #     n2t::AbstractArray{Int},
 #     θᴬ::AbstractArray{TQ,3} where {TQ},
 #     θᴮ::AbstractArray{TY,4} where {TY},
@@ -358,7 +358,7 @@ end
 #     robust = false,
 #     silence = true,
 #     warm_start = true,
-#     𝐘_past = [0 1 0 1 1 0 1 0 0 0
+#     Y_past = [0 1 0 1 1 0 1 0 0 0
 #         1 1 0 1 1 1 1 1 1 1
 #         1 1 0 1 1 1 0 1 1 1
 #         1 1 0 1 1 0 0 0 1 0
@@ -367,7 +367,7 @@ end
 #     @argcheck display in [:none, :iter, :final]
 #     @argcheck maxiter >= 0
 
-#     N, K, T, D = size(𝐘, 1), size(hmm, 1), size(hmm, 3), size(hmm, 2)
+#     N, K, T, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 2)
 #     @argcheck length(size_memories) == D
 #     max_size_order = maximum(size_memories)
 
@@ -389,18 +389,18 @@ end
 #     s_ξ = zeros(T, K, K)
 #     LL = zeros(N, K)
 
-#     # assign category for observation depending in the 𝐘_past 𝐘
+#     # assign category for observation depending in the Y_past Y
 #     memories = Int.(log.(size_memories) / log(2))
-#     lag_cat = conditional_to(𝐘, 𝐘_past)
+#     lag_cat = conditional_to(Y, Y_past)
 
 #     n_in_t = [findall(n2t .== t) for t = 1:T]
-#     n_occurence_history = [findall(.&(𝐘[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:max_size_order, y = 0:1]
+#     n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:max_size_order, y = 0:1]
 #     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:max_size_order, 1:T, 1:rain_cat)]
 
 #     model_A = model_for_A(s_ξ[:, 1, :], deg_θᴬ, silence = silence) # JuMP Model for transition matrix
 #     model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_θᴮ, silence = silence) # JuMP Model for Emmission distribution
 
-#     loglikelihoods!(LL, hmm, 𝐘, n2t, lag_cat)
+#     loglikelihoods!(LL, hmm, Y, n2t, lag_cat)
 #     robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
 
 #     forwardlog!(α, c, hmm.a, hmm.A, LL, n2t)
@@ -413,10 +413,10 @@ end
 #     for it = 1:maxiter
 #         update_a!(hmm.a, α, β)
 #         update_A!(hmm.A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start = warm_start)
-#         update_B!(hmm.B, θᴮ, γ, γₛ, 𝐘, n_all, model_B; warm_start = warm_start)
+#         update_B!(hmm.B, θᴮ, γ, γₛ, Y, n_all, model_B; warm_start = warm_start)
 #         # Ensure the "connected-ness" of the states,
 #         # this prevents case where there is no transitions
-#         # between two extremely likely 𝐘.
+#         # between two extremely likely Y.
 #         robust && (hmm.A .+= eps())
 
 #         @check isprobvec(hmm.a)
@@ -425,8 +425,8 @@ end
 #         push!(all_θᴬᵢ, copy(θᴬ))
 #         push!(all_θᴮᵢ, copy(θᴮ))
 
-#         # loglikelihoods!(LL, hmm, 𝐘, n2t)
-#         loglikelihoods!(LL, hmm, 𝐘, n2t, lag_cat)
+#         # loglikelihoods!(LL, hmm, Y, n2t)
+#         loglikelihoods!(LL, hmm, Y, n2t, lag_cat)
 
 #         robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
 

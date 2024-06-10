@@ -23,21 +23,21 @@ function dayx(lag_obs::AbstractArray)
     bin2digit.(t)
 end
 
-function conditional_to(𝐘::AbstractArray{<:Bool}, 𝐘_past::AbstractArray{<:Bool})
-    order = size(𝐘_past, 1)
+function conditional_to(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool})
+    order = size(Y_past, 1)
     if order == 0
-        return ones(Int, size(𝐘))
+        return ones(Int, size(Y))
     else
-        lag_obs = [copy(lag(𝐘, m)) for m = 1:order]  # transform dry=0 into 1 and wet=1 into 2 for array indexing
+        lag_obs = [copy(lag(Y, m)) for m = 1:order]  # transform dry=0 into 1 and wet=1 into 2 for array indexing
         for m = 1:order
-            lag_obs[m][1:m, :] .= reverse(𝐘_past[1:m, :], dims=1) # avoid the missing first row
+            lag_obs[m][1:m, :] .= reverse(Y_past[1:m, :], dims=1) # avoid the missing first row
         end
         return dayx(lag_obs)
     end
 end
 
 function idx_observation_of_past_cat(lag_cat, n2t, T, size_order)
-    # Matrix(T,D) of vector that give the index of data of same 𝐘_past.
+    # Matrix(T,D) of vector that give the index of data of same Y_past.
     # ie. size_order = 1 (no order) -> every data is in category 1
     # ie size_order = 2 (order on previous day) -> idx_tj[t,j][1] = vector of index of data where previous day was dry, idx_tj[t,j][2] = index of data where previous day was wet
     D = size(lag_cat, 2)
@@ -81,17 +81,17 @@ function randhierarchicalPeriodicHMM(K, T, D, order; ref_station=1, ξ=ones(K) /
     return hmm_random
 end
 # TODO: site dependent order #
-# function conditional_to(𝐘::AbstractArray, order::AbstractVector;
-#     𝐘_past=[0 1 0 1 1 0 1 0 0 0
+# function conditional_to(Y::AbstractArray, order::AbstractVector;
+#     Y_past=[0 1 0 1 1 0 1 0 0 0
 #         1 1 0 1 1 1 1 1 1 1
 #         1 1 0 1 1 1 0 1 1 1
 #         1 1 0 1 1 0 0 0 1 0
 #         1 1 0 1 1 0 0 1 0 1]
 # )
-#     D = size(𝐘, 2)
-#     lag_cat = zeros(Int, size(𝐘))
+#     D = size(Y, 2)
+#     lag_cat = zeros(Int, size(Y))
 #     for j = 1:D
-#         lag_cat[:, j] = conditional_to(𝐘[:, j], order[j], 𝐘_past=𝐘_past[:, j])
+#         lag_cat[:, j] = conditional_to(Y[:, j], order[j], Y_past=Y_past[:, j])
 #     end
 #     return lag_cat
 # end

@@ -12,7 +12,7 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 **Arguments**
 - `a::AbstractVector{T}`: initial probabilities vector.
 - `A::AbstractArray{T,3}`: transition matrix.
-- `B::AbstractMatrix{<:Distribution{F}}`: 𝐘 distributions.
+- `B::AbstractMatrix{<:Distribution{F}}`: Y distributions.
 - or `B::AbstractMatrix`: emission matrix.
 """
 struct HierarchicalPeriodicHMM{F,T} <: AbstractPeriodicHMM{F}
@@ -94,7 +94,7 @@ end
 
 """
     size(hmm, [dim]) -> Int | Tuple
-Return the number of states in `hmm`, the dimension of the 𝐘 and the length of the chain.
+Return the number of states in `hmm`, the dimension of the Y and the length of the chain.
 """
 size(hmm::HierarchicalPeriodicHMM, dim=:) = (size(hmm.B, 1), size(hmm.B, 3), size(hmm.B, 2), size(hmm.B, 4))[dim]
                                             # K                # D             # T          # number of states
