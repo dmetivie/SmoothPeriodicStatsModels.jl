@@ -14,15 +14,6 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 - `A::AbstractArray{T,3}`: transition matrix.
 - `B::AbstractMatrix{<:Distribution{F}}`: 𝐘 distributions.
 - or `B::AbstractMatrix`: emission matrix.
-
-**Example**
-```julia
-using Distributions, HierarchicalPeriodicHMM
-# from distributions
-hmm = HMM([0.9 0.1; 0.1 0.9], [Normal(0,1), Normal(10,1)])
-# from an emission matrix
-hmm = HMM([0.9 0.1; 0.1 0.9], [0. 0.5 0.5; 0.25 0.25 0.5])
-```
 """
 struct HierarchicalPeriodicHMM{F,T} <: AbstractPeriodicHMM{F}
     a::Vector{T}

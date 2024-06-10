@@ -61,7 +61,6 @@ end
 
 
 function loglikelihoods(hmm::HierarchicalPeriodicHMM, 𝐘::AbstractArray{<:Bool}, 𝐘_past::AbstractArray{<:Bool}; robust = false, n2t=n_to_t(size(𝐘, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
-
     N, K = size(𝐘, 1), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
@@ -73,6 +72,7 @@ function loglikelihoods(hmm::HierarchicalPeriodicHMM, 𝐘::AbstractArray{<:Bool
     end
     return LL
 end
+
 # * Bayesian Criterion * #
 
 #!TODO: change `lag_cat = conditional_to(y, order)` to `lag_cat = conditional_to(y, y_past)`

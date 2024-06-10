@@ -26,7 +26,7 @@ using LogExpFunctions: logsumexp!, logsumexp
 #TODO: remove HHMBase dependancy and possibly PeriodicHiddenMarkovModels which are redefined anyway. I think I just use the AbstractHMM type
 #? Do we need both using ?
 using HMMBase
-using HMMBase: posteriors!, vec_maximum, EMHistory, update_a!, isprobvec # function not exported by default by HHMBase
+using HMMBase: vec_maximum, EMHistory, update_a!, isprobvec # function not exported by default by HHMBase
 using PeriodicHiddenMarkovModels
 # using HMMBase: viterbi
 using PeriodicHiddenMarkovModels: viterbi
@@ -36,8 +36,8 @@ import Distributions: fit_mle
 import Base: rand
 import Base: ==, copy, size
 import HMMBase: fit_mle!, fit_mle
-# import HMMBase: rand, forward, backward, forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!
-import PeriodicHiddenMarkovModels: forward, backward, forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!
+
+import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!, posteriors!
 
 # # Code
 include("utilities.jl")
@@ -73,8 +73,6 @@ export
     randhierarchicalPeriodicHMM,
     rand,
     # messages.jl
-    forward,
-    backward,
     # likelihoods.jl
     loglikelihoods,
     likelihoods,
