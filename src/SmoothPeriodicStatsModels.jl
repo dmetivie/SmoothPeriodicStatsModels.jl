@@ -54,7 +54,6 @@ include("AR/AR1.jl")
 
 # ## HMM problem
 include("HHMM_Bernoulli/periodichmm.jl")
-include("HHMM_Bernoulli/mle.jl")
 include("HHMM_Bernoulli/likelihoods.jl")
 include("HHMM_Bernoulli/viterbi.jl")
 
