@@ -23,21 +23,16 @@ using Random: AbstractRNG, GLOBAL_RNG, rand!
 using LogExpFunctions: logsumexp!, logsumexp
 
 # ## HMM
-#TODO: remove HHMBase dependancy and possibly PeriodicHiddenMarkovModels which are redefined anyway. I think I just use the AbstractHMM type
-#? Do we need both using ?
-using HMMBase
-using HMMBase: vec_maximum, EMHistory, update_a!, isprobvec # function not exported by default by HHMBase
 using PeriodicHiddenMarkovModels
-# using HMMBase: viterbi
-using PeriodicHiddenMarkovModels: viterbi
+
+using PeriodicHiddenMarkovModels: viterbi, istransmat, update_a!, vec_maximum
+import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!, posteriors!
+import PeriodicHiddenMarkovModels: fit_mle!, fit_mle
 
 # # Overloaded functions
 import Distributions: fit_mle
 import Base: rand
 import Base: ==, copy, size
-import HMMBase: fit_mle!, fit_mle
-
-import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!, posteriors!
 
 # # Code
 include("utilities.jl")
