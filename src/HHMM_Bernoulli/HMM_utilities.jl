@@ -66,20 +66,23 @@ function idx_observation_of_past_cat(lag_cat, size_order)
     return idx_j
 end
 
-random_product_Bernoulli(args...) = Bernoulli.(rand(args...))
+random_product_Bernoulli(rng::AbstractRNG, args...) = Bernoulli.(rand(rng, args...))
 
 #TODO add to rand(HierarchicalPeriodicHMM, blabla)
-function randhierarchicalPeriodicHMM(K, T, D, order; ref_station=1, ξ=ones(K) / K)
+function randhierarchicalPeriodicHMM(rng::AbstractRNG, K, T, D, order; ref_station=1, ξ=ones(K) / K)
     size_order = 2^order
-    B_rand = random_product_Bernoulli(K, T, D, size_order)  # completly random -> bad
+    B_rand = random_product_Bernoulli(rng, K, T, D, size_order)  # completly random -> bad
     Q_rand = zeros(K, K, T)
     for t in 1:T
-        Q_rand[:, :, t] = randtransmat(K) # completly random -> bad
+        Q_rand[:, :, t] = PeriodicHiddenMarkovModels.randtransmat(rng, K) # completly random -> bad
     end
     hmm_random = HierarchicalPeriodicHMM(ξ, Q_rand, B_rand)
     sort_wrt_ref!(hmm_random, ref_station)
     return hmm_random
 end
+
+randhierarchicalPeriodicHMM(K, T, D, order; ref_station=1, ξ=ones(K) / K) = randhierarchicalPeriodicHMM(GLOBAL_RNG, K, T, D, order; ref_station=ref_station, ξ=ξ)
+
 # TODO: site dependent order #
 # function conditional_to(Y::AbstractArray, order::AbstractVector;
 #     Y_past=[0 1 0 1 1 0 1 0 0 0

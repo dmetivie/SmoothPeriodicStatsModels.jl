@@ -90,8 +90,8 @@ function complete_loglikelihood(hmm::PeriodicHMM, y::AbstractArray, z::AbstractV
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], n2t[n], 1:D)]), y[n, :]) for n = 1:N)
 end
 
-function complete_loglikelihood(hmm::HMM, y::AbstractArray, z::AbstractVector)
-    N, D = size(y, 1), size(y, 2)
+# function complete_loglikelihood(hmm::HMM, y::AbstractArray, z::AbstractVector)
+#     N, D = size(y, 1), size(y, 2)
 
-    return sum(log(hmm.A[z[n], z[n+1]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], 1:D)]), y[n, :]) for n = 1:N)
-end
+#     return sum(log(hmm.A[z[n], z[n+1]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], 1:D)]), y[n, :]) for n = 1:N)
+# end

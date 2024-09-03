@@ -235,7 +235,7 @@ function fit_mle!(
     deg_θᴮ = (size(θᴮ, 4) - 1) ÷ 2
     rain_cat = 2 # dry or wet
     @argcheck T == size(hmm.B, 2)
-    history = EMHistory(false, 0, [])
+    history = Dict("converged" => false, "iterations" => 0, "logtots" => Float64[])
 
     all_θᴬᵢ = [copy(θᴬ)]
     all_θᴮᵢ = [copy(θᴮ)]
@@ -303,22 +303,22 @@ function fit_mle!(
             # flush(stdout)
         end
     
-        push!(history.logtots, logtotp)
-        history.iterations += 1
+        push!(history["logtots"], logtotp)
+        history["iterations"] += 1
     
         if abs(logtotp - logtot) < tol
             (display in [:iter, :final]) &&
                 println("EM converged in $it iterations, logtot = $logtotp")
-            history.converged = true
+            history["converged"] = true
             break
         end
     
         logtot = logtotp
     end
 
-    if !history.converged
+    if !history["converged"]
         if display in [:iter, :final]
-            println("EM has not converged after $(history.iterations) iterations, logtot = $logtot")
+            println("EM has not converged after $(history["iterations"]) iterations, logtot = $logtot")
         end
     end
 

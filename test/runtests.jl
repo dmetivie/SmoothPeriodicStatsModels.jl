@@ -108,7 +108,7 @@ end
     hmm = Trig2HierarchicalPeriodicHMM([1/3, 1/6, 1/2], trans_θ, Bernoulli_θ, T)
     z_ini = 1
     y_past = rand(Bool, autoregressive_order, D)
-    n2t = SmoothPeriodicStatsModels.n_to_t(N,T)
+    n2t = n_to_t(N,T)
     z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
     
     trans_θ_guess = rand(K, K-1, size_degree_of_P)

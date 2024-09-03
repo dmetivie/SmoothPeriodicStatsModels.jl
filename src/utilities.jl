@@ -9,15 +9,6 @@
 """
 interleave2(args...) = collect(Iterators.flatten(zip(args...)))
 
-"""
-    n_to_t(N::Integer, T::Integer)
-
-    This function transforms all index of the chain `n` into their periodic counterpart `t`.
-"""
-function n_to_t(N::Integer, T::Integer)
-    return [repeat(1:T, N ÷ T); remaining(N - T * (N ÷ T))]
-end
-
 remaining(N::Int) = N > 0 ? range(1, length=N) : Int64[]
 
 function polynomial_trigo(t::Number, β, T)

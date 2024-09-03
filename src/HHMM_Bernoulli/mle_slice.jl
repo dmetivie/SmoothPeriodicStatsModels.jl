@@ -15,7 +15,7 @@ function fit_mle_all_slices(hmm::HierarchicalPeriodicHMM, Y::AbstractArray{<:Boo
 
     n_in_t = [findall(n2t .== t) for t = 1:T] #
 
-    hist = Vector{EMHistory}(undef, T)
+    hist = Vector{Dict}(undef, T)
 
     # Initial condition
     α = hcat([vec(sum(hmm.A[:, :, t], dims=1) / K) for t = 1:T]...)
@@ -97,17 +97,17 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractArray{F,3} where {F<:
     size_order = size(B, 3)
 
     h = fit_em_multiD!(α, B, Y, lag_cat, idx_j; kwargs...)
-    log_max = h.logtots[end]
+    log_max = h["logtots"][end]
     α_max, B_max = copy(α), copy(B)
     h_max = h
-    (display_random == :iter) && println("random IC 1: logtot = $(h.logtots[end])")
+    (display_random == :iter) && println("random IC 1: logtot = $(h["logtots"][end])")
     for i = 1:(n_random_ini-1)
         B[:, :, :] = random_product_Bernoulli(D, K, size_order)
         α[:] = rand(Dirichlet(K, Dirichlet_α))
         h = fit_em_multiD!(α, B, Y, lag_cat, idx_j; kwargs...)
-        (display_random == :iter) && println("random IC $(i+1): logtot = $(h.logtots[end])")
-        if h.logtots[end] > log_max
-            log_max = h.logtots[end]
+        (display_random == :iter) && println("random IC $(i+1): logtot = $(h["logtots"][end])")
+        if h["logtots"][end] > log_max
+            log_max = h["logtots"][end]
             h_max = h
             α_max[:], B_max[:] = copy(α), copy(B)
         end
@@ -123,7 +123,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
     @argcheck maxiter >= 0
 
     N, K, D, size_order = size(Y, 1), size(B, 1), size(B, 2), size(B, 3)
-    history = EMHistory(false, 0, [])
+    history = Dict("converged" => false, "iterations" => 0, "logtots" => Float64[])
 
     # Allocate order for in-place updates
 
@@ -182,22 +182,22 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
         logtotp = sum(c)
         (display == :iter) && println("Iteration $it: logtot = $logtotp")
 
-        push!(history.logtots, logtotp)
-        history.iterations += 1
+        push!(history["logtots"], logtotp)
+        history["iterations"] += 1
 
         if abs(logtotp - logtot) < tol
             (display in [:iter, :final]) &&
                 println("EM converged in $it iterations, logtot = $logtotp")
-            history.converged = true
+            history["converged"] = true
             break
         end
 
         logtot = logtotp
     end
 
-    if !history.converged
+    if !history["converged"]
         if display in [:iter, :final]
-            println("EM has not converged after $(history.iterations) iterations, logtot = $logtot")
+            println("EM has not converged after $(history["iterations"]) iterations, logtot = $logtot")
         end
     end
 
