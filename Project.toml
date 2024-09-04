@@ -1,7 +1,7 @@
 name = "SmoothPeriodicStatsModels"
 uuid = "3d8e1505-165e-443f-a184-83a230b5a9e5"
 authors = ["David Métivier <david.metivier@inrae.fr>"]
-version = "1.1.0-DEV"
+version = "1.1.1-DEV"
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -17,6 +17,9 @@ PeriodicHiddenMarkovModels = "4873b48c-7fd1-4fb6-93c5-649b25bdde2e"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 ShiftedArrays = "1277b4bf-5013-50f5-be3d-901d8477a67a"
 
+[weakdeps]
+FFMPEG = "c87230d0-a227-11e9-1b43-d7ebe4e7570a"
+
 [compat]
 ArgCheck = "2"
 Copulas = "0.1"
@@ -30,6 +33,9 @@ OptimizationMOI = "0.1, 0.3.2, 0.4"
 PeriodicHiddenMarkovModels = "0.1.4"
 ShiftedArrays = "2"
 julia = "1"
+FFMPEG = "0.4"
+
+
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
