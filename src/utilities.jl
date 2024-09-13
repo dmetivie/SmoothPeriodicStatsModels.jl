@@ -11,6 +11,10 @@ interleave2(args...) = collect(Iterators.flatten(zip(args...)))
 
 remaining(N::Int) = N > 0 ? range(1, length=N) : Int64[]
 
+# TODO: add check on length of β
+# TODO: rm vectorize version ? So far needed in Lsq.jl
+# TODO: rm `T` version
+
 function polynomial_trigo(t::Number, β, T)
     d = (length(β) - 1) ÷ 2
     if d == 0
@@ -25,7 +29,7 @@ end
 function polynomial_trigo(t::AbstractArray, β, T)
     d = (length(β) - 1) ÷ 2
     if d == 0
-        return β[1]
+        return fill(β[1], length(t))
     else
         f = 2π / T
         # everything is shifted from 1 from usual notation due to array starting at 1
@@ -42,7 +46,7 @@ end
 function polynomial_trigo(t::AbstractArray{F}, β) where F<:AbstractFloat
     d = (length(β) - 1) ÷ 2
     # everything is shifted from 1 from usual notation due to array starting at 1
-    return β[1] .+ sum(β[2*l] * cos.(2π * l * t) + β[2*l+1] * sin.(2π * l * t) for l = 1:d)
+    return β[1] .+ sum(β[2*l] * cos.(2π * l * t) + β[2*l+1] * sin.(2π * l * t) for l = 1:d; init = zero(t))
 end
 
 μₜ(t, θ::AbstractArray, T) = polynomial_trigo(t, θ[:], T)

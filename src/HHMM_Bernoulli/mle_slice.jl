@@ -172,7 +172,9 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
         @inbounds for k in OneTo(K), n in OneTo(N)
             LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), Y[n, :])
         end
-        [LL[:, k] .+= log(α[k]) for k = 1:K]
+        for k = 1:K
+            LL[:, k] .+= log(α[k])
+        end
         robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
         # get posterior of each category
         c[:] = logsumexp(LL, dims=2)

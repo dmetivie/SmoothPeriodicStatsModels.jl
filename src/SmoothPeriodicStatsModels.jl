@@ -71,6 +71,7 @@ export
     loglikelihoods,
     likelihoods,
     viterbi,
+    complete_loglikelihood, nb_param, bic_sel,
     # trigonometric
     fit_θ!,
     fit_θ,

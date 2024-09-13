@@ -121,3 +121,38 @@ end
     @test θq_fit ≈ trans_θ rtol = 20e-2
     @test θy_fit ≈ Bernoulli_θ rtol = 20e-2
 end
+
+@testset "Hierachical PeriodicHMM" begin
+    Random.seed!(2020)
+    T = 5 # Period
+    N = 100 # Length of observation
+    D = 6 # dimension of observed variables
+    for K in 1:2, autoregressive_order in 0:2, degree_of_P in 0:2
+        size_order = 2^autoregressive_order
+        size_degree_of_P = 2*degree_of_P + 1 
+        trans_θ = 4*(rand(K, K - 1, size_degree_of_P) .- 1/2)
+        Bernoulli_θ = 2*(rand(K, D, size_order, size_degree_of_P) .- 1/2)
+        ξ = (1:K)/sum(1:K)
+        hmm = Trig2HierarchicalPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
+        z_ini = 1
+        y_past = rand(Bool, autoregressive_order, D)
+        n2t = n_to_t(N,T)
+        z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
+        
+        trans_θ_guess = rand(K, K-1, size_degree_of_P)
+        trans_θ_guess[:,:,1] .= trans_θ[:,:,1]
+        Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
+        Bernoulli_θ_guess[:,:,:,1] = Bernoulli_θ[:,:,:,1]
+        hmm_guess = Trig2HierarchicalPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
+
+        @time "FitMLE SHMM (Baum Welch) K = $K, autoregressive_order = $autoregressive_order, degree_of_P = $degree_of_P" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; silence=true, tol=1e-3, θ_iters=true, n2t=n2t);
+        z_hat = viterbi(hmm_fit, y, y_past; n2t=n2t)
+        ll_fit = complete_loglikelihood(hmm_fit, y, y_past, z_hat; n2t=n2t)
+        ll_true = complete_loglikelihood(hmm, y, y_past, z; n2t=n2t)
+
+        # @test ll_fit ≈ ll_true rtol = 20e-2
+        # @test z_hat ≈ z rtol = 20e-2
+        # @test θq_fit ≈ trans_θ rtol = 20e-2
+        # @test θy_fit ≈ Bernoulli_θ rtol = 20e-2
+    end
+end
