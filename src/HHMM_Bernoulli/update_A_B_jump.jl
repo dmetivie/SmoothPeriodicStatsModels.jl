@@ -63,7 +63,7 @@ function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} wh
 
     all_iter = Iterators.product(1:K, 1:D, 1:size_order)
     #! TODO pmap option
-    θ_res = map(tup -> fit_mle_one_B(θᴮ[tup..., :], model_B, γₛ[tup..., :, :]; warm_start=warm_start), all_iter)
+    θ_res = pmap(tup -> fit_mle_one_B(θᴮ[tup..., :], model_B, γₛ[tup..., :, :]; warm_start=warm_start), all_iter)
 
     for (k, s, h) in all_iter
         θᴮ[k, s, h, :] = θ_res[k, s, h]
@@ -160,7 +160,7 @@ function update_A!(
     # ξ are the filtering probablies
     s_ξ!(s_ξ, ξ, n_in_t)
     #! TODO pmap option
-    θ_res = map(k -> fit_mle_one_A(θᴬ[k, :, :], model_A, s_ξ[:, k, :]; warm_start = warm_start), 1:K)
+    θ_res = pmap(k -> fit_mle_one_A(θᴬ[k, :, :], model_A, s_ξ[:, k, :]; warm_start = warm_start), 1:K)
 
     for k = 1:K
         θᴬ[k, :, :] = θ_res[k][:, :]

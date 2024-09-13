@@ -6,7 +6,7 @@ module SmoothPeriodicStatsModels
 using ArgCheck
 using Base: OneTo
 using ShiftedArrays: lead, lag
-
+using Distributed
 # ## Optimization
 using JuMP, Ipopt
 using Optimization, OptimizationMOI
