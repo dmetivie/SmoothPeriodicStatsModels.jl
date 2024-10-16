@@ -1,10 +1,12 @@
-#TODO: K and T could be infered (minus extrem cases where one category/day are missing)
 """
-    fit_mle_stations(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}, z, n2t, k, K, T)
-return smooth matrix of Bernoulli `[Bernoulli(pₖₛₕ(t)) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]` and coeff `θᴮ`
+    fit_mle_YY(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); silence=true, warm_start = true)
+Given the hidden states `z`, this function fits the smooth rain occurrences `Y` Bernoulli distribution at one location.
+Note that this new station is currently added independently of pre-existing stations (beside the hidden state correlations).
+Return smooth matrix of Bernoulli `[Bernoulli(pₖₛₕ(t)) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]` and coeff `θᴮ`
+`K` and `T` can be provided if different from `K = length(unique(z))` and `T = length(unique(n2t))`.
 """
-function fit_mle_stations(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}, z, n2t, K, T, deg_θᴮ; silence=true, warm_start = true)
-    order = size(Y_past, 1) #! old convention
+function fit_mle_YY(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); silence=true, warm_start = true)
+    order = size(Y_past, 1) #! Table convention
     size_order = 2^order #! Bernoulli
     rain_cat = 2 #! bernoulli
     N, D = size(Y) #! old convention
