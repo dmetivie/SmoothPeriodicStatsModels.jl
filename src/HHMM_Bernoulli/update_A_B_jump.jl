@@ -18,7 +18,6 @@ function s_ξ!(s_ξ, ξ, n_in_t)
 end
 
 function model_for_B(γₛ::AbstractMatrix, d::Int; silence = true, max_cpu_time = 60.0, max_iter = 100)
-
     T, rain_cat = size(γₛ)
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "max_cpu_time", max_cpu_time)
@@ -159,7 +158,7 @@ function update_A!(
     ## 
     # ξ are the filtering probablies
     s_ξ!(s_ξ, ξ, n_in_t)
-    #! TODO pmap option
+
     θ_res = pmap(k -> fit_mle_one_A(θᴬ[k, :, :], model_A, s_ξ[:, k, :]; warm_start = warm_start), 1:K)
 
     for k = 1:K
@@ -216,8 +215,7 @@ function fit_mle!(
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
     Y::AbstractArray{<:Bool},
-    Y_past::AbstractArray{<:Bool}
-    ;
+    Y_past::AbstractArray{<:Bool};
     n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
     display=:none,
     maxiter=100,
