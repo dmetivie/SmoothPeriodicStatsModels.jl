@@ -1,13 +1,13 @@
 """
     fit_mle_RO(Y::AbstractArray{<:Bool}[, Y_past::AbstractArray{<:Bool}], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); silence=true, warm_start = true)
 This function fits at one location the observed rain occurrences (RO) `Y` with a (smooth) periodic Bernoulli distribution. 
-The autoregressive order is determined by the size of the initial (past) input `Y_past`. If not provided autoregressive order is `0`.
+The autoregressive order is determined by the size of the initial (past) input `Y_past`. If not provided, autoregressive order is `0`.
 `K` and `T` can be provided if different from `K = length(unique(z))` and `T = length(unique(n2t))`.
 # Output
 Matrix of Bernoulli `[Bernoulli(pₖₛₕ(t)) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]` and coefficients `θᴮ` of the trigonometric expansion of `pₖₛₕ(t) = αₜ(t, θᴮ)`
 
-Currently, the station Rain Occurences are only dependant of the hidden states (conditional independdance) and time of the year. 
-TODO: possibility to add stations with a conditional dependance to pre-existing stations (useful for close stations).
+Currently, the station Rain Occurrences are only dependent on the hidden states (conditional independence) and time of the year. 
+TODO: possibility to add stations with a conditional dependence to pre-existing stations (useful for close stations).
 """
 function fit_mle_RO(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); silence=true, warm_start = true)
     @assert K ≥ length(unique(z)) "The provided `K` is smaller than the number of states in the provided sequence `z`"
