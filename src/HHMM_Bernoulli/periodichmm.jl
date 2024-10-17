@@ -80,13 +80,13 @@ function rand(
             t = n2t[n] # periodic t
             previous_day_category[:] = bin2digit.(eachcol([y[n-m, j] for m = 1:order, j = 1:D]))
             p[:] = succprob.(hmm.B[CartesianIndex.(z[n], t, 1:D, previous_day_category)])
-            y[n, :] = rand(rng, Product(Bernoulli.(p)))
+            y[n, :] = rand(rng, product_distribution(Bernoulli.(p)))
         end
     else
         for n in eachindex(z)
             t = n2t[n] # periodic t
             p[:] = succprob.(hmm.B[CartesianIndex.(z[n], t, 1:D, 1)])
-            y[n, :] = rand(rng, Product(Bernoulli.(p)))
+            y[n, :] = rand(rng, product_distribution(Bernoulli.(p)))
         end
     end
     return y
