@@ -211,7 +211,7 @@ function fit_mle_one_A(θᴬ, model, s_ξ; warm_start = true)
 end
 
 function fit_mle!(
-    hmm::HierarchicalPeriodicHMM,
+    hmm::ARPeriodicHMM,
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
     Y::AbstractArray{<:Bool},
@@ -323,7 +323,7 @@ function fit_mle!(
     history, all_θᴬᵢ, all_θᴮᵢ
 end
 
-function fit_mle(hmm::HierarchicalPeriodicHMM,
+function fit_mle(hmm::ARPeriodicHMM,
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
     Y::AbstractArray{<:Bool},
@@ -343,7 +343,7 @@ end
 
 #TODO add possibility of order size_memories = Vector different at each site
 # function fit_mle!(
-#     hmm::HierarchicalPeriodicHMM,
+#     hmm::ARPeriodicHMM,
 #     Y::AbstractArray,
 #     n2t::AbstractArray{Int},
 #     θᴬ::AbstractArray{TQ,3} where {TQ},

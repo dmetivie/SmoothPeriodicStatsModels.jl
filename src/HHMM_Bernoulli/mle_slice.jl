@@ -1,4 +1,4 @@
-function fit_mle_all_slices(hmm::HierarchicalPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
+function fit_mle_all_slices(hmm::ARPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
     n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
     Yₜ_extanted = [0],
     robust=false,

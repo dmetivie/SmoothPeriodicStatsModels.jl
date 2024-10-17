@@ -62,9 +62,9 @@ include("HHMM_Bernoulli/add_sites.jl")
 
 export
     # periodichmm.jl
-    HierarchicalPeriodicHMM,
+    ARPeriodicHMM,
     sort_wrt_ref!,
-    randhierarchicalPeriodicHMM,
+    randARPeriodicHMM,
     rand,
     # messages.jl
     # likelihoods.jl
@@ -78,7 +78,7 @@ export
     fit_θᴬ!,
     fit_θᴮ!,
     polynomial_trigo,
-    Trig2HierarchicalPeriodicHMM,
+    Trig2ARPeriodicHMM,
     fit_mle_RO,
     # fit slice
     fit_mle_all_slices

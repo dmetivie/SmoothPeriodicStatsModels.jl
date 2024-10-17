@@ -68,20 +68,20 @@ end
 
 random_product_Bernoulli(rng::AbstractRNG, args...) = Bernoulli.(rand(rng, args...))
 
-#TODO add to rand(HierarchicalPeriodicHMM, blabla)
-function randhierarchicalPeriodicHMM(rng::AbstractRNG, K, T, D, order; ref_station=1, ξ=ones(K) / K)
+#TODO add to rand(ARPeriodicHMM, blabla)
+function randARPeriodicHMM(rng::AbstractRNG, K, T, D, order; ref_station=1, ξ=ones(K) / K)
     size_order = 2^order
     B_rand = random_product_Bernoulli(rng, K, T, D, size_order)  # completly random -> bad
     Q_rand = zeros(K, K, T)
     for t in 1:T
         Q_rand[:, :, t] = PeriodicHiddenMarkovModels.randtransmat(rng, K) # completly random -> bad
     end
-    hmm_random = HierarchicalPeriodicHMM(ξ, Q_rand, B_rand)
+    hmm_random = ARPeriodicHMM(ξ, Q_rand, B_rand)
     sort_wrt_ref!(hmm_random, ref_station)
     return hmm_random
 end
 
-randhierarchicalPeriodicHMM(K, T, D, order; ref_station=1, ξ=ones(K) / K) = randhierarchicalPeriodicHMM(GLOBAL_RNG, K, T, D, order; ref_station=ref_station, ξ=ξ)
+randARPeriodicHMM(K, T, D, order; ref_station=1, ξ=ones(K) / K) = randARPeriodicHMM(GLOBAL_RNG, K, T, D, order; ref_station=ref_station, ξ=ξ)
 
 # TODO: site dependent order #
 # function conditional_to(Y::AbstractArray, order::AbstractVector;

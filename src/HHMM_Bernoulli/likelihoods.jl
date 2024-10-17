@@ -1,5 +1,5 @@
 #! TODO fix convention Y size(Y) = D, N not the opposite. (Here it does not change)
-function likelihoods!(L::AbstractMatrix, hmm::HierarchicalPeriodicHMM, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer})
+function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMM, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer})
     N, K, D = size(Y, 1), size(hmm, 1), size(hmm, 2)
     @argcheck size(L) == (N, K)
 
@@ -11,7 +11,7 @@ function likelihoods!(L::AbstractMatrix, hmm::HierarchicalPeriodicHMM, Y::Abstra
     end
 end
 
-function loglikelihoods!(LL::AbstractMatrix, hmm::HierarchicalPeriodicHMM, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer})
+function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMM, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer})
     N, K, D = size(Y, 1), size(hmm, 1), size(hmm, 2)
     @argcheck size(LL) == (N, K)
 
@@ -60,7 +60,7 @@ function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,4} where {F<:Uni
 end
 
 
-function loglikelihoods(hmm::HierarchicalPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust = false, n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
+function loglikelihoods(hmm::ARPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust = false, n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
     N, K = size(Y, 1), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
@@ -75,7 +75,7 @@ end
 
 # * Bayesian Criterion * #
 
-function complete_loglikelihood(hmm::HierarchicalPeriodicHMM, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
+function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
     N, D = size(y)
     lag_cat = conditional_to(y, y_past)
 

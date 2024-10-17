@@ -83,7 +83,7 @@ end
 
     # Test that the HMM is well definied with different order of chain (= "local memory" in my jargon)
     for order in 0:3
-        hmm_random = randhierarchicalPeriodicHMM(K, T, D, order; ξ=ξ, ref_station=ref_station)
+        hmm_random = randARPeriodicHMM(K, T, D, order; ξ=ξ, ref_station=ref_station)
 
         z, y = rand(hmm_random, N, seq=true, z_ini=1, y_ini=zeros(Int, order, D))
 
@@ -105,7 +105,7 @@ end
     size_degree_of_P = 2 * degree_of_P + 1
     trans_θ = 4 * (rand(K, K - 1, size_degree_of_P) .- 1 / 2)
     Bernoulli_θ = 2 * (rand(K, D, size_order, size_degree_of_P) .- 1 / 2)
-    hmm = Trig2HierarchicalPeriodicHMM([1 / 3, 1 / 6, 1 / 2], trans_θ, Bernoulli_θ, T)
+    hmm = Trig2ARPeriodicHMM([1 / 3, 1 / 6, 1 / 2], trans_θ, Bernoulli_θ, T)
     z_ini = 1
     y_past = rand(Bool, autoregressive_order, D)
     n2t = n_to_t(N, T)
@@ -115,7 +115,7 @@ end
     trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]
     Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
     Bernoulli_θ_guess[:, :, :, 1] = Bernoulli_θ[:, :, :, 1]
-    hmm_guess = Trig2HierarchicalPeriodicHMM([1 / 4, 1 / 4, 1 / 2], trans_θ_guess, Bernoulli_θ_guess, T)
+    hmm_guess = Trig2ARPeriodicHMM([1 / 4, 1 / 4, 1 / 2], trans_θ_guess, Bernoulli_θ_guess, T)
 
     @time "FitMLE SHMM (Baum Welch)" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; display=:iter, silence=true, tol=1e-3, θ_iters=true, n2t=n2t)
     @test θq_fit ≈ trans_θ rtol = 20e-2
@@ -133,7 +133,7 @@ end
         trans_θ = 4 * (rand(K, K - 1, size_degree_of_P) .- 1 / 2)
         Bernoulli_θ = 2 * (rand(K, D, size_order, size_degree_of_P) .- 1 / 2)
         ξ = (1:K) / sum(1:K)
-        hmm = Trig2HierarchicalPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
+        hmm = Trig2ARPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
         z_ini = 1
         y_past = rand(Bool, autoregressive_order, D)
         n2t = n_to_t(N, T)
@@ -143,7 +143,7 @@ end
         trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]
         Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
         Bernoulli_θ_guess[:, :, :, 1] = Bernoulli_θ[:, :, :, 1]
-        hmm_guess = Trig2HierarchicalPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
+        hmm_guess = Trig2ARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
 
         @time "FitMLE SHMM (Baum Welch) K = $K, autoregressive_order = $autoregressive_order, degree_of_P = $degree_of_P" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; silence=true, tol=1e-3, θ_iters=true, n2t=n2t)
         z_hat = viterbi(hmm_fit, y, y_past; n2t=n2t)
@@ -173,7 +173,7 @@ addprocs(2)
     trans_θ = 4 * (rand(K, K - 1, size_degree_of_P) .- 1 / 2)
     Bernoulli_θ = 2 * (rand(K, D, size_order, size_degree_of_P) .- 1 / 2)
     ξ = (1:K) / sum(1:K)
-    hmm = Trig2HierarchicalPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
+    hmm = Trig2ARPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
     z_ini = 1
     y_past = rand(Bool, autoregressive_order, D)
     n2t = n_to_t(N, T)
@@ -183,7 +183,7 @@ addprocs(2)
     trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]
     Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
     Bernoulli_θ_guess[:, :, :, 1] = Bernoulli_θ[:, :, :, 1]
-    hmm_guess = Trig2HierarchicalPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
+    hmm_guess = Trig2ARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
 
     @time "pmap worker" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; silence=true, tol=1e-3, θ_iters=true, n2t=n2t)
     # pmap 0 worker: 31.229542 seconds (161.79 M allocations: 17.413 GiB, 2.89% gc time, 0.01% compilation time)
