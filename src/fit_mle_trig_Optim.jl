@@ -13,7 +13,7 @@ struct OptimMLE{T,V} <: AbstractMLE where {T, V<:AbstractVector}
 end
 #TODO figure out SecondOrder when needed to supress warning (and have better perf?)
 function Distributions.fit_mle(Opt::OptimMLE, y::AbstractArray; solvekwargs...)
-    OptFunc = OptimizationFunction(Opt.ℓ, Optimization.SecondOrder(Optimization.AutoForwardDiff(), Optimization.AutoZygote()))
+    OptFunc = OptimizationFunction(Opt.ℓ, Optimization.AutoForwardDiff())
     prob = OptimizationProblem(OptFunc, Opt.θ₀, y)
 
     return solve(prob, Opt.solver; solvekwargs...)
