@@ -79,7 +79,7 @@ export
     fit_θᴮ!,
     polynomial_trigo,
     Trig2HierarchicalPeriodicHMM,
-    fit_mle_YY,
+    fit_mle_RO,
     # fit slice
     fit_mle_all_slices
 
