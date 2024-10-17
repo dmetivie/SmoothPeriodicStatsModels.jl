@@ -5,7 +5,7 @@ using Optimization, OptimizationOptimJL
 using Ipopt, OptimizationMOI
 
 # EM for Mixture 
-@testset "fit_mle_trig_exp2_EM" begin
+@testset "Mixture: fit_mle_trig_exp2_EM" begin
 
     #TODO: for now it just test that this runs, the results are not tested (but so far it reaches a local minima so...)
     Random.seed!(1234)
@@ -40,7 +40,7 @@ using Ipopt, OptimizationMOI
 end
 
 # Optim for Mixture 
-@testset "fit_mle_trig_exp2_Optim" begin
+@testset "Mixture: fit_mle_trig_exp2_Optim" begin
     Random.seed!(1234)
 
     f(θ) = MixtureModel([Exponential(θ[1]), Exponential(θ[2])], [θ[3], 1 - θ[3]])
@@ -66,7 +66,7 @@ end
     θ0 = hcat(θσ10, θσ20, θα0)
 
     sol_Ipopt = fit_mle(OptimMLE(ℓ, Ipopt.Optimizer(), vec(θ0)), y)
-    sol_NewtonTR = fit_mle(OptimMLE(ℓ, NewtonTrustRegion(), vec(θ0)), y)
+    sol_NewtonTR = fit_mle(OptimMLE(ℓ, NewtonTrustRegion(), vec(θ0)), y) #TODO figure out SecondOrder to supress warning (and have better perf?)
 
     @test sol_Ipopt.u ≈ vec(θtrue) rtol = 5e-2
     @test sol_NewtonTR.u ≈ vec(θtrue) rtol = 5e-2
