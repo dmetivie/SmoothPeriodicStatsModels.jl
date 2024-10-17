@@ -13,7 +13,7 @@ It builds several smooth versions of stats models for time series, for now:
 **Smooth** means that temporal coefficients of the models e.g. $p(t)\in [0,1]$ for Bernoulli parameter and $t\in [1,T]$ have a periodic functional form to enforce smoothness i.e. $p(t)\simeq p(t+1)$.
 Note that the package [PeriodicHiddenMarkovModels.jl](https://github.com/dmetivie/PeriodicHiddenMarkovModels.jl) also deals with Periodic HMM, but right now, it does not enforce the smoothness hence if you don't have a lot of observations you can have $p(t)$ very different from $p(t+1)$. Moreover, this cause identifiability issues of the hidden states.
 
-The HMM part of this package should be moved at some point to [PeriodicHiddenMarkovModels.jl](https://github.com/dmetivie/PeriodicHiddenMarkovModels.jl).
+The HMM part of this package should be moved at some point to [PeriodicHiddenMarkovModels.jl](https://github.com/dmetivie/PeriodicHiddenMarkovModels.jl) making use under the hood of the very nice and flexible [HiddenMarkovModels.jl](https://github.com/gdalle/HiddenMarkovModels.jl) package.
 
 This is inspired by seasonal Hidden Markov Model, see [A. Touron (2019)](https://link.springer.com/article/10.1007/s11222-019-09854-4).
 
