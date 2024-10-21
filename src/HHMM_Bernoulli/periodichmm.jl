@@ -71,7 +71,6 @@ function rand(
     # Check the initial conditions
     @argcheck size(y_ini) == (order, D) "Initial condition is not correct: You give $(size(y_ini)) instead of $((order, D))" 
 
-    p = zeros(D)
     if order > 0
         # One could do some specialized for each value of order e.g. for order = 1, we have simply previous_day_category = y[n-1,:].+1
         y[1:order, :] = y_ini
@@ -79,14 +78,12 @@ function rand(
         for n in eachindex(z)[order+1:end]
             t = n2t[n] # periodic t
             previous_day_category[:] = bin2digit.(eachcol([y[n-m, j] for m = 1:order, j = 1:D]))
-            p[:] = succprob.(hmm.B[CartesianIndex.(z[n], t, 1:D, previous_day_category)])
-            y[n, :] = rand(rng, product_distribution(Bernoulli.(p)))
+            @views y[n, :] = rand(rng, product_distribution(hmm.B[CartesianIndex.(z[n], t, 1:D, previous_day_category)]))
         end
     else
         for n in eachindex(z)
             t = n2t[n] # periodic t
-            p[:] = succprob.(hmm.B[CartesianIndex.(z[n], t, 1:D, 1)])
-            y[n, :] = rand(rng, product_distribution(Bernoulli.(p)))
+            @views y[n, :] = rand(rng, product_distribution(hmm.B[CartesianIndex.(z[n], t, 1:D, 1)]))
         end
     end
     return y
