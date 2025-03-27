@@ -12,7 +12,7 @@ function cycle(t, T)
     end
 end
 
-n_per_category(s, h, t, y, n_in_t, n_occurence_history) = (n_in_t[t] ∩ n_occurence_history[s, h, y])
+n_per_category(s, h, t, y, n_in_t, n_occurence_history::AbstractArray{<:AbstractVector, 3}) = (n_in_t[t] ∩ n_occurence_history[s, h, y])
 
 bin2digit(x) = sum(x[length(x)-i+1] * 2^(i - 1) for i = 1:length(x)) + 1
 bin2digit(x::Tuple) = bin2digit([x...])
@@ -23,7 +23,7 @@ function dayx(lag_obs::AbstractArray)
     bin2digit.(t)
 end
 
-function conditional_to(Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool})
+function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool})
     order = size(Y_past, 1)
     if order == 0
         return ones(Int, size(Y))
@@ -69,7 +69,7 @@ end
 random_product_Bernoulli(rng::AbstractRNG, args...) = Bernoulli.(rand(rng, args...))
 
 #TODO add to rand(ARPeriodicHMM, blabla)
-function randARPeriodicHMM(rng::AbstractRNG, K, T, D, order; ref_station=1, ξ=ones(K) / K)
+function randARPeriodicHMM(rng::AbstractRNG, K::Integer, T::Integer, D::Integer, order::Integer; ref_station=1, ξ=ones(K) / K)
     size_order = 2^order
     B_rand = random_product_Bernoulli(rng, K, T, D, size_order)  # completly random -> bad
     Q_rand = zeros(K, K, T)
