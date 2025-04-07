@@ -54,7 +54,7 @@ function idx_observation_of_past_cat(lag_cat, n2t, T, size_order)
     return idx_tj
 end
 
-function idx_observation_of_past_cat(lag_cat, size_order)
+function idx_observation_of_past_cat(lag_cat, size_order::Integer)
     # Matrix(T,D) of vector that give the index of data of same past.
     # ie. size_order = 1 (no order) -> every data is in category 1
     # ie size_order = 2 (order on previous day) -> idx_tj[t,j][1] = vector of index of data where previous day was dry, idx_tj[t,j][2] = index of data where previous day was wet

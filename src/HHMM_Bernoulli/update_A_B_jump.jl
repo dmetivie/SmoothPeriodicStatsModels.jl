@@ -17,8 +17,8 @@ function s_ξ!(s_ξ, ξ, n_in_t)
     # * We add ξ[N, k, l] but it should be zeros
 end
 
-function model_for_B(γₛ::AbstractMatrix, d::Int; silence = true, max_cpu_time = 60.0, max_iter = 100)
-    T, rain_cat = size(γₛ)
+function model_for_B(γ::AbstractMatrix, d::Int; silence = true, max_cpu_time = 60.0, max_iter = 100)
+    T, rain_cat = size(γ)
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "max_cpu_time", max_cpu_time)
     set_optimizer_attribute(model, "max_iter", max_iter)
@@ -33,7 +33,7 @@ function model_for_B(γₛ::AbstractMatrix, d::Int; silence = true, max_cpu_time
     # Polynomial P
     @NLexpression(model, Pₙ[t = 1:T], sum(trig[t][j] * θ_jump[j] for j = 1:length(trig[t])))
 
-    @NLparameter(model, πₛ[t = 1:T, y = 1:rain_cat] == γₛ[t, y])
+    @NLparameter(model, πₛ[t = 1:T, y = 1:rain_cat] == γ[t, y])
     
     @NLexpression(model, mle,
         -sum(πₛ[t, 1] * log1p(exp(-Pₙ[t])) for t = 1:T) - sum(πₛ[t, 2] * log1p(exp(+Pₙ[t])) for t = 1:T)
@@ -59,29 +59,34 @@ function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} wh
     ## Update the smoothing parameters in the JuMP model
 
     γₛ!(γₛ, γ, n_all) # update coefficient in JuMP model
-
+    # @show γₛ[4,10,2,1,:]
     all_iter = Iterators.product(1:K, 1:D, 1:size_order)
+    # @show θᴮ[4,10,2,:]
     #! TODO pmap option
     θ_res = pmap(tup -> fit_mle_one_B(θᴮ[tup..., :], model_B, γₛ[tup..., :, :]; warm_start=warm_start), all_iter)
-
     for (k, s, h) in all_iter
         θᴮ[k, s, h, :] = θ_res[k, s, h]
     end
+    # @show θᴮ[4,10,2,:]
 
     p = [1 / (1 + exp(polynomial_trigo(t, θᴮ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     B[:, :, :, :] = Bernoulli.(p)
 end
 
-function fit_mle_one_B(θᴮ, model_B, γₛ; warm_start = true)
-    T, rain_cat = size(γₛ)
+function fit_mle_one_B(θ, model_B, γ; warm_start = true)
+    T, rain_cat = size(γ)
     θ_jump = model_B[:θ_jump]
-    warm_start && set_start_value.(θ_jump, θᴮ[:])
+    warm_start && set_start_value.(θ_jump, θ[:])
     πₛ = model_B[:πₛ]
+    # @show θ
+    # @show πₛ[1:2,:]
 
     for t = 1:T, y = 1:rain_cat
-        set_value(πₛ[t, y], γₛ[t, y])
+        SmoothPeriodicStatsModels.set_value(πₛ[t, y], γ[t, y])
     end
-    optimize!(model_B)
+    # @show πₛ[1:2,:]
+
+    SmoothPeriodicStatsModels.optimize!(model_B)
     return value.(θ_jump)
 end
 
@@ -250,6 +255,8 @@ function fit_mle!(
     # assign category for observation depending in the Y_past Y
     order = Int(log2(size_order))
     lag_cat = conditional_to(Y, Y_past)
+    # @show lag_cat[1,:]
+    # @show lag_cat[end,:]
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
     n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
@@ -267,7 +274,7 @@ function fit_mle!(
 
     logtot = sum(c)
     (display == :iter) && println("Iteration 0: logtot = $logtot")
-
+    # @show γ[1:3,:]
     for it = 1:maxiter
         update_a!(hmm.a, α, β)
         update_A!(hmm.A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start=warm_start)

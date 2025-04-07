@@ -57,6 +57,15 @@ include("HHMM_Bernoulli/trig_conversion.jl")
 include("HHMM_Bernoulli/mle_slice.jl")
 include("HHMM_Bernoulli/HMM_utilities.jl")
 
+include("sHHMM_Bernoulli/periodichmm.jl")
+include("sHHMM_Bernoulli/likelihoods.jl")
+include("sHHMM_Bernoulli/viterbi.jl")
+
+include("sHHMM_Bernoulli/update_A_B_jump.jl")
+include("sHHMM_Bernoulli/trig_conversion.jl")
+include("sHHMM_Bernoulli/mle_slice.jl")
+include("sHHMM_Bernoulli/HMM_utilities.jl")
+
 # For sites added after the HMM training
 include("HHMM_Bernoulli/add_sites.jl")
 
@@ -83,6 +92,7 @@ export
     # fit slice
     fit_mle_all_slices
 
+export sARPeriodicHMM
 
 export AR1
 export model_for_loglikelihood_AR1, initialvalue_optimize!, model_for_loglikelihood_AR1_full
