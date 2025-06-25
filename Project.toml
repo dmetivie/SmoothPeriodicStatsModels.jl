@@ -1,7 +1,7 @@
 name = "SmoothPeriodicStatsModels"
 uuid = "3d8e1505-165e-443f-a184-83a230b5a9e5"
 authors = ["David Métivier <david.metivier@inrae.fr>"]
-version = "2.0.2-DEV"
+version = "2.0.3"
 
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
@@ -28,7 +28,7 @@ LogExpFunctions = "0.3"
 LsqFit = "0.15"
 Optimization = "3, 4"
 OptimizationMOI = "0.1, 0.3.2, 0.4, 0.5"
-PeriodicHiddenMarkovModels = "0.1.4"
+PeriodicHiddenMarkovModels = "0.1.5"
 ShiftedArrays = "2"
 julia = "1"
 

@@ -30,7 +30,6 @@ import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!,
 import PeriodicHiddenMarkovModels: fit_mle!, fit_mle
 
 # # Overloaded functions
-import Distributions: fit_mle
 import Base: rand
 import Base: ==, copy, size
 
@@ -98,7 +97,7 @@ export AR1
 export model_for_loglikelihood_AR1, initialvalue_optimize!, model_for_loglikelihood_AR1_full
 export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
-export fit_loss_optim
+export fit_loss_optim, fit_mle
 
 
 end

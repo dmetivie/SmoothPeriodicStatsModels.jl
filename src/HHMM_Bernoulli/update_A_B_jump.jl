@@ -330,6 +330,10 @@ function fit_mle!(
     history, all_θᴬᵢ, all_θᴮᵢ
 end
 
+"""
+    fit_mle(hmm::ARPeriodicHMM, θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::AbstractArray{<:AbstractFloat,4}, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; θ_iters=false, kwargs...)
+Fit with EM algortihm for HMM (Baum-Welch) with seasonal parameters and local memory.
+"""
 function fit_mle(hmm::ARPeriodicHMM,
     θᴬ::AbstractArray{<:AbstractFloat,3},
     θᴮ::AbstractArray{<:AbstractFloat,4},
