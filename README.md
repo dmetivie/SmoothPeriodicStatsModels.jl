@@ -87,8 +87,6 @@ using Distributions: succprob
 default(fontfamily="Computer Modern", linewidth=2, label=nothing, grid=true, framestyle=:default, legendfontsize=14, foreground_color_legend=nothing, background_color_legend=nothing, tickfontsize=14, xlabelfontsize=14, ylabelfontsize=14)
 ```
 
-**Transition matrix:**
-
 ```julia
 begin
     pA = [plot() for k in 1:K]
@@ -104,8 +102,6 @@ begin
 end
 ```
 
-**Emission distributions:**
-
 ```julia
 begin
     mm = 1 # H = 1  <=> {Y_{t-1} = 0}
@@ -117,7 +113,8 @@ begin
         hline!(pB[j], [0.5], c=:black, label=:none, s=:dot)
         ylims!(pB[j], (0, 1))
         xlabel!(pB[j], L"t")
-        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t=1|Z=k, Y_{t-1} = 0)") : nothing
+        annotate!(pB[j], (0.5, 0.93), L"j=%$(j)")
+        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t^{(j)}=1|Z=k, Y_{t-1}^{(j)} = 0)") : nothing
     end
     pallB = plot(pB..., size=(1000, 500), bottom_margin=3Plots.mm)
 end
@@ -132,7 +129,8 @@ begin
         hline!(pB[j], [0.5], c=:black, label=:none, s=:dot)
         ylims!(pB[j], (0, 1))
         xlabel!(pB[j], L"t")
-        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t=1|Z=k, Y_{t-1} = 1)") : nothing
+        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t^{(j)}=1|Z=k, Y_{t-1}^{(j)} = 1)") : nothing
+        annotate!(pB[j], (0.5, 0.93), L"j=%$(j)")
     end
     pallB = plot(pB..., size=(1000, 500), bottom_margin=3Plots.mm)
 end
@@ -140,6 +138,9 @@ end
 
 </details>
 
+**Transition matrix:**
 ![Transition matrix](img/Q_test.svg)
+
+**Emission distributions:**
 ![Emission distribution](img/nu_test_1.svg)
 ![Emission distribution](img/nu_test_2.svg)
