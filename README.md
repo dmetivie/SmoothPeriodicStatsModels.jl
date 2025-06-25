@@ -19,6 +19,14 @@ This is inspired by seasonal Hidden Markov Models; see [A. Touron (2019)](https:
 
 ## Example
 
+This example shows how to use the `ARPeriodicHMM` model, which is a periodic HMM with multivariate Bernoulli emission distributions of dimension $D=6$ and autoregressive dependence on past observations. This model assumes conditional independence, i.e., given the hidden states and the past observations, the multivariate Bernoulli distribution is independent (conditional independence),
+
+```math
+\mathbb{P}(Y_n = y_t \mid Z_n = k, Y_{n-1} = y_{n-1}) = \prod_{j=1}^D \mathbb{P}\left(Y_{n}^{(j)} = y_{n}^{(j)}\mid  Z_n = k, Y_{n-1}^{(j)} = y_{n-1}^{(j)}\right).
+```
+
+Under the hood, to deal with arbitrary autoregressive orders, the past observations are encoded in a variable $H$ of dimension $D \times (2^p)$, where $p$ is the autoregressive order (see the [paper](https://hal.inrae.fr/hal-04621349) for a more precise definition).
+
 ### Set up
 
 ```julia
@@ -77,7 +85,11 @@ using LaTeXStrings, Plots
 using Distributions: succprob
 
 default(fontfamily="Computer Modern", linewidth=2, label=nothing, grid=true, framestyle=:default, legendfontsize=14, foreground_color_legend=nothing, background_color_legend=nothing, tickfontsize=14, xlabelfontsize=14, ylabelfontsize=14)
+```
 
+**Transition matrix:**
+
+```julia
 begin
     pA = [plot() for k in 1:K]
     for k in 1:K
@@ -90,7 +102,11 @@ begin
     end
     pallA = plot(pA..., size=(1000, 500), bottom_margin=3Plots.mm)
 end
+```
 
+**Emission distributions:**
+
+```julia
 begin
     mm = 1 # H = 1  <=> {Y_{t-1} = 0}
     pB = [plot() for j in 1:D]
@@ -101,7 +117,7 @@ begin
         hline!(pB[j], [0.5], c=:black, label=:none, s=:dot)
         ylims!(pB[j], (0, 1))
         xlabel!(pB[j], L"t")
-        j==2 ? title!(pB[j], L"p(Y_t=1|Z=k, Y_{t-1} = 0)") : nothing
+        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t=1|Z=k, Y_{t-1} = 0)") : nothing
     end
     pallB = plot(pB..., size=(1000, 500), bottom_margin=3Plots.mm)
 end
@@ -116,7 +132,7 @@ begin
         hline!(pB[j], [0.5], c=:black, label=:none, s=:dot)
         ylims!(pB[j], (0, 1))
         xlabel!(pB[j], L"t")
-        j==2 ? title!(pB[j], L"p(Y_t=1|Z=k, Y_{t-1} = 0)") : nothing
+        j==2 ? title!(pB[j], L"\mathbb{P}(Y_t=1|Z=k, Y_{t-1} = 1)") : nothing
     end
     pallB = plot(pB..., size=(1000, 500), bottom_margin=3Plots.mm)
 end
