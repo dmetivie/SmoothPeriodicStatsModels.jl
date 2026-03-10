@@ -85,6 +85,7 @@ begin
 		2.3844444444444446 48.716944444444444
 	]
 end
+#need distance matrix - here copy and pasted from my own code , replace by real one.
 
 my_D = 20
 my_index = sample(1:my_D, my_D, replace = false)
@@ -93,20 +94,21 @@ my_distance = my_distance[my_index, my_index]
 my_locations = my_locations[my_index, :]
 my_D = length(my_index)
 
-# test -: create  a periodic hmm spa-------------------------------------#
-
+# parameters chosen outside the inference (K, T, degree for seasonality) + memory as autoregressive_order (0 or 1)
 my_K = 2# Number of Hidden states
 my_T = 30 # Period
 my_degree_of_P = 1
+my_autoregressive_order = 0 #
 
 
 # choose time steps
 my_N = my_T * 50
 n2t = n_to_t(my_N, my_T)
 
-my_autoregressive_order = 0 #
 
-# choose real set of parameters
+# test on simulated data : need to create  a periodic hmm spa - skip this if real data -------------------------------------#
+
+# random for real set of parameters
 
 my_size_order = 2^my_autoregressive_order
 my_size_degree_of_P = 2 * my_degree_of_P + 1
@@ -142,6 +144,7 @@ size(model)
 z, Y = rand(model, n2t; seq = true)
 Y = convert(Array{Bool}, Y)
 
+############ if you have real data, just load Y, make the vector n2t, and verify the dimensions .#####################
 
 
 #make initial parameters for estimation
@@ -151,9 +154,12 @@ begin
 	thetaR = zeros(my_K, my_size_degree_of_P)
 	thetaR = zeros(my_K, my_size_degree_of_P)
 
-	thetaA[:, :, :] .= my_trans_θ[:, :, 1] # cheating on initial guess to recover very good mle maxima
+	# cheating on initial guess - not necessary but allows faster convergence + more reliable. Usually for real data, random R and A+B from conditionnaly indep. model.
+	thetaA[:, :, :] .= my_trans_θ[:, :, 1] 
 	thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
-	thetaR[:, 1] .= my_Range_θ[:, 1]# cheating on initial guess to recover very good mle maxima
+	thetaR[:, 1] .= my_Range_θ[:, 1]
+
+	# make the initial model (twice so that in-place estimation only changes hmm so I can compare with initial in plots)
 	hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
 	start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
 end
@@ -166,10 +172,11 @@ println("Before estimation: ", thetaR)
 
 tdist = 1.1 # max distance : so that all pairs of distance so that  0 < dist< tdist*dmax are taken into account in composite likelihood. If tdist is too small, the optimization will not be able to recover the true parameters. If tdist is too large, the optimization will be very slow. 
 	
-
+# choice of solver - this one works well.
 solver =  Optim.LBFGS(
     linesearch = LineSearches.BackTracking())
 
+#solve . history2["logtots"] contains the loglikelihood at each iteration, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations contain the parameters at each iteration.
 @time begin
 	history2, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past; solver, n2t = n2t, maxiter = 50, tol = tol, maxiters_R = 100, display = :iter, tdist = tdist, QMC_m = 100)
 end
@@ -177,7 +184,7 @@ end
 
 
 
-#################### m=1 ################"
+#################### same but for m=1 - just so both are tested but it is the same code. ################"
 
 my_autoregressive_order = 1 #
 
@@ -252,209 +259,210 @@ end
 
 
 # #############################################################################
-# # ######## get rain proba plot  - only if cairomakie available ################
+# # ######## get rain proba plot  - use only if cairomakie available ################
 # # #############################################################################
 
+using CairoMakie
+using LaTeXStrings
+# function to get the last fitted thetas from your optimization history
+function extract_last_theta(last_iter_array)
+	# If stored as vector of arrays, take last:
+	return last_iter_array[end]
+end
 
-# # function to get the last fitted thetas from your optimization history
-# function extract_last_theta(last_iter_array)
-# 	# If stored as vector of arrays, take last:
-# 	return last_iter_array[end]
-# end
+# Convenience: pick fitted thetas from history
+fitted_thetaA = extract_last_theta(all_thetaA_iterations)
+fitted_thetaB = extract_last_theta(all_thetaB_iterations)
+fitted_thetaR = extract_last_theta(all_thetaR_iterations)
 
-# # Convenience: pick fitted thetas from history
-# fitted_thetaA = extract_last_theta(all_thetaA_iterations)
-# fitted_thetaB = extract_last_theta(all_thetaB_iterations)
-# fitted_thetaR = extract_last_theta(all_thetaR_iterations)
+# Create three models: true_model, start_model, fitted_model
+fitted_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), fitted_thetaA, fitted_thetaB, fitted_thetaR, my_T, my_distance)
+true_model = model  
 
-# # Create three models: true_model, start_model, fitted_model
-# fitted_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), fitted_thetaA, fitted_thetaB, fitted_thetaR, my_T, my_distance)
-# true_model = model  # assuming `model` is your true object from above
+ndays = size(true_model.B, 2)
 
-# ndays = size(true_model.B, 2)
+# selected stations to demonstrate
+select_demo = 1:min(6, size(my_locations, 1))  # first 6 stations or fewer
 
-# # selected stations to demonstrate (you used select_plot earlier; choose some indexes)
-# select_demo = 1:min(6, size(my_locations, 1))  # first 6 stations or fewer
+# colors
+mycolors = [:red, :blue, :green, :orange, :purple, :brown][1:my_K]
 
-# # colors
-# mycolors = [:red, :blue, :green, :orange, :purple, :brown][1:my_K]
+begin
+fig_Bcompare = Figure()
+chosen_stations = 1:6
+for (idx, j) in enumerate(chosen_stations)
+	row = (idx - 1) ÷ 3 + 1
+	col = (idx - 1) % 3 + 1
 
-# begin
-# fig_Bcompare = Figure()
-# chosen_stations = 1:6
-# for (idx, j) in enumerate(chosen_stations)
-# 	row = (idx - 1) ÷ 3 + 1
-# 	col = (idx - 1) % 3 + 1
+	if col > 1
+		ax = Axis(fig_Bcompare[row, col],
+			title = "Location $j",
+			limits = (0, ndays + 1, 0, 1), yticks = 0:0.2:1,
+			width = 200, height = 150,
+			ylabel = L"\lambda_{k,s}^{(t)}")
+		hideydecorations!(ax; label = true, ticklabels = true, ticks = false,
+			grid = false, minorgrid = true, minorticks = false)
+	else
+		ax = Axis(fig_Bcompare[row, col],
+			title = "Location $j",
+			limits = (0, ndays + 1, 0, 1), yticks = 0:0.2:1,
+			width = 200, height = 150,
+			ylabel = L"\lambda_{k,s}^{(t)}")
+	end
 
-# 	if col > 1
-# 		ax = Axis(fig_Bcompare[row, col],
-# 			title = "Location $j",
-# 			limits = (0, ndays + 1, 0, 1), yticks = 0:0.2:1,
-# 			width = 200, height = 150,
-# 			ylabel = L"\lambda_{k,s}^{(t)}")
-# 		hideydecorations!(ax; label = true, ticklabels = true, ticks = false,
-# 			grid = false, minorgrid = true, minorticks = false)
-# 	else
-# 		ax = Axis(fig_Bcompare[row, col],
-# 			title = "Location $j",
-# 			limits = (0, ndays + 1, 0, 1), yticks = 0:0.2:1,
-# 			width = 200, height = 150,
-# 			ylabel = L"\lambda_{k,s}^{(t)}")
-# 	end
+	# ---- plot curves for each state k ----
+	for k in 1:my_K
+		color = mycolors[k]
 
-# 	# ---- plot curves for each state k ----
-# 	for k in 1:my_K
-# 		color = mycolors[k]
+		# TRUE model = solid
+		lines!(ax, 1:ndays, [true_model.B[k, t, j, 1] for t in 1:ndays],
+			color = color, linewidth = 2)
 
-# 		# TRUE model = solid
-# 		lines!(ax, 1:ndays, [true_model.B[k, t, j, 1] for t in 1:ndays],
-# 			color = color, linewidth = 2)
+		# START model = dashed
+		lines!(ax, 1:ndays, [start_model.B[k, t, j, 1] for t in 1:ndays],
+			color = color, linewidth = 1.5, linestyle = :dash)
 
-# 		# START model = dashed
-# 		lines!(ax, 1:ndays, [start_model.B[k, t, j, 1] for t in 1:ndays],
-# 			color = color, linewidth = 1.5, linestyle = :dash)
+		# FITTED model = dotted
+		lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 1] for t in 1:ndays],
+			color = color, linewidth = 2, linestyle = :dot)
 
-# 		# FITTED model = dotted
-# 		lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 1] for t in 1:ndays],
-# 			color = color, linewidth = 2, linestyle = :dot)
+		# If AR order is present and h = 2 exists → also plot h=2 curves
+		if size(true_model.B, 4) == 2
+			# TRUE dashed for h=1
+			lines!(ax, 1:ndays, [true_model.B[k, t, j, 2] for t in 1:ndays],
+				color = color, linewidth = 1, linestyle = :dashdot)
+			# FITTED dashed for h=1
+			lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 2] for t in 1:ndays],
+				color = color, linewidth = 1, linestyle = :dash)
+		end
+	end
 
-# 		# If AR order is present and h = 2 exists → also plot h=2 curves
-# 		if size(true_model.B, 4) == 2
-# 			# TRUE dashed for h=1
-# 			lines!(ax, 1:ndays, [true_model.B[k, t, j, 2] for t in 1:ndays],
-# 				color = color, linewidth = 1, linestyle = :dashdot)
-# 			# FITTED dashed for h=1
-# 			lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 2] for t in 1:ndays],
-# 				color = color, linewidth = 1, linestyle = :dash)
-# 		end
-# 	end
+	# horizontal midline
+	hlines!(ax, [0.5], color = :black, linestyle = :dot)
 
-# 	# horizontal midline
-# 	hlines!(ax, [0.5], color = :black, linestyle = :dot)
+	# seasonal ticks
+end
 
-# 	# seasonal ticks
-# end
+# ---- legend on the right ----
+Legend(fig_Bcompare[1:2, 4],
+	[
+		LineElement(color = :black, linestyle = :solid),
+		LineElement(color = :black, linestyle = :dash),
+		LineElement(color = :black, linestyle = :dot),
+		[LineElement(color = mycolors[k], linestyle = :solid) for k in 1:my_K]...,
+	],
+	[
+		L"true",
+		L"start",
+		L"fitted",
+		[L"k=%$k" for k in 1:my_K]...,
+	],
+)
 
-# # ---- legend on the right ----
-# Legend(fig_Bcompare[1:2, 4],
-# 	[
-# 		LineElement(color = :black, linestyle = :solid),
-# 		LineElement(color = :black, linestyle = :dash),
-# 		LineElement(color = :black, linestyle = :dot),
-# 		[LineElement(color = mycolors[k], linestyle = :solid) for k in 1:my_K]...,
-# 	],
-# 	[
-# 		L"true",
-# 		L"start",
-# 		L"fitted",
-# 		[L"k=%$k" for k in 1:my_K]...,
-# 	],
-# )
+resize_to_layout!(fig_Bcompare)
 
-# resize_to_layout!(fig_Bcompare)
+fig_Bcompare
+end
+# savefigcrop
 
-# fig_Bcompare
-# end
-# # savefigcrop
+begin
+	fig_R = Figure()
 
-# begin
-# 	fig_R = Figure()
+	ax = Axis(fig_R[1, 1],
+		ylabel = L"\rho_{CY,k}^{(t)}\ (km)",
+		width = 400, height = 250)
 
-# 	ax = Axis(fig_R[1, 1],
-# 		ylabel = L"\rho_{CY,k}^{(t)}\ (km)",
-# 		width = 400, height = 250)
+	for k in 1:my_K
+		color = mycolors[k]
 
-# 	for k in 1:my_K
-# 		color = mycolors[k]
+		# --- Real series (solid) ---
+		lines!(ax, 1:my_T, true_model.R[k, :],
+			color = color, linewidth = 2)
 
-# 		# --- Real series (solid) ---
-# 		lines!(ax, 1:my_T, true_model.R[k, :],
-# 			color = color, linewidth = 2)
+		# --- Starting model (dashed) ---
+		lines!(ax, 1:my_T, start_model.R[k, :],
+			color = color, linewidth = 2, linestyle = :dash)
 
-# 		# --- Starting model (dashed) ---
-# 		lines!(ax, 1:my_T, start_model.R[k, :],
-# 			color = color, linewidth = 2, linestyle = :dash)
-
-# 		# --- Fitted model (thicker solid or dotted) ---
-# 		lines!(ax, 1:my_T, fitted_model.R[k, :],
-# 			color = color, linewidth = 3, linestyle = :dot)
-# 	end
+		# --- Fitted model (thicker solid or dotted) ---
+		lines!(ax, 1:my_T, fitted_model.R[k, :],
+			color = color, linewidth = 3, linestyle = :dot)
+	end
 
 
 
-# 	Legend(fig_R[1, 2],
-# 		[
-# 			LineElement(color = :black, linestyle = :solid),
-# 			LineElement(color = :black, linestyle = :dash),
-# 			LineElement(color = :black, linestyle = :dot),
-# 			[LineElement(color = mycolors[k], linestyle = :solid) for k in 1:my_K]...,
-# 		],
-# 		[
-# 			L"true",
-# 			L"start",
-# 			L"fitted",
-# 			[L"k=%$k" for k in 1:my_K]...,
-# 		])
+	Legend(fig_R[1, 2],
+		[
+			LineElement(color = :black, linestyle = :solid),
+			LineElement(color = :black, linestyle = :dash),
+			LineElement(color = :black, linestyle = :dot),
+			[LineElement(color = mycolors[k], linestyle = :solid) for k in 1:my_K]...,
+		],
+		[
+			L"true",
+			L"start",
+			L"fitted",
+			[L"k=%$k" for k in 1:my_K]...,
+		])
 
-# 	fig_R
-# end
+	fig_R
+end
 
-# begin
-# 	fig_Q = Figure()
+begin
+	fig_Q = Figure()
 
-# 	for k in 1:my_K
-# 		row = (k - 1) ÷ 2 + 1
-# 		col = (k - 1) % 2 + 1
+	for k in 1:my_K
+		row = (k - 1) ÷ 2 + 1
+		col = (k - 1) % 2 + 1
 
-# 		ax = Axis(fig_Q[row, col],
-# 			limits = (0, my_T+1, 0, 1), yticks = 0:0.2:1,
-# 			width = 300, height = 250)
+		ax = Axis(fig_Q[row, col],
+			limits = (0, my_T+1, 0, 1), yticks = 0:0.2:1,
+			width = 300, height = 250)
 
-# 		if col > 1
-# 			hideydecorations!(ax; label = true, ticklabels = true, ticks = false,
-# 				grid = false, minorgrid = true, minorticks = false)
-# 		end
+		if col > 1
+			hideydecorations!(ax; label = true, ticklabels = true, ticks = false,
+				grid = false, minorgrid = true, minorticks = false)
+		end
 
-# 		for l in 1:my_K
-# 			color = mycolors[l]
+		for l in 1:my_K
+			color = mycolors[l]
 
-# 			# --- REAL series ---
-# 			lines!(ax, 1:my_T, true_model.A[k, l, :],
-# 				color = color, linewidth = 2)
+			# --- REAL series ---
+			lines!(ax, 1:my_T, true_model.A[k, l, :],
+				color = color, linewidth = 2)
 
-# 			# --- STARTING model ---
-# 			lines!(ax, 1:my_T, start_model.A[k, l, :],
-# 				color = color, linewidth = 2, linestyle = :dash)
+			# --- STARTING model ---
+			lines!(ax, 1:my_T, start_model.A[k, l, :],
+				color = color, linewidth = 2, linestyle = :dash)
 
-# 			# --- FITTED model ---
-# 			lines!(ax, 1:my_T, fitted_model.A[k, l, :],
-# 				color = color, linewidth = 3, linestyle = :dot)
-# 		end
+			# --- FITTED model ---
+			lines!(ax, 1:my_T, fitted_model.A[k, l, :],
+				color = color, linewidth = 3, linestyle = :dot)
+		end
 
-# 		# Horizontal reference line
-# 		hlines!(ax, [0.5], color = :black, linestyle = :dot)
+		# Horizontal reference line
+		hlines!(ax, [0.5], color = :black, linestyle = :dot)
 
-# 		# Month ticks identical to B-plot
+		# Month ticks identical to B-plot
 
-# 		# Legend for each panel
-# 		axislegend(ax,
-# 			[
-# 				LineElement(color = :black, linestyle = :solid),
-# 				LineElement(color = :black, linestyle = :dash),
-# 				LineElement(color = :black, linestyle = :dot),
-# 				[LineElement(color = mycolors[l], linestyle = :solid) for l in 1:my_K]...,
-# 			],
-# 			[
-# 				L"Real",
-# 				L"Starting",
-# 				L"Fitted",
-# 				[L"Q^{(t)}(%$k, %$l)" for l in 1:my_K]...,
-# 			],
-# 			position = :ct, nbanks = 3,
-# 			labelsize = 14.7, patchlabelgap = 0,
-# 			colgap = 6, framevisible = false)
-# 	end
+		# Legend for each panel
+		axislegend(ax,
+			[
+				LineElement(color = :black, linestyle = :solid),
+				LineElement(color = :black, linestyle = :dash),
+				LineElement(color = :black, linestyle = :dot),
+				[LineElement(color = mycolors[l], linestyle = :solid) for l in 1:my_K]...,
+			],
+			[
+				L"Real",
+				L"Starting",
+				L"Fitted",
+				[L"Q^{(t)}(%$k, %$l)" for l in 1:my_K]...,
+			],
+			position = :ct, nbanks = 3,
+			labelsize = 14.7, patchlabelgap = 0,
+			colgap = 6, framevisible = false)
+	end
 
-# 	resize_to_layout!(fig_Q)
-# 	fig_Q
-# end
+	resize_to_layout!(fig_Q)
+	fig_Q
+end
