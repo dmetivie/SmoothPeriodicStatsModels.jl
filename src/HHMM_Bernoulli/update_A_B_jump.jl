@@ -82,11 +82,11 @@ function fit_mle_one_B(θ, model_B, γ; warm_start = true)
     # @show πₛ[1:2,:]
 
     for t = 1:T, y = 1:rain_cat
-        SmoothPeriodicStatsModels.set_value(πₛ[t, y], γ[t, y])
+        set_value(πₛ[t, y], γ[t, y])
     end
     # @show πₛ[1:2,:]
 
-    SmoothPeriodicStatsModels.optimize!(model_B)
+    optimize!(model_B)
     return value.(θ_jump)
 end
 
