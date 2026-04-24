@@ -71,14 +71,14 @@ include("HHMM_Bernoulli/add_sites.jl")
 # for HMMSPA
 using MvNormalCDF
 using SpecialFunctions 
-include("HHMM_Bernoulli_spatial/periodichmmspa.jl")
 include("HHMM_Bernoulli_spatial/fast_bivariate_cdf.jl")
 include("HHMM_Bernoulli_spatial/HMMspa_utilities.jl")
+include("HHMM_Bernoulli_spatial/SpatialBernoulli.jl")
+include("HHMM_Bernoulli_spatial/periodichmmspa.jl")
 include("HHMM_Bernoulli_spatial/likelihoods.jl")
 include("HHMM_Bernoulli_spatial/viterbi.jl")
 include("HHMM_Bernoulli_spatial/update_param.jl")
 include("HHMM_Bernoulli_spatial/trig_conversion.jl")
-include("HHMM_Bernoulli_spatial/SpatialBernoulli.jl")
 # for HMMMspa 
 export PeriodicHMMSpaMemory,norm_cdf_2d_vfast,Trig2PeriodicHMMspaMemory,fit_mle!
 

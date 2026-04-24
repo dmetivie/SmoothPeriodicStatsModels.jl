@@ -2,7 +2,7 @@
 
 """
     SpatialBernoulli{TR<:Real, AV<:AbstractVector, AM<:AbstractMatrix, AAM<:AbstractMatrix}
-Defines a discrete multivariate distribution `SpatialBernoulli` using a latend Gaussian process. The latent covarience matrix is definied by a Matern covariance (range). 
+Defines a discrete multivariate distribution `SpatialBernoulli` using a latent Gaussian process. The latent covariance matrix is defined by a Matern covariance (range). 
 The marginal Bernoulli probabilities are given by `λ`.
 """
 struct SpatialBernoulli{TR<:Real,AV<:AbstractVector,AM<:AbstractMatrix,AAM<:AbstractMatrix} <: DiscreteMultivariateDistribution
@@ -16,9 +16,9 @@ Base.length(d::SpatialBernoulli) = length(d.λ)
 
 """
     SpatialBernoulli(range, λ, h)
-Constructor for a discrete multivariate distribution `SpatialBernoulli` using a latent Gaussian process. The latent covarience matrix is definied by a exp covariance (range). 
+Constructor for a discrete multivariate distribution `SpatialBernoulli` using a latent Gaussian process. The latent covariance matrix is defined by a exp covariance (range). 
 The marginal Bernoulli probabilities are given by `λ`.
-The constructor used the distance martix to compute the covariance matrix.
+The constructor used the distance matrix to compute the covariance matrix.
 """
 function SpatialBernoulli(range, λ, h)
     C_GS = expkernel.(h; range=range)

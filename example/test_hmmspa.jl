@@ -1,4 +1,5 @@
-
+import Pkg
+Pkg.activate(@__DIR__)
 using SmoothPeriodicStatsModels
 using Distributions
 using OptimizationOptimJL
@@ -111,7 +112,7 @@ n2t = n_to_t(my_N, my_T)
 # random for real set of parameters
 
 my_size_order = 2^my_autoregressive_order
-my_size_degree_of_P = 2 * my_degree_of_P + 1
+	my_size_degree_of_P = 2 * my_degree_of_P + 1
 
 my_trans_θ = 4 * (rand(my_K, my_K - 1, my_size_degree_of_P) .- 1 / 2)
 # parameters of the transition matrix.
