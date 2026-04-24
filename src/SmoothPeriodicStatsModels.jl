@@ -24,7 +24,7 @@ using LogExpFunctions: logsumexp!, logsumexp
 
 # ## HMM
 using PeriodicHiddenMarkovModels
-
+using PeriodicHiddenMarkovModels: AbstractPeriodicHMM
 using PeriodicHiddenMarkovModels: viterbi, istransmat, update_a!, vec_maximum
 import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!, posteriors!
 import PeriodicHiddenMarkovModels: fit_mle!, fit_mle
@@ -32,7 +32,7 @@ import PeriodicHiddenMarkovModels: fit_mle!, fit_mle
 # # Overloaded functions
 import Base: rand
 import Base: ==, copy, size
-
+using Base.Threads
 # # Code
 include("utilities.jl")
 
@@ -68,6 +68,20 @@ include("sHHMM_Bernoulli/HMM_utilities.jl")
 # For sites added after the HMM training
 include("HHMM_Bernoulli/add_sites.jl")
 
+# for HMMSPA
+using MvNormalCDF
+using SpecialFunctions 
+include("HHMM_Bernoulli_spatial/periodichmmspa.jl")
+include("HHMM_Bernoulli_spatial/fast_bivariate_cdf.jl")
+include("HHMM_Bernoulli_spatial/HMMspa_utilities.jl")
+include("HHMM_Bernoulli_spatial/likelihoods.jl")
+include("HHMM_Bernoulli_spatial/viterbi.jl")
+include("HHMM_Bernoulli_spatial/update_param.jl")
+include("HHMM_Bernoulli_spatial/trig_conversion.jl")
+include("HHMM_Bernoulli_spatial/SpatialBernoulli.jl")
+# for HMMMspa 
+export PeriodicHMMSpaMemory,norm_cdf_2d_vfast,Trig2PeriodicHMMspaMemory,fit_mle!
+
 export
     # periodichmm.jl
     ARPeriodicHMM,
@@ -98,6 +112,7 @@ export model_for_loglikelihood_AR1, initialvalue_optimize!, model_for_loglikelih
 export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
 export fit_loss_optim, fit_mle
+
 
 
 end
