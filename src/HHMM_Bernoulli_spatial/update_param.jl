@@ -90,13 +90,13 @@ function fit_mle!(
     if size_order == 1
         Situations = zeros(Int, 4, N, D, D)
 
-        for k in 1:N
+        for n in 1:N
             for i in 1:D
                 for j in 1:D
-                    Situations[1, k, i, j] = (Y[k, i] == 1 && Y[k, j] == 1) ? 1 : 0
-                    Situations[2, k, i, j] = (Y[k, i] == 1 && Y[k, j] == 0) ? 1 : 0
-                    Situations[3, k, i, j] = (Y[k, i] == 0 && Y[k, j] == 1) ? 1 : 0
-                    Situations[4, k, i, j] = (Y[k, i] == 0 && Y[k, j] == 0) ? 1 : 0
+                    Situations[1, n, i, j] = (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
+                    Situations[2, n, i, j] = (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
+                    Situations[3, n, i, j] = (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
+                    Situations[4, n, i, j] = (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
                 end
             end
         end
@@ -104,28 +104,28 @@ function fit_mle!(
         # generate situations
         Situations = zeros(Int, 16, N, D, D)
 
-        for k in 2:N
+        for n in 2:N
             for i in 1:D
                 for j in 1:D
-                    Situations[1, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 1) && (Y[k, i] == 1 && Y[k, j] == 1) ? 1 : 0
-                    Situations[2, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 1) && (Y[k, i] == 1 && Y[k, j] == 0) ? 1 : 0
-                    Situations[3, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 1) && (Y[k, i] == 0 && Y[k, j] == 1) ? 1 : 0
-                    Situations[4, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 1) && (Y[k, i] == 0 && Y[k, j] == 0) ? 1 : 0
+                    Situations[1, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
+                    Situations[2, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
+                    Situations[3, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
+                    Situations[4, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
 
-                    Situations[5, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 0) && (Y[k, i] == 1 && Y[k, j] == 1) ? 1 : 0
-                    Situations[6, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 0) && (Y[k, i] == 1 && Y[k, j] == 0) ? 1 : 0
-                    Situations[7, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 0) && (Y[k, i] == 0 && Y[k, j] == 1) ? 1 : 0
-                    Situations[8, k, i, j] = (Y[k-1, i] == 1 && Y[k-1, j] == 0) && (Y[k, i] == 0 && Y[k, j] == 0) ? 1 : 0
+                    Situations[5, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
+                    Situations[6, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
+                    Situations[7, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
+                    Situations[8, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
 
-                    Situations[9, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 1) && (Y[k, i] == 1 && Y[k, j] == 1) ? 1 : 0
-                    Situations[10, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 1) && (Y[k, i] == 1 && Y[k, j] == 0) ? 1 : 0
-                    Situations[11, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 1) && (Y[k, i] == 0 && Y[k, j] == 1) ? 1 : 0
-                    Situations[12, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 1) && (Y[k, i] == 0 && Y[k, j] == 0) ? 1 : 0
+                    Situations[9, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
+                    Situations[10, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
+                    Situations[11, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
+                    Situations[12, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
 
-                    Situations[13, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 0) && (Y[k, i] == 1 && Y[k, j] == 1) ? 1 : 0
-                    Situations[14, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 0) && (Y[k, i] == 1 && Y[k, j] == 0) ? 1 : 0
-                    Situations[15, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 0) && (Y[k, i] == 0 && Y[k, j] == 1) ? 1 : 0
-                    Situations[16, k, i, j] = (Y[k-1, i] == 0 && Y[k-1, j] == 0) && (Y[k, i] == 0 && Y[k, j] == 0) ? 1 : 0
+                    Situations[13, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
+                    Situations[14, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
+                    Situations[15, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
+                    Situations[16, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
                 end
             end
         end
@@ -253,7 +253,7 @@ function fit_mle!(
 
 end
 
-function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
+function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
     T = size(B, 1)
     # println("size(B,1) = T ? =",T)
     # println("inside updateR! - inside fit - before estim: ", theta_R)
@@ -263,7 +263,7 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
     function optimfunction2(u, p)
         Rt = similar(u, T)
         for t in 1:T
-            Rt[t] = exp(mypolynomial_trigo(t, u, T))
+            Rt[t] = exp(polynomial_trigo(t, u, T))
         end
         # println("u inside optimfun",u)
         # println("R inside optimfun",Rt)
@@ -308,8 +308,7 @@ function update_R!(hmm::PeriodicHMMSpaMemory,
     D = size(hmm, 2)
     # @show K, T  # debug
     # println("inside updateR! - before fit: ", Range_θ)
-    pairwise_indices = findall(wp .> 0)
-    pairwise_indices2 = [(pairwise_indices[i][1], pairwise_indices[i][2]) for i in 1:length(pairwise_indices)]
+    pairwise_indices2 = Tuple.(findall(wp .> 0))
 
     # Parallelized loop
     @threads for k in 1:K
@@ -343,11 +342,11 @@ function update_R!(hmm::PeriodicHMMSpaMemory,
 
     # Ensure in-place modification of R
     for k in 1:K
-        R[k, :] .= [exp(mypolynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
+        R[k, :] .= [exp(polynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
     end
 end
 
-function fit_mle_one_R_memory1!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
+function fit_mle_one_R_memory1!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
     T = size(B, 1)
     # println("size(B,1) = T ? =",T)
     # println("inside updateR! - inside fit - before estim: ", theta_R)
@@ -357,7 +356,7 @@ function fit_mle_one_R_memory1!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::Abs
     function optimfunction2(u, p)
         Rt = similar(u, T)
         for t in 1:T
-            Rt[t] = exp(mypolynomial_trigo(t, u, T))
+            Rt[t] = exp(polynomial_trigo(t, u, T))
         end
         # println("u inside optimfun",u)
         # println("R inside optimfun",Rt)
@@ -400,8 +399,7 @@ function update_R_memory1!(hmm::PeriodicHMMSpaMemory,
     K = size(R, 1)
     T = size(R, 2)
     # println("inside updateR! - before fit: ", Range_θ)
-    pairwise_indices = findall(wp .> 0)
-    pairwise_indices2 = [(pairwise_indices[i][1], pairwise_indices[i][2]) for i in 1:length(pairwise_indices)]
+    pairwise_indices2 = Tuple.(findall(wp .> 0))
 
     # Parallelized loop
     @threads for k in 1:K
@@ -434,6 +432,6 @@ function update_R_memory1!(hmm::PeriodicHMMSpaMemory,
 
     # Ensure in-place modification of R
     for k in 1:K
-        R[k, :] .= [exp(mypolynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
+        R[k, :] .= [exp(polynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
     end
 end

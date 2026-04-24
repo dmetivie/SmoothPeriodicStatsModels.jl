@@ -107,18 +107,15 @@ end
 # for pairwise likelihood : 
 
 
-function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0))
+function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0))
 )
 	N, D = size(Y)
 	T = size(R, 1)
 	# println("T = size(R,1)",T)
 	# @show R
 
-	Iij = ones(eltype(R), 4, D, D, T)
+	Iij = fill(convert(eltype(R), NaN), 4, D, D, T)
 	@inbounds for t in 1:T
-
-
-
 		for (i, j) in pairwise_indices2
 			# @show (i,j)
 			B_ij = @view B[t, [i, j]]
@@ -127,9 +124,9 @@ function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{
 				Iij[1, i, j, t] = B_ij[1]
 				Iij[4, i, j, t] = 1 - B_ij[1]
 			else
-				Iij[1, i, j, t] = ifelse(Iij[1, j, i, t] != 1.0, Iij[1, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1]), quantile(Normal(), B_ij[2]), exp(-h_ij[1, 2] / R[t])))
-				Iij[2, i, j, t] = ifelse(Iij[3, j, i, t] != 1.0, Iij[3, j, i, t], B_ij[1] - Iij[1, i, j, t])
-				Iij[3, i, j, t] = ifelse(Iij[2, j, i, t] != 1.0, Iij[2, j, i, t], B_ij[2] - Iij[1, i, j, t])
+				Iij[1, i, j, t] = ifelse(!isnan(Iij[1, j, i, t]), Iij[1, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1]), quantile(Normal(), B_ij[2]), exp(-h_ij[1, 2] / R[t])))
+				Iij[2, i, j, t] = ifelse(!isnan(Iij[3, j, i, t]), Iij[3, j, i, t], B_ij[1] - Iij[1, i, j, t])
+				Iij[3, i, j, t] = ifelse(!isnan(Iij[2, j, i, t]), Iij[2, j, i, t], B_ij[2] - Iij[1, i, j, t])
 				Iij[4, i, j, t] = ifelse(i == j, 1.0 - Iij[1, i, j, t], 1.0 - Iij[1, i, j, t] - Iij[2, i, j, t] - Iij[3, i, j, t])
 			end
 		end
@@ -155,14 +152,14 @@ function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{
 	return (pairwise_sum)
 end
 
-function my_loglikelihood_memory1(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0)))
+function my_loglikelihood_memory1(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0)))
 	N, D = size(Y)
 	T = size(R, 1)
 	# println("T = size(R,1)",T)
 	# @show R
 
 
-	Iij = ones(eltype(R), 16, D, D, T)
+	Iij = fill(convert(eltype(R), NaN), 16, D, D, T)
 	@inbounds for t in 1:T
 		for (i, j) in pairwise_indices2
 			# @show (i,j)
@@ -177,25 +174,25 @@ function my_loglikelihood_memory1(R, B, h, Y::AbstractArray{<:Real}, wp::Abstrac
 				Iij[16, i, j, t] = 1 - B_ij[1, 1]
 			end
 			if i != j
-				Iij[1, i, j, t] = ifelse(Iij[1, j, i, t] != 1.0, Iij[1, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 2]), quantile(Normal(), B_ij[2, 2]), exp(-h_ij[1, 2] / R[t])))
-				Iij[2, i, j, t] = ifelse(Iij[3, j, i, t] != 1.0, Iij[3, j, i, t], B_ij[1, 2] - Iij[1, i, j, t])
-				Iij[3, i, j, t] = ifelse(Iij[2, j, i, t] != 1.0, Iij[2, j, i, t], B_ij[2, 2] - Iij[1, i, j, t])
+				Iij[1, i, j, t] = ifelse(!isnan(Iij[1, j, i, t]), Iij[1, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 2]), quantile(Normal(), B_ij[2, 2]), exp(-h_ij[1, 2] / R[t])))
+				Iij[2, i, j, t] = ifelse(!isnan(Iij[3, j, i, t]), Iij[3, j, i, t], B_ij[1, 2] - Iij[1, i, j, t])
+				Iij[3, i, j, t] = ifelse(!isnan(Iij[2, j, i, t]), Iij[2, j, i, t], B_ij[2, 2] - Iij[1, i, j, t])
 				Iij[4, i, j, t] = ifelse(i == j, 1.0 - Iij[1, i, j, t], 1.0 - Iij[1, i, j, t] - Iij[2, i, j, t] - Iij[3, i, j, t])
 
-				Iij[5, i, j, t] = ifelse(Iij[9, j, i, t] != 1.0, Iij[9, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 2]), quantile(Normal(), B_ij[2, 1]), exp(-h_ij[1, 2] / R[t])))
-				Iij[6, i, j, t] = ifelse(Iij[11, j, i, t] != 1.0, Iij[11, j, i, t], B_ij[1, 2] - Iij[5, i, j, t])
-				Iij[7, i, j, t] = ifelse(Iij[10, j, i, t] != 1.0, Iij[10, j, i, t], B_ij[2, 1] - Iij[5, i, j, t])
+				Iij[5, i, j, t] = ifelse(!isnan(Iij[9, j, i, t]), Iij[9, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 2]), quantile(Normal(), B_ij[2, 1]), exp(-h_ij[1, 2] / R[t])))
+				Iij[6, i, j, t] = ifelse(!isnan(Iij[11, j, i, t]), Iij[11, j, i, t], B_ij[1, 2] - Iij[5, i, j, t])
+				Iij[7, i, j, t] = ifelse(!isnan(Iij[10, j, i, t]), Iij[10, j, i, t], B_ij[2, 1] - Iij[5, i, j, t])
 				Iij[8, i, j, t] = 1.0 - Iij[5, i, j, t] - Iij[6, i, j, t] - Iij[7, i, j, t]
 
 
-				Iij[9, i, j, t] = ifelse(Iij[5, j, i, t] != 1.0, Iij[5, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 1]), quantile(Normal(), B_ij[2, 2]), exp(-h_ij[1, 2] / R[t])))
-				Iij[10, i, j, t] = ifelse(Iij[7, j, i, t] != 1.0, Iij[7, j, i, t], B_ij[1, 1] - Iij[9, i, j, t])
-				Iij[11, i, j, t] = ifelse(Iij[6, j, i, t] != 1.0, Iij[6, j, i, t], B_ij[2, 2] - Iij[9, i, j, t])
+				Iij[9, i, j, t] = ifelse(!isnan(Iij[5, j, i, t]), Iij[5, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 1]), quantile(Normal(), B_ij[2, 2]), exp(-h_ij[1, 2] / R[t])))
+				Iij[10, i, j, t] = ifelse(!isnan(Iij[7, j, i, t]), Iij[7, j, i, t], B_ij[1, 1] - Iij[9, i, j, t])
+				Iij[11, i, j, t] = ifelse(!isnan(Iij[6, j, i, t]), Iij[6, j, i, t], B_ij[2, 2] - Iij[9, i, j, t])
 				Iij[12, i, j, t] = 1.0 - Iij[9, i, j, t] - Iij[10, i, j, t] - Iij[11, i, j, t]
 
-				Iij[13, i, j, t] = ifelse(Iij[13, j, i, t] != 1.0, Iij[13, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 1]), quantile(Normal(), B_ij[2, 1]), exp(-h_ij[1, 2] / R[t])))
-				Iij[14, i, j, t] = ifelse(Iij[15, j, i, t] != 1.0, Iij[15, j, i, t], B_ij[1, 1] - Iij[13, i, j, t])
-				Iij[15, i, j, t] = ifelse(Iij[14, j, i, t] != 1.0, Iij[14, j, i, t], B_ij[2, 1] - Iij[13, i, j, t])
+				Iij[13, i, j, t] = ifelse(!isnan(Iij[13, j, i, t]), Iij[13, j, i, t], norm_cdf_2d_vfast(quantile(Normal(), B_ij[1, 1]), quantile(Normal(), B_ij[2, 1]), exp(-h_ij[1, 2] / R[t])))
+				Iij[14, i, j, t] = ifelse(!isnan(Iij[15, j, i, t]), Iij[15, j, i, t], B_ij[1, 1] - Iij[13, i, j, t])
+				Iij[15, i, j, t] = ifelse(!isnan(Iij[14, j, i, t]), Iij[14, j, i, t], B_ij[2, 1] - Iij[13, i, j, t])
 				Iij[16, i, j, t] = ifelse(i == j, 1.0 - Iij[13, i, j, t], 1.0 - Iij[13, i, j, t] - Iij[14, i, j, t] - Iij[15, i, j, t])
 			end
 		end
