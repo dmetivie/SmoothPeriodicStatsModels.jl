@@ -30,7 +30,7 @@ Optimization = "3, 4, 5"
 OptimizationMOI = "0.1, 0.3.2, 0.4, 0.5, 1"
 PeriodicHiddenMarkovModels = "0.1.5"
 ShiftedArrays = "2"
-julia = "1"
+julia = "1.12"
 
 [extras]
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
