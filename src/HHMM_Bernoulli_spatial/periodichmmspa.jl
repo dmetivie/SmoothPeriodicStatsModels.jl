@@ -13,7 +13,7 @@ If the initial state distribution `a` is not specified, it does not work. Please
 - `A::AbstractArray{T,3}`: transition matrix.
 - `B`: rain probabilities
 - `R` : range parameter
--  `h` distance matrix.
+- `h` distance matrix.
 """
 struct PeriodicHMMSpaMemory{T, AM} <: AbstractPeriodicHMM{Multivariate}
     a::Vector{T}

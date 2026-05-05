@@ -399,9 +399,9 @@ begin
             [LineElement(color=mycolors[k], linestyle=:solid) for k in 1:my_K]...,
         ],
         [
-            L"true",
-            L"start",
-            L"fitted",
+            "true",
+            "start",
+            "fitted",
             [L"k=%$k" for k in 1:my_K]...,
         ])
 
@@ -454,9 +454,9 @@ begin
                 [LineElement(color=mycolors[l], linestyle=:solid) for l in 1:my_K]...,
             ],
             [
-                L"Real",
-                L"Starting",
-                L"Fitted",
+                "Real",
+                "Starting",
+                "Fitted",
                 [L"Q^{(t)}(%$k, %$l)" for l in 1:my_K]...,
             ],
             position=:ct, nbanks=3,
@@ -467,3 +467,5 @@ begin
     resize_to_layout!(fig_Q)
     fig_Q
 end
+
+lines(history2["logtots"])

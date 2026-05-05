@@ -1,8 +1,21 @@
 # converted from https://github.com/david-cortes/approxcdf
 # https://github.com/david-cortes/approxcdf/blob/master/src/other.cpp
+
 const c₁ = -1.0950081470333
 const c₂ = -0.75651138383854
 
+"""
+    norm_cdf_2d_vfast(x₁, x₂, ρ)
+Compute an approximation of the bivariate normal CDF with zero means, unit variances and correlation ρ at the point (x₁, x₂):
+
+∫_{-∞}^{x₁} ∫_{-∞}^{x₂} φ(u, v; ρ) du dv
+
+where φ = (1/(2π√(1-ρ²))) * exp(-1/(2(1-ρ²))(u² - 2ρuv + v²)) is the bivariate normal density function with correlation ρ. 
+
+Tsay, Wen-Jen, and Peng-Hsuan Ke. "A simple approximation for the bivariate normal integral." Communications in Statistics-Simulation and Computation (2021): 1-14.
+
+Converted from https://github.com/david-cortes/approxcdf
+"""
 function norm_cdf_2d_vfast(x₁, x₂, ρ)
     if abs(ρ) ≤ eps(ρ)
         return cdf(Normal(), x₁) * cdf(Normal(), x₂)
