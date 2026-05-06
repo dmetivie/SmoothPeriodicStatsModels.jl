@@ -99,8 +99,6 @@ my_D = length(my_index)
 my_K = 2# Number of Hidden states
 my_T = 30 # Period
 my_degree_of_P = 1
-my_autoregressive_order = 0 #
-
 
 # choose time steps
 my_N = my_T * 50
@@ -108,6 +106,7 @@ n2t = n_to_t(my_N, my_T)
 
 
 # test on simulated data : need to create  a periodic hmm spa - skip this if real data -------------------------------------#
+my_autoregressive_order = 0 #
 
 # random for real set of parameters
 
