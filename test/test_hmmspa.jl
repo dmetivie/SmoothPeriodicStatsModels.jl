@@ -1,12 +1,11 @@
-import Pkg
-Pkg.activate(@__DIR__)
 using SmoothPeriodicStatsModels
 using Distributions
 using Optimization, OptimizationOptimJL, LineSearches
 using ForwardDiff
 import Random
+
 begin
-    my_distance = [
+    distance = [
         0.0 389.89554411496 307.6990540229037 482.2711867618282 344.316300868701 394.1011053273526 293.73072777163986 234.25943228608162 300.5064703035871 207.57877329560657 186.82660222843077 153.86909049497427 331.2510859063066 424.11229937801875 468.5146353164973 535.8676175203373 753.4483278153169 528.9560347270534 460.5225426428558 326.9731083186929 427.6637875137206 272.73592263147356 183.17581022421058 392.90549355304177 161.18469974974317 267.8907949054018 330.96659036193137 395.53273719132335 461.3789894874704 406.9689803452921 765.7653615910348 309.5314408549621 476.64486575812026 434.2255946916978 317.57375396918144 422.3288244507928 184.34569251816956;
         389.89554411496 0.0 173.6545865741277 155.98508818138473 725.2560102327708 783.4972409988158 627.068151126219 546.8861875663922 456.44409985670643 498.03497698950565 347.80432687097203 278.5129014896236 288.29245500200136 422.33590317553825 121.35436235529386 469.09684533284195 668.9535545909456 697.7606395221716 309.99460731719904 550.0954408102634 729.9124358886722 640.8761389359372 438.4721860618232 651.1975800856269 249.5963917889301 124.97878149915998 142.60685341897707 115.2834175706656 71.92533899477777 208.14095108227 633.8498595063409 348.0617935990785 688.3377351440115 724.2519467075693 654.643823344465 543.3134880759487 571.8825010419157;
         307.6990540229037 173.6545865741277 0.0 327.62632082226196 605.7809516496363 678.8318392857356 483.63615594458355 401.96965982007924 286.2830458193 476.96560638826065 196.07372064990548 268.2459292093027 375.02353475637653 514.6412685593307 182.63766701368831 588.9039722926148 803.5166820040746 524.1419913154853 444.04933056994975 383.77964360755243 714.0108197260008 514.0356389306467 290.65118325702696 655.0526848000217 146.84203091413374 110.62967444589088 252.23526992899406 102.39199495186462 221.4768757499488 345.2398112023704 780.4379577836795 174.4225509463683 516.7595131486967 563.543164924133 616.4539468022707 369.68962964571193 468.6863586306188;
@@ -44,9 +43,9 @@ begin
         317.57375396918144 654.643823344465 616.4539468022707 692.5286663798611 345.15741545520353 302.44606187176174 440.7446306522011 439.14390966037575 586.3142205436636 159.8169752339301 498.4085038889758 376.28926758384284 454.53546229203687 448.4274238751797 756.0816163067028 556.8044721812663 725.3896918022891 763.5586406222498 574.7805301913111 571.4175421091164 123.71139983365146 359.8389198655084 460.84321375724704 157.50009022336994 471.0565090625702 550.4285052962667 545.0346934045198 692.2810930942267 724.880447932614 577.3008213867914 773.2314390541791 622.7062280253382 692.3035737463888 588.1111339912349 0.0 698.0549284060064 263.0607276033274;
         422.3288244507928 543.3134880759487 369.68962964571193 696.7314427276873 486.8742781273487 587.4624627250079 317.3936734638807 272.0194229920304 122.59763745586851 626.3226986362624 256.41174856419576 514.8914382482754 684.4629482105827 810.007893138823 521.4089429416429 907.5134161228067 1129.4484319037242 155.78696248880445 785.5041322750777 140.58423775679213 820.3576283456491 399.5259448173736 242.92457664974438 806.7748793159874 371.6217938839534 455.21761890256255 599.0740428201615 451.9437856796483 585.0405271567527 695.8392878845042 1121.2936757241907 195.55210831039514 171.3313810903792 286.2257330408638 698.0549284060064 0.0 445.69265682774636;
         184.34569251816956 571.8825010419157 468.6863586306188 665.9902928678034 162.7489315822925 212.34781884793097 181.570290176877 177.97321237074016 344.7035240950573 257.7540784908714 295.98457429736357 330.87296778893926 493.5265653032141 558.2998294022659 641.7374922355964 674.6150899335922 880.411780583075 500.7139047240927 626.2166082713497 312.45782759808117 386.6031033906701 114.75586868519663 226.69135947744635 399.3205179329588 330.38447253234125 448.0193109657434 513.6117852395115 564.9628395121136 642.7398872182183 584.3003413443803 906.2420528283541 412.0067709256917 429.32977702874587 333.40239829467254 263.0607276033274 445.69265682774636 0.0
-    ]
+    ][1:20, 1:20]
 
-    my_locations = [
+    locations = [
         2.3597222222222225 47.05916666666666;
         1.3788888888888888 43.62111111111111;
         -0.0 44.830555555555556;
@@ -84,459 +83,59 @@ begin
         5.959722222222222 48.58111111111111;
         -3.2183333333333333 47.294444444444444;
         2.3844444444444446 48.716944444444444
-    ]
-end
-#need distance matrix - here copy and pasted from my own code , replace by real one.
-
-my_D = 20
-my_index = sample(1:my_D, my_D, replace=false)
-
-my_distance = my_distance[my_index, my_index]
-my_locations = my_locations[my_index, :]
-my_D = length(my_index)
-
-# parameters chosen outside the inference (K, T, degree for seasonality) + memory as autoregressive_order (0 or 1)
-my_K = 2# Number of Hidden states
-my_T = 30 # Period
-my_degree_of_P = 1
-
-# choose time steps
-my_N = my_T * 50
-n2t = n_to_t(my_N, my_T)
-
-
-# test on simulated data : need to create  a periodic hmm spa - skip this if real data -------------------------------------#
-Random.seed!(1234)
-my_autoregressive_order = 0 #
-
-# random for real set of parameters
-
-my_size_order = 2^my_autoregressive_order
-my_size_degree_of_P = 2 * my_degree_of_P + 1
-
-my_trans_θ = 4 * (rand(my_K, my_K - 1, my_size_degree_of_P) .- 1 / 2)
-# parameters of the transition matrix.
-# matrix of size K * (K-1) * (2degP+1) : parameters of the transition matrix for the K(K-1), for each of the trigo param.
-
-if my_autoregressive_order == 0
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-else
-
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-    my_Bernoulli_θ[:, :, 1, :] .= my_Bernoulli_θ[:, :, 2, :]
-
-    my_Bernoulli_θ[:, :, 1, 1] .= min.(my_Bernoulli_θ[:, :, 2, 1] .+ 1, 1)
-end
-# rain probability parameters of the bernoulli Emissions
-# K (states) * D (stations)  * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param)
-
-my_Range_θ = (rand(my_K, my_size_degree_of_P) .- 1 / 2)
-my_Range_θ[:, 1] = log.(300 .* (1:my_K))
-# range  parameters of the bernoulli Emissions 
-# K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
-
-my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
-
-size(model)
-
-Y_past = rand(Bool, my_autoregressive_order, my_D)
-# random generation
-z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
-Y = convert(Array{Bool}, Y)
-
-############ if you have real data, just load Y, make the vector n2t, and verify the dimensions .#####################
-
-
-#make initial parameters for estimation
-begin
-    thetaA = rand(my_K, my_K - 1, my_size_degree_of_P)
-    thetaB = zeros(my_K, my_D, my_size_order, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-
-    # cheating on initial guess - not necessary but allows faster convergence + more reliable. Usually for real data, random R and A+B from conditionnaly indep. model.
-    thetaA[:, :, :] .= my_trans_θ[:, :, 1]
-    thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
-    thetaR[:, 1] .= my_Range_θ[:, 1]
-
-    # make the initial model (twice so that in-place estimation only changes hmm so I can compare with initial in plots)
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-end
-tol = 1e-4
-
-D = size(my_locations, 1)
-
-println("Before estimation: ", thetaR)
-
-tdist = 1.1 # max distance : so that all pairs of distance so that  0 < dist< tdist*dmax are taken into account in composite likelihood. If tdist is too small, the optimization will not be able to recover the true parameters. If tdist is too large, the optimization will be very slow. 
-
-# choice of solver - this one works well.
-solver = Optim.LBFGS(
-    linesearch=LineSearches.BackTracking())
-
-#solve . history2["logtots"] contains the loglikelihood at each iteration, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations contain the parameters at each iteration.
-@time begin
-    history2, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past; solver, n2t=n2t, maxiter=50, tol=tol, maxiters_R=100, display=:iter, tdist=tdist, QMC_m=100)
+    ][1:20, :]
 end
 
+@testset "PeriodicHMMSpaMemory memory=$autoregressive_order" for autoregressive_order in 0:1
+    Random.seed!(1234)
+
+    K = 2
+    T = 10
+    D = size(locations, 1)
+    degree_of_P = 1
+    N = T * 30
+    size_order = 2^autoregressive_order
+    size_degree_of_P = 2 * degree_of_P + 1
 
 
-
-#################### same but for m=1 - just so both are tested but it is the same code. ################"
-
-my_autoregressive_order = 1 #
-Random.seed!(1234)
-
-# choose real set of parameters
-
-my_size_order = 2^my_autoregressive_order
-my_size_degree_of_P = 2 * my_degree_of_P + 1
-
-my_trans_θ = 4 * (rand(my_K, my_K - 1, my_size_degree_of_P) .- 1 / 2)
-# parameters of the transition matrix.
-# matrix of size K * (K-1) * (2degP+1) : parameters of the transition matrix for the K(K-1), for each of the trigo param.
-
-if my_autoregressive_order == 0
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-else
-
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-    my_Bernoulli_θ[:, :, 1, :] .= my_Bernoulli_θ[:, :, 2, :]
-
-    my_Bernoulli_θ[:, :, 1, 1] .= min.(my_Bernoulli_θ[:, :, 2, 1] .+ 1, 1)
-end
-# rain probability parameters of the bernoulli Emissions
-# K (states) * D (stations)  * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param)
-
-my_Range_θ = (rand(my_K, my_size_degree_of_P) .- 1 / 2)
-my_Range_θ[:, 1] = log.(300 .* (1:my_K))
-# range  parameters of the bernoulli Emissions 
-# K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
-
-my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
-
-size(model)
-
-# for m=1, need to give initial value of Y for t=0. Here I choose no rain but it can be anything.
-Y_past = zeros(Bool, my_autoregressive_order, D) 
-
-# random generation
-z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
-Y = convert(Array{Bool}, Y)
-
-
-
-#make initial parameters for estimation
-begin
-    thetaA = rand(my_K, my_K - 1, my_size_degree_of_P)
-    thetaB = zeros(my_K, my_D, my_size_order, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-
-    thetaA[:, :, :] .= my_trans_θ[:, :, 1] # cheating on initial guess to recover very good mle maxima
-    thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
-    thetaR[:, 1] .= my_Range_θ[:, 1]# cheating on initial guess to recover very good mle maxima
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-end
-tol = 1e-4
-
-D = size(my_locations, 1)
-
-println("Before estimation: ", thetaR)
-
-tdist = 1.1 # max distance : so that all pairs of distance so that  0 < dist< tdist*dmax are taken into account in composite likelihood. If tdist is too small, the optimization will not be able to recover the true parameters. If tdist is too large, the optimization will be very slow. 
-
-
-solver = Optim.LBFGS(
-    linesearch=LineSearches.BackTracking())
-
-@time begin
-    history2, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past; solver, n2t=n2t, maxiter=20, tol=tol, maxiters_R=100, display=:iter, tdist=tdist, QMC_m=100)
-end
-
-
-
-# #############################################################################
-# # ######## get rain proba plot  - use only if cairomakie available ################
-# # #############################################################################
-
-using CairoMakie
-using LaTeXStrings
-# function to get the last fitted thetas from your optimization history
-function extract_last_theta(last_iter_array)
-    # If stored as vector of arrays, take last:
-    return last_iter_array[end]
-end
-
-# Convenience: pick fitted thetas from history
-fitted_thetaA = extract_last_theta(all_thetaA_iterations)
-fitted_thetaB = extract_last_theta(all_thetaB_iterations)
-fitted_thetaR = extract_last_theta(all_thetaR_iterations)
-
-# Create three models: true_model, start_model, fitted_model
-fitted_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), fitted_thetaA, fitted_thetaB, fitted_thetaR, my_T, my_distance)
-true_model = model
-
-ndays = size(true_model.B, 2)
-
-# selected stations to demonstrate
-select_demo = 1:min(6, size(my_locations, 1))  # first 6 stations or fewer
-
-# colors
-mycolors = [:red, :blue, :green, :orange, :purple, :brown][1:my_K]
-
-begin
-    fig_Bcompare = Figure()
-    chosen_stations = 1:6
-    for (idx, j) in enumerate(chosen_stations)
-        row = (idx - 1) ÷ 3 + 1
-        col = (idx - 1) % 3 + 1
-
-        if col > 1
-            ax = Axis(fig_Bcompare[row, col],
-                title="Location $j",
-                limits=(0, ndays + 1, 0, 1), yticks=0:0.2:1,
-                width=200, height=150,
-                ylabel=L"\lambda_{k,s}^{(t)}")
-            hideydecorations!(ax; label=true, ticklabels=true, ticks=false,
-                grid=false, minorgrid=true, minorticks=false)
-        else
-            ax = Axis(fig_Bcompare[row, col],
-                title="Location $j",
-                limits=(0, ndays + 1, 0, 1), yticks=0:0.2:1,
-                width=200, height=150,
-                ylabel=L"\lambda_{k,s}^{(t)}")
-        end
-
-        # ---- plot curves for each state k ----
-        for k in 1:my_K
-            color = mycolors[k]
-
-            # TRUE model = solid
-            lines!(ax, 1:ndays, [true_model.B[k, t, j, 1] for t in 1:ndays],
-                color=color, linewidth=2)
-
-            # START model = dashed
-            lines!(ax, 1:ndays, [start_model.B[k, t, j, 1] for t in 1:ndays],
-                color=color, linewidth=1.5, linestyle=:dash)
-
-            # FITTED model = dotted
-            lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 1] for t in 1:ndays],
-                color=color, linewidth=2, linestyle=:dot)
-
-            # If AR order is present and h = 2 exists → also plot h=2 curves
-            if size(true_model.B, 4) == 2
-                # TRUE dashed for h=1
-                lines!(ax, 1:ndays, [true_model.B[k, t, j, 2] for t in 1:ndays],
-                    color=color, linewidth=1, linestyle=:dashdot)
-                # FITTED dashed for h=1
-                lines!(ax, 1:ndays, [fitted_model.B[k, t, j, 2] for t in 1:ndays],
-                    color=color, linewidth=1, linestyle=:dash)
-            end
-        end
-
-        # horizontal midline
-        hlines!(ax, [0.5], color=:black, linestyle=:dot)
-
-        # seasonal ticks
+    trans_θ = 0.5 * (rand(K, K - 1, size_degree_of_P) .- 0.5)
+    Bernoulli_θ = (rand(K, D, size_order, size_degree_of_P) .- 0.5)
+    if autoregressive_order > 0
+        Bernoulli_θ[:, :, 1, :] .= Bernoulli_θ[:, :, 2, :]
+        Bernoulli_θ[:, :, 1, 1] .= min.(Bernoulli_θ[:, :, 2, 1] .+ 1, 1)
     end
+    Range_θ = (rand(K, size_degree_of_P) .- 0.5)
+    Range_θ[:, 1] = log.(100.0 .* (1:K))
 
-    # ---- legend on the right ----
-    Legend(fig_Bcompare[1:2, 4],
-        [
-            LineElement(color=:black, linestyle=:solid),
-            LineElement(color=:black, linestyle=:dash),
-            LineElement(color=:black, linestyle=:dot),
-            [LineElement(color=mycolors[k], linestyle=:solid) for k in 1:my_K]...,
-        ],
-        [
-            L"true",
-            L"start",
-            L"fitted",
-            [L"k=%$k" for k in 1:my_K]...,
-        ],
-    )
+    a = fill(1 / K, K)
+    n2t = n_to_t(N, T)
 
-    resize_to_layout!(fig_Bcompare)
+    model = Trig2PeriodicHMMspaMemory(a, trans_θ, Bernoulli_θ, Range_θ, T, distance)
+    @test size(model) == (K, D, T, size_order)
 
-    fig_Bcompare
-end
-# savefigcrop
-
-begin
-    fig_R = Figure()
-
-    ax = Axis(fig_R[1, 1],
-        ylabel=L"\rho_{CY,k}^{(t)}\ (km)",
-        width=400, height=250)
-
-    for k in 1:my_K
-        color = mycolors[k]
-
-        # --- Real series (solid) ---
-        lines!(ax, 1:my_T, true_model.R[k, :],
-            color=color, linewidth=2)
-
-        # --- Starting model (dashed) ---
-        lines!(ax, 1:my_T, start_model.R[k, :],
-            color=color, linewidth=2, linestyle=:dash)
-
-        # --- Fitted model (thicker solid or dotted) ---
-        lines!(ax, 1:my_T, fitted_model.R[k, :],
-            color=color, linewidth=3, linestyle=:dot)
-    end
+    # rand
+    Y_past = rand(Bool, autoregressive_order, D)
+    z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
 
 
+    Y = convert(Array{Bool}, Y)
+    @test size(Y) == (N, D)
 
-    Legend(fig_R[1, 2],
-        [
-            LineElement(color=:black, linestyle=:solid),
-            LineElement(color=:black, linestyle=:dash),
-            LineElement(color=:black, linestyle=:dot),
-            [LineElement(color=mycolors[k], linestyle=:solid) for k in 1:my_K]...,
-        ],
-        [
-            "true",
-            "start",
-            "fitted",
-            [L"k=%$k" for k in 1:my_K]...,
-        ])
+    # initial guess close to truth (cheating) for fast convergence in test
+    thetaA = copy(trans_θ)
+    thetaB = copy(Bernoulli_θ)
+    thetaR = copy(Range_θ)
 
-    fig_R
-end
+    hmm = Trig2PeriodicHMMspaMemory(fill(1 / K, K), thetaA, thetaB, thetaR, T, distance)
 
-begin
-    fig_Q = Figure()
+    solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
 
-    for k in 1:my_K
-        row = (k - 1) ÷ 2 + 1
-        col = (k - 1) % 2 + 1
+    history, _, _, _ = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past;
+        solver, n2t=n2t, maxiter=10, tol=1e-4, maxiters_R=20, display=:none, tdist=1.1, QMC_m=10)
 
-        ax = Axis(fig_Q[row, col],
-            limits=(0, my_T + 1, 0, 1), yticks=0:0.2:1,
-            width=300, height=250)
-
-        if col > 1
-            hideydecorations!(ax; label=true, ticklabels=true, ticks=false,
-                grid=false, minorgrid=true, minorticks=false)
-        end
-
-        for l in 1:my_K
-            color = mycolors[l]
-
-            # --- REAL series ---
-            lines!(ax, 1:my_T, true_model.A[k, l, :],
-                color=color, linewidth=2)
-
-            # --- STARTING model ---
-            lines!(ax, 1:my_T, start_model.A[k, l, :],
-                color=color, linewidth=2, linestyle=:dash)
-
-            # --- FITTED model ---
-            lines!(ax, 1:my_T, fitted_model.A[k, l, :],
-                color=color, linewidth=3, linestyle=:dot)
-        end
-
-        # Horizontal reference line
-        hlines!(ax, [0.5], color=:black, linestyle=:dot)
-
-        # Month ticks identical to B-plot
-
-        # Legend for each panel
-        axislegend(ax,
-            [
-                LineElement(color=:black, linestyle=:solid),
-                LineElement(color=:black, linestyle=:dash),
-                LineElement(color=:black, linestyle=:dot),
-                [LineElement(color=mycolors[l], linestyle=:solid) for l in 1:my_K]...,
-            ],
-            [
-                "Real",
-                "Starting",
-                "Fitted",
-                [L"Q^{(t)}(%$k, %$l)" for l in 1:my_K]...,
-            ],
-            position=:ct, nbanks=3,
-            labelsize=14.7, patchlabelgap=0,
-            colgap=6, framevisible=false)
-    end
-
-    resize_to_layout!(fig_Q)
-    fig_Q
-end
-
-lines(history2["logtots"])
-
-#################### same but for m=2 - just so both are tested but it is the same code. ################"
-Random.seed!(1234)
-my_autoregressive_order = 2 #
-
-# choose real set of parameters
-
-my_size_order = 2^my_autoregressive_order
-my_size_degree_of_P = 2 * my_degree_of_P + 1
-
-my_trans_θ = 4 * (rand(my_K, my_K - 1, my_size_degree_of_P) .- 1 / 2)
-# parameters of the transition matrix.
-# matrix of size K * (K-1) * (2degP+1) : parameters of the transition matrix for the K(K-1), for each of the trigo param.
-
-if my_autoregressive_order == 0
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-else
-
-    my_Bernoulli_θ = 2 * (rand(my_K, my_D, my_size_order, my_size_degree_of_P) .- 1 / 2)
-    my_Bernoulli_θ[:, :, 1, :] .= my_Bernoulli_θ[:, :, 2, :]
-
-    my_Bernoulli_θ[:, :, 1, 1] .= min.(my_Bernoulli_θ[:, :, 2, 1] .+ 1, 1)
-end
-# rain probability parameters of the bernoulli Emissions
-# K (states) * D (stations)  * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param)
-
-my_Range_θ = (rand(my_K, my_size_degree_of_P) .- 1 / 2)
-my_Range_θ[:, 1] = log.(300 .* (1:my_K))
-# range  parameters of the bernoulli Emissions 
-# K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
-
-my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
-
-size(model)
-
-Y_past = rand(Bool, my_autoregressive_order, D)
-
-# random generation
-z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
-Y = convert(Array{Bool}, Y)
-
-
-
-#make initial parameters for estimation
-begin
-    thetaA = rand(my_K, my_K - 1, my_size_degree_of_P)
-    thetaB = zeros(my_K, my_D, my_size_order, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-    thetaR = zeros(my_K, my_size_degree_of_P)
-
-    thetaA[:, :, :] .= my_trans_θ[:, :, 1] # cheating on initial guess to recover very good mle maxima
-    thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
-    thetaR[:, 1] .= my_Range_θ[:, 1]# cheating on initial guess to recover very good mle maxima
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-end
-tol = 1e-4
-
-println("Before estimation: ", thetaR)
-
-tdist = 1.1 # max distance : so that all pairs of distance so that  0 < dist< tdist*dmax are taken into account in composite likelihood. If tdist is too small, the optimization will not be able to recover the true parameters. If tdist is too large, the optimization will be very slow. 
-
-
-solver = Optim.LBFGS(
-    linesearch=LineSearches.BackTracking())
-
-@time begin
-    history2, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past; solver, n2t=n2t, maxiter=20, tol=tol, maxiters_R=100, display=:iter, tdist=tdist, QMC_m=100)
+    logtots = history["logtots"]
+    println("logtots: ", logtots)
+    @test length(logtots) > 0
+    # loglikelihood should generally increase; allow small decreases (tolerance 1% of |logtot|)
+    @test all(diff(logtots) .>= -1e-2 * abs(logtots[1]))
 end

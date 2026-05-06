@@ -1,5 +1,5 @@
-using SmoothPeriodicStatsModels
 using Test
+using SmoothPeriodicStatsModels
 using Distributions, Random
 using Optimization, OptimizationOptimJL
 using Ipopt, OptimizationMOI
@@ -190,3 +190,5 @@ addprocs(2)
     # map alone: 32.788183 seconds (161.73 M allocations: 17.411 GiB, 3.53% gc time)
     # pmap 10 worker: 19.509379 seconds (165.01 M allocations: 18.707 GiB, 7.18% gc time)
 end
+
+include("test_hmmspa.jl")
