@@ -86,7 +86,7 @@ begin
     ][1:20, :]
 end
 
-@testset "PeriodicHMMSpaMemory memory=$autoregressive_order" for autoregressive_order in 0:1
+@testset "ARPeriodicHMMSpatial memory=$autoregressive_order" for autoregressive_order in 0:1
     Random.seed!(1234)
 
     K = 2
@@ -110,7 +110,7 @@ end
     a = fill(1 / K, K)
     n2t = n_to_t(N, T)
 
-    model = Trig2PeriodicHMMspaMemory(a, trans_θ, Bernoulli_θ, Range_θ, T, distance)
+    model = Trig2ARPeriodicHMMSpatial(a, trans_θ, Bernoulli_θ, Range_θ, T, distance)
     @test size(model) == (K, D, T, size_order)
 
     # rand
@@ -126,7 +126,7 @@ end
     thetaB = copy(Bernoulli_θ)
     thetaR = copy(Range_θ)
 
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / K, K), thetaA, thetaB, thetaR, T, distance)
+    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / K, K), thetaA, thetaB, thetaR, T, distance)
 
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
 

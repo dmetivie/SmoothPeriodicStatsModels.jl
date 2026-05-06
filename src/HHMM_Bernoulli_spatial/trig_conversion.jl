@@ -1,7 +1,7 @@
 
 #-----------------equivalent to trig_conversion.jl  ---------------------------#
 
-function Trig2PeriodicHMMspaMemory(a::AbstractVector, my_trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, my_T::Integer, my_h::AbstractMatrix)
+function Trig2ARPeriodicHMMSpatial(a::AbstractVector, my_trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, my_T::Integer, my_h::AbstractMatrix)
     my_K, my_D, my_size_order = size(Bernoulli_θ)
     @assert my_K == size(my_trans_θ, 1)
 
@@ -32,7 +32,7 @@ function Trig2PeriodicHMMspaMemory(a::AbstractVector, my_trans_θ::AbstractArray
     # return (my_A, p, range)
 
 
-    model = PeriodicHMMSpaMemory(a, my_A, my_range, my_p, my_h)
+    model = ARPeriodicHMMSpatial(a, my_A, my_range, my_p, my_h)
     return model
 end
 

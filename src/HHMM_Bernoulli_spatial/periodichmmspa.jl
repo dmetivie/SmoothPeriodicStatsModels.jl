@@ -2,9 +2,9 @@
 #-----------------equivalent to periodichmm.jl  ---------------------------#
 
 """
-    PeriodicHMMSpaMemory([a, ]A, R, B,h) -> PeriodicHMMSpaMemory
+    ARPeriodicHMMSpatial([a, ]A, R, B,h) -> ARPeriodicHMMSpatial
 
-Build an Auto Regressive Periodic Hidden Markov Chain with Spatial Bernoulli emission `PeriodicHMMSpaMemory`.  
+Build an Auto Regressive Periodic Hidden Markov Chain with Spatial Bernoulli emission `ARPeriodicHMMSpatial`.  
 If the initial state distribution `a` is not specified, it does not work. Please give initial state distribution.
 
 
@@ -15,7 +15,7 @@ If the initial state distribution `a` is not specified, it does not work. Please
 - `R` : range parameter
 - `h` distance matrix.
 """
-struct PeriodicHMMSpaMemory{T, AM} <: AbstractPeriodicHMM{Multivariate}
+struct ARPeriodicHMMSpatial{T, AM} <: AbstractPeriodicHMM{Multivariate}
     a::Vector{T}
     A::Array{T,3}
     R::Array{T,2}
@@ -24,14 +24,14 @@ struct PeriodicHMMSpaMemory{T, AM} <: AbstractPeriodicHMM{Multivariate}
 end
 
 """
-    size(hmm::PeriodicHMMSpaMemory, dim=:)
+    size(hmm::ARPeriodicHMMSpatial, dim=:)
 (K, D, T, number of memory)
 """
-size(hmm::PeriodicHMMSpaMemory, dim=:) = (size(hmm.B, 1), size(hmm.B, 3), size(hmm.B, 2), size(hmm.B, 4))[dim]
+size(hmm::ARPeriodicHMMSpatial, dim=:) = (size(hmm.B, 1), size(hmm.B, 3), size(hmm.B, 2), size(hmm.B, 4))[dim]
 
 # simulate with given z sequence.
 function rand(rng::AbstractRNG,
-    hmm::PeriodicHMMSpaMemory,
+    hmm::ARPeriodicHMMSpatial,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
     y_ini=rand(Bool, Int(log2(size(hmm, 4))), size(hmm, 2))
@@ -71,7 +71,7 @@ end
 
 # ## peut être pas necessaire car déjà dans rand(rng, hmm, z, n2t, y_ini) pour les AbsractHMM
 # function rand(rng::AbstractRNG,
-#     hmm::PeriodicHMMSpaMemory,
+#     hmm::ARPeriodicHMMSpatial,
 #     n2t::AbstractVector{<:Integer};
 #     z_ini=rand(Categorical(hmm.a))::Integer, y_ini=fill(0, size(hmm, 2)),
 #     seq=false

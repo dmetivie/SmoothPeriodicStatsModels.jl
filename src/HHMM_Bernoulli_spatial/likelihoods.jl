@@ -1,6 +1,6 @@
 
 
-function likelihoods!(L::AbstractMatrix, hmm::PeriodicHMMSpaMemory, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
+function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, K, D = size(Y, 1), size(hmm, 1), size(hmm, 2)
 	@argcheck size(L) == (N, K)
 
@@ -17,7 +17,7 @@ end
 
 
 
-function loglikelihoods!(LL::AbstractMatrix, hmm::PeriodicHMMSpaMemory, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
+function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, K, D, T = size(Y, 1), size(hmm, 1), size(hmm, 2), size(hmm, 3)
 	@argcheck size(LL) == (N, K)
 
@@ -48,7 +48,7 @@ end
 
 
 
-function loglikelihoods(hmm::PeriodicHMMSpaMemory, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust = false, n2t = n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
+function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust = false, n2t = n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, K = size(Y, 1), size(hmm, 1)
 	LL = Matrix{Float64}(undef, N, K)
 
@@ -64,7 +64,7 @@ end
 
 
 
-# function complete_loglikelihood(hmm::PeriodicHMMSpaMemory, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
+# function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
 # 	N, D = size(y)
 # 	lag_cat = conditional_to(y, y_past)
 # 	return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n ∈ 1:(N-1)) + sum(logpdf(SpatialBernoulli(hmm.R[z[n], n2t[n]], hmm.B[CartesianIndex.(z[n], n2t[n], 1:D, lag_cat[n, :])], hmm.h), y[n, :]; m = D * QMC_m) for n ∈ 1:N)
@@ -75,7 +75,7 @@ nb_param_HMMSpa(K, memory, d, D) = (2d + 1) * (K * 2^memory * D + K * (K - 1) + 
 
 
 
-function complete_loglikelihood(hmm::PeriodicHMMSpaMemory, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
+function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, D = size(y)
 	lag_cat = conditional_to(y, y_past)
 

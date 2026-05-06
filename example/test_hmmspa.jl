@@ -136,7 +136,7 @@ my_Range_θ[:, 1] = log.(300 .* (1:my_K))
 # K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
 
 my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
+model = Trig2ARPeriodicHMMSpatial(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
 
 size(model)
 
@@ -161,8 +161,8 @@ begin
     thetaR[:, 1] .= my_Range_θ[:, 1]
 
     # make the initial model (twice so that in-place estimation only changes hmm so I can compare with initial in plots)
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    start_model = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
 end
 tol = 1e-4
 
@@ -216,7 +216,7 @@ my_Range_θ[:, 1] = log.(300 .* (1:my_K))
 # K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
 
 my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
+model = Trig2ARPeriodicHMMSpatial(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
 
 size(model)
 
@@ -239,8 +239,8 @@ begin
     thetaA[:, :, :] .= my_trans_θ[:, :, 1] # cheating on initial guess to recover very good mle maxima
     thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
     thetaR[:, 1] .= my_Range_θ[:, 1]# cheating on initial guess to recover very good mle maxima
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    start_model = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
 end
 tol = 1e-4
 
@@ -278,7 +278,7 @@ fitted_thetaB = extract_last_theta(all_thetaB_iterations)
 fitted_thetaR = extract_last_theta(all_thetaR_iterations)
 
 # Create three models: true_model, start_model, fitted_model
-fitted_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), fitted_thetaA, fitted_thetaB, fitted_thetaR, my_T, my_distance)
+fitted_model = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), fitted_thetaA, fitted_thetaB, fitted_thetaR, my_T, my_distance)
 true_model = model
 
 ndays = size(true_model.B, 2)
@@ -502,7 +502,7 @@ my_Range_θ[:, 1] = log.(300 .* (1:my_K))
 # K (states)   * 1+AR order (memory in the HMM) * (2degP+1) (each of the trigo param) - range par
 
 my_a = fill(1 / my_K, my_K)
-model = Trig2PeriodicHMMspaMemory(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
+model = Trig2ARPeriodicHMMSpatial(my_a, my_trans_θ, my_Bernoulli_θ, my_Range_θ, my_T, my_distance);
 
 size(model)
 
@@ -524,8 +524,8 @@ begin
     thetaA[:, :, :] .= my_trans_θ[:, :, 1] # cheating on initial guess to recover very good mle maxima
     thetaB[:, :, :, 1] .= my_Bernoulli_θ[:, :, :, 1]
     thetaR[:, 1] .= my_Range_θ[:, 1]# cheating on initial guess to recover very good mle maxima
-    hmm = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
-    start_model = Trig2PeriodicHMMspaMemory(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
+    start_model = Trig2ARPeriodicHMMSpatial(fill(1 / my_K, my_K), thetaA, thetaB, thetaR, my_T, my_distance)
 end
 tol = 1e-4
 

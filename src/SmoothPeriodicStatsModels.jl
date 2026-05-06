@@ -79,7 +79,7 @@ include("HHMM_Bernoulli_spatial/viterbi.jl")
 include("HHMM_Bernoulli_spatial/update_param.jl")
 include("HHMM_Bernoulli_spatial/trig_conversion.jl")
 # for HMMMspa 
-export PeriodicHMMSpaMemory,norm_cdf_2d_vfast,Trig2PeriodicHMMspaMemory,fit_mle!
+export ARPeriodicHMMSpatial,norm_cdf_2d_vfast,Trig2ARPeriodicHMMSpatial,fit_mle!
 
 export
     # periodichmm.jl

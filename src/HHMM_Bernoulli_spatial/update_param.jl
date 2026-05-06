@@ -1,32 +1,8 @@
 # A and B are updated using the code from HHMM - update_A_B_jump.jl.
 
-function my_update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, model_B::Model; warm_start=true)
-    @argcheck size(γ, 1) == size(Y, 1)
-    @argcheck size(γ, 2) == size(B, 1)
-    N = size(γ, 1)
-    K = size(B, 1)
-    T = size(B, 2)
-    D = size(B, 3)
-    size_order = size(B, 4)
-    ## For periodicHMM only the n Y corresponding to B(t) are used to update B(t)
-    ## Update the smoothing parameters in the JuMP model
-
-    γₛ!(γₛ, γ, n_all) # update coefficient in JuMP model
-
-    all_iter = Iterators.product(1:K, 1:D, 1:size_order)
-    #! TODO pmap option
-    θ_res = pmap(tup -> fit_mle_one_B(θᴮ[tup..., :], model_B, γₛ[tup..., :, :]; warm_start=warm_start), all_iter)
-
-    for (k, s, h) in all_iter
-        θᴮ[k, s, h, :] = θ_res[k, s, h]
-    end
-
-    p = [1 / (1 + exp(polynomial_trigo(t, θᴮ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
-    B[:, :, :, :] .= p
-end
 
 function fit_mle!(
-    hmm::PeriodicHMMSpaMemory,
+    hmm::ARPeriodicHMMSpatial,
     thetaA::AbstractArray{<:AbstractFloat,3},
     thetaB::AbstractArray{<:AbstractFloat,4},
     thetaR::AbstractArray{<:AbstractFloat,2}, Y::AbstractArray{<:Bool},
@@ -178,7 +154,7 @@ function fit_mle!(
 
 
 
-        my_update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
+        update_B_spa!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
 
         if size_order == 1
             update_R!(hmm, thetaR, γ, wp, Y, Situations; n2t=n2t,solver, maxiters=maxiters_R)
@@ -387,8 +363,7 @@ function fit_mle_one_R_memory1!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::Abs
     # @show theta_R
 end
 
-
-function update_R_memory1!(hmm::PeriodicHMMSpaMemory,
+function update_R!(hmm::ARPeriodicHMMSpatial,
     Range_θ::AbstractArray{N,2} where {N},
     γ::AbstractMatrix, wp, Y, Situations::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},solver, maxiters=10)
     @argcheck size(γ, 1) == size(Y, 1)
