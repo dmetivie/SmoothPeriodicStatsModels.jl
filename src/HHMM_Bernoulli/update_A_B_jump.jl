@@ -70,8 +70,11 @@ function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} wh
     # @show θᴮ[4,10,2,:]
 
     p = [1 / (1 + exp(polynomial_trigo(t, θᴮ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
-    B[:, :, :, :] = Bernoulli.(p)
+    _assign_B!(B, p)
 end
+
+_assign_B!(B::AbstractArray{<:Real,4}, p) = B .= p
+_assign_B!(B::AbstractArray{<:Distribution,4}, p) = B .= Bernoulli.(p)
 
 function fit_mle_one_B(θ, model_B, γ; warm_start = true)
     T, rain_cat = size(γ)
