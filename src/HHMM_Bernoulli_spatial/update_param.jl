@@ -62,76 +62,20 @@ function fit_mle!(
     model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_B, silence=silence) # JuMP Model for Emmission distribution
 
 
-    # generate situations
-    if size_order == 1
-        Situations = zeros(Int, 4, N, D, D)
-
-        for n in 1:N
-            for i in 1:D
-                for j in 1:D
-                    Situations[1, n, i, j] = (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
-                    Situations[2, n, i, j] = (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
-                    Situations[3, n, i, j] = (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
-                    Situations[4, n, i, j] = (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
-                end
-            end
-        end
-    elseif size_order == 2
-        # generate situations
-        Situations = zeros(Int, 16, N, D, D)
-
-        for n in 2:N
-            for i in 1:D
-                for j in 1:D
-                    Situations[1, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
-                    Situations[2, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
-                    Situations[3, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
-                    Situations[4, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
-
-                    Situations[5, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
-                    Situations[6, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
-                    Situations[7, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
-                    Situations[8, n, i, j] = (Y[n-1, i] == 1 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
-
-                    Situations[9, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
-                    Situations[10, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
-                    Situations[11, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
-                    Situations[12, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 1) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
-
-                    Situations[13, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 1) ? 1 : 0
-                    Situations[14, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 1 && Y[n, j] == 0) ? 1 : 0
-                    Situations[15, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 1) ? 1 : 0
-                    Situations[16, n, i, j] = (Y[n-1, i] == 0 && Y[n-1, j] == 0) && (Y[n, i] == 0 && Y[n, j] == 0) ? 1 : 0
-                end
-            end
-        end
+    # Precompute situation bucket index for each (n, i, j), computed once and reused across EM iterations.
+    # Encoding: block = (size_order - lag_cat_i) * size_order * 4 + (size_order - lag_cat_j) * 4
+    #           within block: 1=(1,1), 2=(1,0), 3=(0,1), 4=(0,0)
+    # For size_order == 1, lag_cat is all-ones, so the block offset is 0 and only the current-obs index (1..4) matters.
+    SituationIdx = zeros(Int, N, D, D)
+    for n in 1:N
         for i in 1:D
             for j in 1:D
-                Situations[1, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 1) && (Y[1, i] == 1 && Y[1, j] == 1) ? 1 : 0
-                Situations[2, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 1) && (Y[1, i] == 1 && Y[1, j] == 0) ? 1 : 0
-                Situations[3, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 1) && (Y[1, i] == 0 && Y[1, j] == 1) ? 1 : 0
-                Situations[4, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 1) && (Y[1, i] == 0 && Y[1, j] == 0) ? 1 : 0
-
-                Situations[5, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 0) && (Y[1, i] == 1 && Y[1, j] == 1) ? 1 : 0
-                Situations[6, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 0) && (Y[1, i] == 1 && Y[1, j] == 0) ? 1 : 0
-                Situations[7, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 0) && (Y[1, i] == 0 && Y[1, j] == 1) ? 1 : 0
-                Situations[8, 1, i, j] = (Y_past[i] == 1 && Y_past[j] == 0) && (Y[1, i] == 0 && Y[1, j] == 0) ? 1 : 0
-
-                Situations[9, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 1) && (Y[1, i] == 1 && Y[1, j] == 1) ? 1 : 0
-                Situations[10, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 1) && (Y[1, i] == 1 && Y[1, j] == 0) ? 1 : 0
-                Situations[11, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 1) && (Y[1, i] == 0 && Y[1, j] == 1) ? 1 : 0
-                Situations[12, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 1) && (Y[1, i] == 0 && Y[1, j] == 0) ? 1 : 0
-
-                Situations[13, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 0) && (Y[1, i] == 1 && Y[1, j] == 1) ? 1 : 0
-                Situations[14, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 0) && (Y[1, i] == 1 && Y[1, j] == 0) ? 1 : 0
-                Situations[15, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 0) && (Y[1, i] == 0 && Y[1, j] == 1) ? 1 : 0
-                Situations[16, 1, i, j] = (Y_past[i] == 0 && Y_past[j] == 0) && (Y[1, i] == 0 && Y[1, j] == 0) ? 1 : 0
+                lci = lag_cat[n, i]
+                lcj = lag_cat[n, j]
+                cur_idx = 2 * (1 - Int(Y[n, i])) + (1 - Int(Y[n, j])) + 1
+                SituationIdx[n, i, j] = (size_order - lci) * size_order * 4 + (size_order - lcj) * 4 + cur_idx
             end
         end
-    elseif size_order > 2
-        println("memory of more than 2 not yet implemented for the mle estimation")
-        return
-
     end
     println("Situations generated")
 
@@ -154,13 +98,9 @@ function fit_mle!(
 
 
 
-        update_B_spa!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
+        update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
 
-        if size_order == 1
-            update_R!(hmm, thetaR, γ, wp, Y, Situations; n2t=n2t,solver, maxiters=maxiters_R)
-        elseif size_order == 2
-            update_R_memory1!(hmm, thetaR, γ, wp, Y, Situations; n2t=n2t,solver, maxiters=maxiters_R)
-        end
+        update_R!(hmm, thetaR, γ, wp, Y, SituationIdx; n2t=n2t, solver, maxiters=maxiters_R)
 
 
         push!(all_thetaA_iterations, copy(thetaA))
@@ -231,181 +171,63 @@ end
 
 function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
     T = size(B, 1)
-    # println("size(B,1) = T ? =",T)
-    # println("inside updateR! - inside fit - before estim: ", theta_R)
     pairwise_indices2 = Tuple.(findall(wp .> 0))
+    size_order = size(B, 3)  # 1 for no memory, 2^order for memory >= 1
 
-    # Branch: Optimize only `range`, fixing `order`
     function optimfunction2(u, p)
         Rt = similar(u, T)
         for t in 1:T
             Rt[t] = exp(polynomial_trigo(t, u, T))
         end
-        # println("u inside optimfun",u)
-        # println("R inside optimfun",Rt)
-
-        # println("B inside optimfun is called ",B) 
-        # @show wp 
-        # @show h
-
-        return -my_loglikelihood(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2
-        )
-    end
-    optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), AutoForwardDiff())
-    u0 = collect(theta_R) 
-    # println("inside updateR! - inside fit - u0: ", u0)
-
-    prob = OptimizationProblem(optf2, u0, [Y, n_pair, h, wp])
-
-    # Solve the problem
-    sol = solve(prob, solver; solkwargs...)
-
-    # Check solution status
-    if !SciMLBase.successful_retcode(sol.retcode)
-        @warn "sol.retcode = $(sol.retcode)"
-    end
-    # println("inside updateR! - inside fit - after estim sol.u: ", sol.u)
-
-    # Return the result
-    theta_R[:] .= view(sol.u, :)
-    # @show theta_R
-end
-
-
-function update_R!(hmm::PeriodicHMMSpaMemory,
-    Range_θ::AbstractArray{N,2} where {N},
-    γ::AbstractMatrix, wp, Y, Situations::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},solver, maxiters=10)
-    @argcheck size(γ, 1) == size(Y, 1)
-    N = size(γ, 1)
-    R = hmm.R
-
-    K = size(R, 1)
-    T = size(R, 2)
-    D = size(hmm, 2)
-    # @show K, T  # debug
-    # println("inside updateR! - before fit: ", Range_θ)
-    pairwise_indices2 = Tuple.(findall(wp .> 0))
-
-    # Parallelized loop
-    @threads for k in 1:K
-        # @show k  # debug
-        B = hmm.B[k, :, :, 1]  # B[k,t]
-        h = hmm.h
-        w = γ[:, k]
-        # println("B,h,w ok")
-        n_pair = zeros(eltype(R), 4, D, D, T)
-
-        @inbounds for tk in 1:N
-            t = n2t[tk]
-            for (i, j) in pairwise_indices2
-                w_k = w[tk]
-                @views begin
-                    n_pair[1, i, j, t] += w_k * Situations[1, tk, i, j]
-                    n_pair[2, i, j, t] += w_k * Situations[2, tk, i, j]
-                    n_pair[3, i, j, t] += w_k * Situations[3, tk, i, j]
-                    n_pair[4, i, j, t] += w_k * Situations[4, tk, i, j]
-                end
-            end
+        if size_order == 1
+            return -my_loglikelihood(Rt, B[:, :, 1], p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
+        else
+            return -my_loglikelihood_memory(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
         end
-        # println("weight pairs ok")
-        # Fix: Use `view` to pass mutable references
-        # @show (Range_θ[ k, :])
-        fit_mle_one_R!(view(Range_θ, k, :), B, h, Y, wp, n_pair; n2t=n2t,solver, maxiters=maxiters)
-        # @show (Range_θ[ k, :])
-    end
-    # println("inside updateR! - after fit: ", Range_θ)
-
-
-    # Ensure in-place modification of R
-    for k in 1:K
-        R[k, :] .= [exp(polynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
-    end
-end
-
-function fit_mle_one_R_memory1!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
-    T = size(B, 1)
-    # println("size(B,1) = T ? =",T)
-    # println("inside updateR! - inside fit - before estim: ", theta_R)
-    pairwise_indices2 = Tuple.(findall(wp .> 0))
-
-    # Branch: Optimize only `range`, fixing `order`
-    function optimfunction2(u, p)
-        Rt = similar(u, T)
-        for t in 1:T
-            Rt[t] = exp(polynomial_trigo(t, u, T))
-        end
-        # println("u inside optimfun",u)
-        # println("R inside optimfun",Rt)
-
-        # println("B inside optimfun is called ",B) 
-        # @show wp 
-        # @show h
-
-        return -my_loglikelihood_memory1(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
     end
     optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), AutoForwardDiff())
     u0 = collect(theta_R)
-    # println("inside updateR! - inside fit - u0: ", u0)
 
     prob = OptimizationProblem(optf2, u0, [Y, n_pair, h, wp])
 
-    # Solve the problem
     sol = solve(prob, solver; solkwargs...)
 
-    # Check solution status
     if !SciMLBase.successful_retcode(sol.retcode)
         @warn "sol.retcode = $(sol.retcode)"
     end
-    # println("inside updateR! - inside fit - after estim sol.u: ", sol.u)
 
-    # Return the result
     theta_R[:] .= view(sol.u, :)
-    # @show theta_R
 end
 
 function update_R!(hmm::ARPeriodicHMMSpatial,
     Range_θ::AbstractArray{N,2} where {N},
-    γ::AbstractMatrix, wp, Y, Situations::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},solver, maxiters=10)
+    γ::AbstractMatrix, wp, Y, SituationIdx::AbstractArray{<:Integer,3}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, solver, maxiters=10)
     @argcheck size(γ, 1) == size(Y, 1)
-    N = size(γ, 1)
+    N_obs = size(γ, 1)
     R = hmm.R
     D = size(hmm, 2)
-
     K = size(R, 1)
     T = size(R, 2)
-    # println("inside updateR! - before fit: ", Range_θ)
+    size_order = size(hmm, 4)
+    n_situations = 4 * size_order^2
     pairwise_indices2 = Tuple.(findall(wp .> 0))
 
-    # Parallelized loop
     @threads for k in 1:K
-        B = hmm.B[k, :, :, :]  # B[k,t,h]
+        B = hmm.B[k, :, :, :]  # B[t, d, lag_cat]
         h = hmm.h
         w = γ[:, k]
-        n_pair = zeros(eltype(R), 16, D, D, T)
+        n_pair = zeros(eltype(R), n_situations, D, D, T)
 
-        @inbounds for tk in 1:N
+        @inbounds for tk in 1:N_obs
             t = n2t[tk]
             for (i, j) in pairwise_indices2
-                w_k = w[tk]
-                @views begin
-                    for s in 1:16
-                        n_pair[s, i, j, t] += w_k * Situations[s, tk, i, j]
-
-                    end
-
-                end
+                n_pair[SituationIdx[tk, i, j], i, j, t] += w[tk]
             end
         end
 
-        # Fix: Use `view` to pass mutable references
-        # @show (Range_θ[ k, :])
-        fit_mle_one_R_memory1!(view(Range_θ, k, :), B, h, Y, wp, n_pair; n2t=n2t,solver, maxiters=maxiters)
-        # @show (Range_θ[ k, :])
+        fit_mle_one_R!(view(Range_θ, k, :), B, h, Y, wp, n_pair; n2t=n2t, solver, maxiters=maxiters)
     end
-    # println("inside updateR! - after fit: ", Range_θ)
 
-
-    # Ensure in-place modification of R
     for k in 1:K
         R[k, :] .= [exp(polynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
     end
