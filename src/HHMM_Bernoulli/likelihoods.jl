@@ -65,14 +65,14 @@ end
 
 # * Bayesian Criterion * #
 
-function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractMatrix, y_past::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
+function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractMatrix, y_past::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
     N, D = size(y)
     lag_cat = conditional_to(y, y_past)
 
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], n2t[n], 1:D, lag_cat[n, :])]), y[n, :]) for n = 1:N)
 end
 
-function complete_loglikelihood(hmm::PeriodicHMM, y::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
+function complete_loglikelihood(hmm::PeriodicHMM, y::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 1), size(hmm.B, 2))::AbstractVector{<:Integer})
     N, D = size(y, 1), size(y, 2)
 
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], n2t[n], 1:D)]), y[n, :]) for n = 1:N)
