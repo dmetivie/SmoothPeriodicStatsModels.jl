@@ -1,6 +1,6 @@
 name = "SmoothPeriodicStatsModels"
 uuid = "3d8e1505-165e-443f-a184-83a230b5a9e5"
-version = "2.1.1"
+version = "2.1.2"
 authors = ["David Métivier <david.metivier@inrae.fr> and Caroline Cognot"]
 
 [deps]
