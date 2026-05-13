@@ -95,8 +95,6 @@ function fit_mle!(
         # DONE :need to check update_A
         update_A!(hmm.A, thetaA, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start=warm_start)
 
-
-
         update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
 
         update_R!(hmm, thetaR, γ, wp, Y, SituationIdx; n2t=n2t, solver, maxiters=maxiters_R)
