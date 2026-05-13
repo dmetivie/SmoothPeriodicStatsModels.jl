@@ -1,5 +1,3 @@
-
-
 function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, K, D = size(Y, 1), size(hmm, 1), size(hmm, 2)
 	@argcheck size(L) == (N, K)
@@ -14,8 +12,6 @@ function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractM
 		end
 	end
 end
-
-
 
 function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t = n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, K, D, T = size(Y, 1), size(hmm, 1), size(hmm, 2), size(hmm, 3)
@@ -61,9 +57,6 @@ function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_p
 	return LL
 end
 
-
-
-
 # function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(Y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
 # 	N, D = size(y)
 # 	lag_cat = conditional_to(y, y_past)
@@ -71,9 +64,6 @@ end
 # end
 
 nb_param_HMMSpa(K, memory, d, D) = (2d + 1) * (K * 2^memory * D + K * (K - 1) + K)
-
-
-
 
 function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t = n_to_t(size(y, 1), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m = 30)
 	N, D = size(y)
@@ -106,8 +96,7 @@ end
 
 # for pairwise likelihood : 
 
-
-function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0))
+function pairwise_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0))
 )
 	N, D = size(Y)
 	T = size(R, 1)
@@ -152,7 +141,7 @@ function my_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{
 	return (pairwise_sum)
 end
 
-function my_loglikelihood_memory(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0)))
+function pairwise_loglikelihood_memory(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t = n_to_t(size(Y, 1), size(R, 1))::AbstractVector{<:Integer}, eps = 1e-10, pairwise_indices2 = Tuple.(findall(wp .> 0)))
 	N, D = size(Y)
 	T = size(R, 1)
 	size_order = size(B, 3)  # B is (T, D, size_order)

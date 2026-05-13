@@ -1,6 +1,5 @@
 # A and B are updated using the code from HHMM - update_A_B_jump.jl.
 
-
 function fit_mle!(
     hmm::ARPeriodicHMMSpatial,
     thetaA::AbstractArray{<:AbstractFloat,3},
@@ -180,9 +179,9 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
             Rt[t] = exp(polynomial_trigo(t, u, T))
         end
         if size_order == 1
-            return -my_loglikelihood(Rt, B[:, :, 1], p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
+            return -pairwise_loglikelihood(Rt, B[:, :, 1], p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
         else
-            return -my_loglikelihood_memory(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
+            return -pairwise_loglikelihood_memory(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
         end
     end
     optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), AutoForwardDiff())
