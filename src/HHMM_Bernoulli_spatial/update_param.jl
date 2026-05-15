@@ -99,16 +99,13 @@ function fit_mle!(
 
         update_R!(hmm, thetaR, γ, wp, Y, SituationIdx; n2t=n2t, solver, maxiters=maxiters_R)
 
-
         push!(all_thetaA_iterations, copy(thetaA))
         push!(all_thetaB_iterations, copy(thetaB))
-
        
         robust && (hmm.A .+= eps())
 
         @check isprobvec(hmm.a)
         @check all(t -> istransmat(hmm.A[:, :, t]), 1:T)
-
 
         push!(all_thetaR_iterations, copy(thetaR))
 
