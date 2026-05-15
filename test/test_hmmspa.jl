@@ -86,7 +86,7 @@ begin
     ][1:20, :]
 end
 
-@testset "ARPeriodicHMMSpatial memory=$autoregressive_order" for autoregressive_order in 0:1
+@testset "ARPeriodicHMMSpatial memory=$autoregressive_order" for autoregressive_order in 0:2
     Random.seed!(1234)
 
     K = 2
