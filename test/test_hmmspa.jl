@@ -117,8 +117,6 @@ end
     Y_past = rand(Bool, autoregressive_order, D)
     z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
 
-
-    Y = convert(Array{Bool}, Y)
     @test size(Y) == (N, D)
 
     # initial guess close to truth (cheating) for fast convergence in test

@@ -40,7 +40,7 @@ function rand(rng::AbstractRNG,
     D = size(hmm, 2)
     size_order = size(hmm, 4)
     order = Int(log2(size_order))
-    y = Matrix{eltype(eltype(hmm.B))}(undef, N, D)
+    y = Matrix{Bool}(undef, N, D)
 
     @argcheck size(y_ini) == (order, D) "Initial condition is not correct: You give $(size(y_ini)) instead of $((order, D))"
 
