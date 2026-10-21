@@ -179,14 +179,14 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
             return -pairwise_loglikelihood_memory(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
         end
     end
-    optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), AutoForwardDiff())
+    optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), Optimization.AutoForwardDiff())
     u0 = collect(theta_R)
 
     prob = OptimizationProblem(optf2, u0, [Y, n_pair, h, wp])
 
     sol = solve(prob, solver; solkwargs...)
 
-    if !SciMLBase.successful_retcode(sol.retcode)
+    if !successful_retcode(sol.retcode)
         @warn "sol.retcode = $(sol.retcode)"
     end
 

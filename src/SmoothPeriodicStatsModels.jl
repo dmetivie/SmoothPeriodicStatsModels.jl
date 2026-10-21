@@ -10,6 +10,7 @@ using Distributed
 # ## Optimization
 using JuMP, Ipopt
 using Optimization, OptimizationMOI
+using SciMLBase: successful_retcode # `Optimization` does not re-export it on every version
 using LsqFit
 
 # ## Multivariate
