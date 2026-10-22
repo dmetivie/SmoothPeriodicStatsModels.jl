@@ -17,114 +17,57 @@ function s_ξ!(s_ξ, ξ, n_in_t)
     # * We add ξ[N, k, l] but it should be zeros
 end
 
-function model_for_B(γ::AbstractMatrix, d::Int; silence = true, max_cpu_time = 60.0, max_iter = 100)
-    T, rain_cat = size(γ)
-    model = Model(Ipopt.Optimizer)
-    set_optimizer_attribute(model, "max_cpu_time", max_cpu_time)
-    set_optimizer_attribute(model, "max_iter", max_iter)
+"""
+    update_B!(B, θᴮ, γ, γₛ, Y, n_all, basis; solver, adtype, ensemble, solve_kwargs)
 
-    silence && set_silent(model)
-    f = 2π / T
-    cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
-    sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
-    trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
+M-step for the emission probabilities: refit the trigonometric coefficients `θᴮ[k, s, h, :]` of
+every (state, site, memory) triple against the aggregated posteriors `γₛ`, then write the
+resulting probabilities into `B`.
 
-    @variable(model, θ_jump[j = 1:(2d+1)])
-    # Polynomial P
-    @NLexpression(model, Pₙ[t = 1:T], sum(trig[t][j] * θ_jump[j] for j = 1:length(trig[t])))
-
-    @NLparameter(model, πₛ[t = 1:T, y = 1:rain_cat] == γ[t, y])
-    
-    @NLexpression(model, mle,
-        -sum(πₛ[t, 1] * log1p(exp(-Pₙ[t])) for t = 1:T) - sum(πₛ[t, 2] * log1p(exp(+Pₙ[t])) for t = 1:T)
-    ) # 1 is where it did not rain # 2 where it rained
-    @NLobjective(
-        model, Max,
-        mle
-    )
-    # I don't know if it is the best but https://discourse.julialang.org/t/jump-updating-nlparameter-of-a-model-in-a-loop/35081/3
-    model[:πₛ] = πₛ
-    return model
-end
-
-function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, model_B::Model; warm_start = true)
+The triples are independent problems differing only in their starting point and their data, so
+they are solved as one `EnsembleProblem`; pass `ensemble = EnsembleThreads()` to run them in
+parallel.
+"""
+function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, basis::AbstractMatrix;
+    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @argcheck size(γ, 1) == size(Y, 1)
     @argcheck size(γ, 2) == size(B, 1)
-    N = size(γ, 1)
-    K = size(B, 1)
-    T = size(B, 2)
-    D = size(B, 3)
-    size_order = size(B, 4)
+    K, T, D, size_order = size(B)
+
     ## For periodicHMM only the n Y corresponding to B(t) are used to update B(t)
-    ## Update the smoothing parameters in the JuMP model
+    γₛ!(γₛ, γ, n_all)
 
-    γₛ!(γₛ, γ, n_all) # update coefficient in JuMP model
-    # @show γₛ[4,10,2,1,:]
-    all_iter = Iterators.product(1:K, 1:D, 1:size_order)
-    # @show θᴮ[4,10,2,:]
-    #! TODO pmap option
-    θ_res = pmap(tup -> fit_mle_one_B(θᴮ[tup..., :], model_B, γₛ[tup..., :, :]; warm_start=warm_start), all_iter)
-    for (k, s, h) in all_iter
-        θᴮ[k, s, h, :] = θ_res[k, s, h]
+    idx = vec(collect(Iterators.product(1:K, 1:D, 1:size_order)))
+    emission_data(k, s, h) = (view(γₛ, k, s, h, :, :), basis)
+    base = OptimizationProblem(OptimizationFunction(bernoulli_logit_nll, adtype),
+        θᴮ[idx[1]..., :], emission_data(idx[1]...))
+    eprob = EnsembleProblem(base;
+        prob_func=(prob, ctx) -> remake(prob; u0=θᴮ[idx[ctx.sim_id]..., :],
+            p=emission_data(idx[ctx.sim_id]...)))
+    sol = solve(eprob, solver, ensemble; trajectories=length(idx), solve_kwargs...)
+
+    for (i, (k, s, h)) in enumerate(idx)
+        successful_retcode(sol.u[i].retcode) || @warn "emission ($k, $s, $h): $(sol.u[i].retcode)"
+        θᴮ[k, s, h, :] = sol.u[i].u
     end
-    # @show θᴮ[4,10,2,:]
 
-    p = [1 / (1 + exp(polynomial_trigo(t, θᴮ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
+    p = [1 / (1 + exp(polynomial_trigo(t / T, θᴮ[k, s, h, :]))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     _assign_B!(B, p)
 end
 
 _assign_B!(B::AbstractArray{<:Real,4}, p) = B .= p
 _assign_B!(B::AbstractArray{<:Distribution,4}, p) = B .= Bernoulli.(p)
 
-function fit_mle_one_B(θ, model_B, γ; warm_start = true)
-    T, rain_cat = size(γ)
-    θ_jump = model_B[:θ_jump]
-    warm_start && set_start_value.(θ_jump, θ[:])
-    πₛ = model_B[:πₛ]
-    # @show θ
-    # @show πₛ[1:2,:]
 
-    for t = 1:T, y = 1:rain_cat
-        set_value(πₛ[t, y], γ[t, y])
-    end
-    # @show πₛ[1:2,:]
+"""
+    update_A!(A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, basis; solver, adtype, ensemble, solve_kwargs)
 
-    optimize!(model_B)
-    return value.(θ_jump)
-end
+M-step for the transition matrices: refit the trigonometric coefficients `θᴬ[k, :, :]` of every
+state against the aggregated transition posteriors `s_ξ`, then write the resulting softmax
+probabilities into `A`.
 
-# JuMP model use to increase R(θ,θ^i) for the Q(t) matrix
-function model_for_A(s_ξ::AbstractArray, d::Int; silence = true)
-    T, K = size(s_ξ)
-    @assert K>1 "To define a transition matrix K ≥ 2, here K = $K"
-    model = Model(Ipopt.Optimizer)
-    set_optimizer_attribute(model, "max_iter", 200)
-    silence && set_silent(model)
-    f = 2π / T
-    cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
-    sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
-
-    trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
-
-    @variable(model, pklj_jump[l = 1:(K-1), j = 1:(2d+1)], start = 0.01)
-    # Polynomial P_kl
-    @NLexpression(model, Pkl[t = 1:T, l = 1:K-1], sum(trig[t][j] * pklj_jump[l, j] for j = 1:length(trig[t])))
-
-    @NLparameter(model, s_πkl[t = 1:T, l = 1:K-1] == s_ξ[t, l])
-    #TODO? is it useful to define the extra parameter for the sum?
-    @NLparameter(model, s_πk[t = 1:T] == sum(s_ξ[t, l] for l = 1:K))
-
-    @NLobjective(
-        model,
-        Max,
-        sum(sum(s_πkl[t, l] * Pkl[t, l] for l = 1:K-1) - s_πk[t] * log1p(sum(exp(Pkl[t, l]) for l = 1:K-1)) for t = 1:T)
-    )
-    # To add NL parameters to the model for later use https://discourse.julialang.org/t/jump-updating-nlparameter-of-a-model-in-a-loop/35081/3
-    model[:s_πkl] = s_πkl
-    model[:s_πk] = s_πk
-    return model
-end
-
+One independent problem per state, solved as one `EnsembleProblem`.
+"""
 function update_A!(
     A::AbstractArray{<:AbstractFloat,3},
     θᴬ::AbstractArray{<:AbstractFloat,3},
@@ -135,9 +78,9 @@ function update_A!(
     LL::AbstractMatrix,
     n2t::AbstractArray{Int},
     n_in_t,
-    model_A::Model;
-    warm_start = true
-) 
+    basis::AbstractMatrix;
+    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;)
+)
     @argcheck size(α, 1) == size(β, 1) == size(LL, 1) == size(ξ, 1)
     @argcheck size(α, 2) ==
               size(β, 2) ==
@@ -167,14 +110,21 @@ function update_A!(
     # ξ are the filtering probablies
     s_ξ!(s_ξ, ξ, n_in_t)
 
-    θ_res = pmap(k -> fit_mle_one_A(θᴬ[k, :, :], model_A, s_ξ[:, k, :]; warm_start = warm_start), 1:K)
+    transition_data(k) = (view(s_ξ, :, k, :), basis, K)
+    base = OptimizationProblem(OptimizationFunction(multinomial_logit_nll, adtype),
+        collect(vec(θᴬ[1, :, :])), transition_data(1))
+    eprob = EnsembleProblem(base;
+        prob_func=(prob, ctx) -> remake(prob; u0=collect(vec(θᴬ[ctx.sim_id, :, :])),
+            p=transition_data(ctx.sim_id)))
+    sol = solve(eprob, solver, ensemble; trajectories=K, solve_kwargs...)
 
     for k = 1:K
-        θᴬ[k, :, :] = θ_res[k][:, :]
+        successful_retcode(sol.u[k].retcode) || @warn "transition $k: $(sol.u[k].retcode)"
+        θᴬ[k, :, :] = reshape(sol.u[k].u, K - 1, :)
     end
 
     for k = 1:K, l = 1:K-1, t = 1:T
-        A[k, l, t] = exp(polynomial_trigo(t, θᴬ[k, l, :], T))
+        A[k, l, t] = exp(polynomial_trigo(t / T, θᴬ[k, l, :]))
     end
     for k = 1:K, t = 1:T
         A[k, K, t] = 1  # last colum is 1/normalization (one could do otherwise)
@@ -185,6 +135,7 @@ function update_A!(
     end
 end
 
+# A one-state chain has no transition to fit
 update_A!(
     A::AbstractArray{<:AbstractFloat,3},
     θᴬ::AbstractArray{<:AbstractFloat,3},
@@ -195,28 +146,10 @@ update_A!(
     LL::AbstractMatrix,
     n2t::AbstractArray{Int},
     n_in_t,
-    model_A::Nothing;
-    warm_start = true
+    basis::Nothing;
+    kwargs...
 ) = nothing
 
-function fit_mle_one_A(θᴬ, model, s_ξ; warm_start = true)
-    T, K = size(s_ξ)
-    pklj_jump = model[:pklj_jump]
-    s_πk = model[:s_πk]
-    s_πkl = model[:s_πkl]
-    ## Update the smoothing parameters in the JuMP model
-    for t = 1:T
-        set_value(s_πk[t], sum(s_ξ[t, l] for l = 1:K))
-        for l = 1:K-1
-            set_value(s_πkl[t, l], s_ξ[t, l])
-        end
-    end
-    warm_start && set_start_value.(pklj_jump, θᴬ[:, :])
-    # Optimize the updated model
-    optimize!(model)
-    # Obtained the new parameters
-    return value.(pklj_jump)
-end
 
 function fit_mle!(
     hmm::ARPeriodicHMM,
@@ -229,11 +162,16 @@ function fit_mle!(
     maxiter=100,
     tol=1e-3,
     robust=false,
-    silence=true,
-    warm_start=true
+    solver=default_solver(),
+    adtype=default_adtype(),
+    ensemble=default_ensemble(),
+    solve_kwargs=(;),
+    silence=nothing,
+    warm_start=nothing
 )
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
+    _warn_legacy_solver_kwargs(silence, warm_start)
 
     N, K, T, size_order, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 
@@ -265,8 +203,8 @@ function fit_mle!(
     n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
-    model_A = K ≥ 2 ? model_for_A(s_ξ[:, 1, :], deg_θᴬ, silence=silence) : nothing # JuMP Model for transition matrix
-    model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_θᴮ, silence=silence) # JuMP Model for Emmission distribution
+    basis_A = K ≥ 2 ? trig_basis(T, deg_θᴬ) : nothing # `nothing` disables the transition M-step
+    basis_B = trig_basis(T, deg_θᴮ)
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
@@ -280,8 +218,8 @@ function fit_mle!(
     # @show γ[1:3,:]
     for it = 1:maxiter
         update_a!(hmm.a, α, β)
-        update_A!(hmm.A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start=warm_start)
-        update_B!(hmm.B, θᴮ, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
+        update_A!(hmm.A, θᴬ, ξ, s_ξ, α, β, LL, n2t, n_in_t, basis_A; solver, adtype, ensemble, solve_kwargs)
+        update_B!(hmm.B, θᴮ, γ, γₛ, Y, n_all, basis_B; solver, adtype, ensemble, solve_kwargs)
         # Ensure the "connected-ness" of the states,
         # this prevents case where there is no transitions
         # between two extremely likely Y.

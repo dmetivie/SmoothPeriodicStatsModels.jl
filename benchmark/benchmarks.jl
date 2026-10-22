@@ -3,7 +3,8 @@ using Distributions
 using Random
 using StableRNGs
 using SmoothPeriodicStatsModels
-using Ipopt, OptimizationOptimJL
+using Ipopt, OptimizationMOI, OptimizationOptimJL
+using Optimization, SimpleNonlinearSolve, ForwardDiff # trigger the fitting extension
 using LinearAlgebra: BLAS
 
 BLAS.set_num_threads(1)
@@ -233,7 +234,7 @@ let
         ℓ = (θ, x) -> -sum(logpdf(mixture_exp2(t / T, θ), x[n]) for (n, t) in enumerate(n2t))
 
         SUITE["mixture"]["OptimMLE"]["Ipopt T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, opt, $θ0), $y; print_level=0),
+            fit_mle(OptimMLE($ℓ, opt, $θ0), $y; solve_kwargs=(print_level=0,)),
             setup = (opt = Ipopt.Optimizer()),
             evals = 1
         )
@@ -260,14 +261,11 @@ let
         SUITE["ar1"]["rand"][N] = @benchmarkable rand($AR, $N; y₁=0.0)
     end
 
-    # The full (non sufficient-statistics) JuMP model has one term per observation,
-    # so it is dominated by the model build; keep the samples small.
+    # The fit reduces the data to per-period sufficient statistics first, so the objective is
+    # O(T) however long the series is; only the one-off statistics pass scales with N.
     for N in [2_000, 5_000]
         Random.seed!(1)
         y = rand(AR, N; y₁=0.0)
-        SUITE["ar1"]["fit_mle"][N] = @benchmarkable(
-            model_for_loglikelihood_AR1_full($y, $d, $T),
-            evals = 1
-        )
+        SUITE["ar1"]["fit_mle"][N] = @benchmarkable(fit_mle_AR1($y, $d, $T), evals = 1)
     end
 end

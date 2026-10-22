@@ -5,20 +5,25 @@ function fit_mle!(
     thetaA::AbstractArray{<:AbstractFloat,3},
     thetaB::AbstractArray{<:AbstractFloat,4},
     thetaR::AbstractArray{<:AbstractFloat,2}, Y::AbstractArray{<:Bool},
-    Y_past::AbstractArray{<:Bool}; solver,
+    Y_past::AbstractArray{<:Bool};
+    solver=default_solver(),
+    adtype=default_adtype(),
+    ensemble=default_ensemble(),
+    solve_kwargs=(;),
     n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
     display=:iter,
     maxiter=100,
     tol=1e-3,
     robust=false,
-    silence=true,
-    warm_start=true,
+    silence=nothing,
+    warm_start=nothing,
     tdist=1,
     QMC_m=30,
     maxiters_R=10, QMC_E=1, wp=1.0 .* (hmm.h .< maximum(hmm.h) * tdist)
 )
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
+    _warn_legacy_solver_kwargs(silence, warm_start)
     # println("tdist = ",tdist)
     N, K, T, size_order, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
     # @show N, K, T, size_order, D  # debug
@@ -55,10 +60,10 @@ function fit_mle!(
     n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
-    model_A = K ≥ 2 ? model_for_A(s_ξ[:, 1, :], deg_A, silence=silence) : nothing # JuMP Model for transition matrix
+    basis_A = K ≥ 2 ? trig_basis(T, deg_A) : nothing
 
     #Done check  model_B
-    model_B = model_for_B(γₛ[1, 1, 1, :, :], deg_B, silence=silence) # JuMP Model for Emmission distribution
+    basis_B = trig_basis(T, deg_B)
 
 
     # Precompute situation bucket index for each (n, i, j), computed once and reused across EM iterations.
@@ -93,9 +98,9 @@ function fit_mle!(
         update_a!(hmm.a, α, β)
 
         # DONE :need to check update_A
-        update_A!(hmm.A, thetaA, ξ, s_ξ, α, β, LL, n2t, n_in_t, model_A; warm_start=warm_start)
+        update_A!(hmm.A, thetaA, ξ, s_ξ, α, β, LL, n2t, n_in_t, basis_A; solver, adtype, ensemble, solve_kwargs)
 
-        update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, model_B; warm_start=warm_start)
+        update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, basis_B; solver, adtype, ensemble, solve_kwargs)
 
         update_R!(hmm, thetaR, γ, wp, Y, SituationIdx; n2t=n2t, solver, maxiters=maxiters_R)
 
@@ -171,7 +176,7 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
     function optimfunction2(u, p)
         Rt = similar(u, T)
         for t in 1:T
-            Rt[t] = exp(polynomial_trigo(t, u, T))
+            Rt[t] = exp(polynomial_trigo(t / T, u))
         end
         if size_order == 1
             return -pairwise_loglikelihood(Rt, B[:, :, 1], p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
@@ -223,6 +228,6 @@ function update_R!(hmm::ARPeriodicHMMSpatial,
     end
 
     for k in 1:K
-        R[k, :] .= [exp(polynomial_trigo(t, view(Range_θ, k, :), T)) for t = 1:T]
+        R[k, :] .= [exp(polynomial_trigo(t / T, view(Range_θ, k, :))) for t = 1:T]
     end
 end

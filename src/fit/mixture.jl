@@ -1,7 +1,10 @@
 function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractArray, θ_Y::AbstractArray, y::AbstractVecOrMat, n2t::AbstractVector;
-    display=:none, maxiter=100, tol=1e-3, robust=false, silence=true, warm_start=true)
+    display=:none, maxiter=100, tol=1e-3, robust=false,
+    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;),
+    silence=nothing, warm_start=nothing)
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
+    _warn_legacy_solver_kwargs(silence, warm_start)
 
     N, K, T = size_sample(y), ncomponents(mix[1]), size(mix, 1)
     # TODO deal with K=1 case
@@ -26,8 +29,8 @@ function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractArray, θ_Y:
     types = typeof.(dists[:, 1])
     dists = [convert(Vector{types[k, 1]}, dists[k, :]) for k = 1:K] # I have to separate the array to preserve types
 
-    model_α = model_for_α(θ_α, s_γ; silence=silence)
-    model_dist = [model_for_dist(dists[k][1], θ_Y[k], T; silence=silence) for k = 1:K]
+    basis_α = trig_basis(T, (size(θ_α, 2) - 1) ÷ 2)
+    basis_Y = [trig_basis(T, (length(θ_Y[k]) - 1) ÷ 2) for k = 1:K]
 
     # E-step
     # evaluate likelihood for each type k
@@ -42,9 +45,9 @@ function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractArray, θ_Y:
         # M-step
         # with γ in hand, maximize (update) the parameters
         s_γα!(s_γ, γ, n_in_t)
-        update_α!(α, θ_α, s_γ, model_α; warm_start=warm_start)
+        update_α!(α, θ_α, s_γ, basis_α; solver, adtype, solve_kwargs)
         for k = 1:K
-            dists[k][:], θ_Y[k] = update_dist(dists[k], θ_Y[k], γ[:, k], y, n_in_t, model_dist[k], warm_start=warm_start)
+            dists[k][:], θ_Y[k] = update_dist(dists[k], θ_Y[k], γ[:, k], y, n_in_t, basis_Y[k]; solver, adtype, solve_kwargs)
         end
 
         # E-step
@@ -79,69 +82,29 @@ function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractArray, θ_Y:
     return [MixtureModel([dists[k][t] for k = 1:K], [α[k, t] for k = 1:K]) for t = 1:T], θ_α, θ_Y, history
 end
 
-# update distributions Exponential
-function update_dist(dist::AbstractVector{F} where {F<:Exponential}, θ_Y::AbstractArray, γ::AbstractVector, observations::AbstractArray, n_in_t, model::Model; warm_start=true)
+"""
+    update_dist(dist, θ_Y, γ, observations, n_in_t, basis; solver, adtype, solve_kwargs)
+
+M-step for one seasonal `Exponential` component: refit its trigonometric coefficients against the
+posterior weights `γ`, and return the refitted distributions together with the coefficients.
+"""
+function update_dist(dist::AbstractVector{F} where {F<:Exponential}, θ_Y::AbstractArray, γ::AbstractVector, observations::AbstractArray, n_in_t, basis::AbstractMatrix;
+    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck size(γ, 1) == size(observations, 1)
     dist = copy(dist)
     θ_Y = copy(θ_Y)
-
-    N = size(γ, 1)
     T = size(dist, 1)
-    θ_jump = model[:θ_jump]
-    s_π = model[:s_π]
-    s_π_R = model[:s_π_R]
 
-    ## Update the smoothing parameters in the JuMP model
-    for t = 1:T
-        set_value(s_π[t], sum(γ[n] for n in n_in_t[t]; init=0))
-        set_value(s_π_R[t], sum(γ[n] * observations[n] for n in n_in_t[t]; init=0))
-    end
+    # sufficient statistics per period index: summed weight, and weighted sum of observations
+    s_π = [sum(γ[n] for n in n_in_t[t]; init=0.0) for t = 1:T]
+    s_πy = [sum(γ[n] * observations[n] for n in n_in_t[t]; init=0.0) for t = 1:T]
 
-    warm_start && set_start_value.(θ_jump, θ_Y[:])
+    θ_Y[:] = solve_unconstrained(exponential_nll, collect(θ_Y[:]), (s_π, s_πy, basis);
+        solver, adtype, solve_kwargs)
 
-    optimize!(model)
-    θ_Y[:] = value.(θ_jump)
-
-    p = [exp(polynomial_trigo(t/T, θ_Y[:])) for t = 1:T]
+    p = [exp(polynomial_trigo(t / T, θ_Y[:])) for t = 1:T]
     dist[:] = Exponential.(p)
     return dist, θ_Y
-end
-
-# JuMP model for Exponential
-"""
-    model_for_dist(dist::Exponential, θ_Y::AbstractArray, T::Int; silence = true)
-Create a JuMP model for the Loglikelihood of Seasonal `Exponential` model
-"""
-function model_for_dist(dist::Exponential, θ_Y::AbstractArray, T::Int; silence=true)
-    d = (size(θ_Y, 1) - 1) ÷ 2
-
-    model = Model(Ipopt.Optimizer)
-    silence && set_silent(model)
-    f = 2π / T
-
-    cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
-    sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
-    trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
-
-    @variable(model, θ_jump[j=1:(2d+1)])
-
-    # Polynomial P
-    @NLexpression(model, Pθ[t=1:T], sum(trig[t][j] * θ_jump[j] for j = 1:(2d+1)))
-
-    @NLparameter(model, s_π[t=1:T] == 1)
-    @NLparameter(model, s_π_R[t=1:T] == 1) # same initialization but will be changed later
-
-    # -sum(πk[n]*(Pθ[n]+R[n]*exp(-Pθ[n])) for n in 1:N)
-    @NLobjective(
-        model, Max,
-        -sum(s_π[t] * Pθ[t] + s_π_R[t] * exp(-Pθ[t]) for t = 1:T)
-    )
-
-    # I don't know if it is the best but https://discourse.julialang.org/t/jump-updating-nlparameter-of-a-model-in-a-loop/35081/3
-    model[:s_π] = s_π
-    model[:s_π_R] = s_π_R
-
-    return model
 end
 
 # Uppdate γ
@@ -160,60 +123,24 @@ end
 
 # Uppdate α
 """
-    model_for_α(θ_α::AbstractMatrix, s_γ::AbstractMatrix; silence=true) 
-Create a JuMP model to update the weights of each mixture components `α`
+    update_α!(α, θ, s_γ, basis; solver, adtype, solve_kwargs)
 
-TODO -> to clarify, I don't remember exactly what I did!!!
+M-step for the seasonal mixture weights: refit the multinomial-logit coefficients `θ` against the
+aggregated posteriors `s_γ`, and write the resulting weights into `α`. Same objective as the HMM
+transition M-step, see [`multinomial_logit_nll`](@ref).
 """
-function model_for_α(θ_α::AbstractMatrix, s_γ::AbstractMatrix; silence=true)
-    T, K = size(s_γ)
-    d = (size(θ_α, 2) - 1) ÷ 2
-    model = Model(Ipopt.Optimizer)
-    set_optimizer_attribute(model, "max_cpu_time", 60.0)
-    set_optimizer_attribute(model, "max_iter", 100)
-    silence && set_silent(model)
-    f = 2π / T
-    cos_nj = [cos(f * j * t) for t = 1:T, j = 1:d]
-    sin_nj = [sin(f * j * t) for t = 1:T, j = 1:d]
-    trig = [[1; interleave2(cos_nj[t, :], sin_nj[t, :])] for t = 1:T]
-
-    @variable(model, θ_jump[k=1:K-1, j=1:(2d+1)])
-    # Polynomial P
-    @NLexpression(model, P[t=1:T, k=1:K-1], sum(trig[t][j] * θ_jump[k, j] for j = 1:(2d+1)))
-
-    @NLparameter(model, s_π[t=1:T, k=1:K] == s_γ[t, k])
-    @NLobjective(
-        model,
-        Max,
-        sum(sum(s_π[t, k] * P[t, k] for k = 1:K-1) - sum(s_π[t, k] for k = 1:K) * log1p(sum(exp(P[t, k]) for k = 1:K-1)) for t = 1:T) #Σ_k πk[n,k] = 1
-    )
-    # I don't know if it is the best but https://discourse.julialang.org/t/jump-updating-nlparameter-of-a-model-in-a-loop/35081/3
-    model[:s_π] = s_π
-    return model
-end
-
 function update_α!(
     α::AbstractArray{F},
     θ::AbstractArray{F},
     s_γ::AbstractMatrix,
-    model::Model;
-    warm_start=true
+    basis::AbstractMatrix;
+    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;)
 ) where {F}
     T, K = size(s_γ)
-
-    # ξ are the filtering probabilities
-    θ_jump = model[:θ_jump]
-    s_π = model[:s_π]
-    ## Update the smoothing parameters in the JuMP model
-    for t = 1:T, k = 1:K
-        set_value(s_π[t, k], s_γ[t, k])
-    end
-    warm_start && set_start_value.(θ_jump, θ)
-    # Optimize the updated model
-    optimize!(model)
-    # Obtained the new parameters
-    θ[:, :] = value.(θ_jump)
-    [α[k, t] = exp(polynomial_trigo(t/T, θ[k, :])) for k = 1:K-1, t = 1:T]
+    u = solve_unconstrained(multinomial_logit_nll, collect(vec(θ)), (s_γ, basis, K);
+        solver, adtype, solve_kwargs)
+    θ[:, :] = reshape(u, K - 1, :)
+    [α[k, t] = exp(polynomial_trigo(t / T, θ[k, :])) for k = 1:K-1, t = 1:T]
     [α[K, t] = 1 for t = 1:T] # last column is 1/normalization (one could do otherwise)
     normalization_polynomial = [1 + sum(α[k, t] for k = 1:K-1) for t = 1:T]
     [α[k, t] /= normalization_polynomial[t] for k = 1:K, t = 1:T]

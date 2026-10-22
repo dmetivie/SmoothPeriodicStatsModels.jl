@@ -8,7 +8,7 @@ function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:
     else
         A = zeros(K, K, T)
         for k = 1:K, l = 1:K-1, t = 1:T
-            A[k, l, t] = exp(polynomial_trigo(t, trans_θ[k, l, :], T))
+            A[k, l, t] = exp(polynomial_trigo(t / T, trans_θ[k, l, :]))
         end
         for k = 1:K, t = 1:T
             A[k, K, t] = 1  # last colum is 1/normalization (one could do otherwise)
@@ -22,9 +22,9 @@ function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:
     # A is a K*K* T matrix of transition.
 
     #make emission parameters
-    p = [1 / (1 + exp(polynomial_trigo(t, Bernoulli_θ[k, s, h, :], T))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
+    p = [1 / (1 + exp(polynomial_trigo(t / T, Bernoulli_θ[k, s, h, :]))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     # p is a K (states)* T(period) *  D (stations) * m+1 (memory) vector.
-    range = [exp(polynomial_trigo(t, Range_θ[k, :], T)) for k = 1:K, t = 1:T]
+    range = [exp(polynomial_trigo(t / T, Range_θ[k, :])) for k = 1:K, t = 1:T]
     # range is a K (states)* T(period)  * m+1 (memory) vector.
     # return (A, p, range)
 

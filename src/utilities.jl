@@ -12,48 +12,47 @@ interleave2(args...) = collect(Iterators.flatten(zip(args...)))
 remaining(N::Int) = N > 0 ? range(1, length=N) : Int64[]
 
 # TODO: add check on length of β
-# TODO: rm vectorize version ? So far needed in Lsq.jl
-# TODO: rm `T` version
+# TODO: rm vectorize version ?
 
-function polynomial_trigo(t::Number, β, T)
-    d = (length(β) - 1) ÷ 2
-    if d == 0
-        return β[1]
-    else
-        f = 2π / T
-        # everything is shifted from 1 from usual notation due to array starting at 1
-        return β[1] + sum(β[2*l] * cos(f * l * t) + β[2*l+1] * sin(f * l * t) for l = 1:d)
-    end
-end
+"""
+    polynomial_trigo(t, β) -> Number
 
-function polynomial_trigo(t::AbstractArray, β, T)
-    d = (length(β) - 1) ÷ 2
-    if d == 0
-        return fill(β[1], length(t))
-    else
-        f = 2π / T
-        # everything is shifted from 1 from usual notation due to array starting at 1
-        return β[1] .+ sum(β[2*l] * cos.(f * l * t) + β[2*l+1] * sin.(f * l * t) for l = 1:d)
-    end
-end
+Trigonometric polynomial of degree `d = (length(β) - 1) ÷ 2` evaluated at `t`, where `t` is
+expressed in **fractions of a period**: `t` and `t + 1` give the same value.
 
-function polynomial_trigo(t::AbstractFloat, β)
+```math
+β₁ + \\sum_{l=1}^{d} β_{2l} \\cos(2π l t) + β_{2l+1} \\sin(2π l t)
+```
+
+A degree-0 `β` gives the constant `β[1]`. This normalized form is the convention used throughout
+the package; `polynomial_trigo(t, β, T)` is the legacy spelling of `polynomial_trigo(t / T, β)`.
+"""
+function polynomial_trigo(t::Number, β)
     d = (length(β) - 1) ÷ 2
     # everything is shifted from 1 from usual notation due to array starting at 1
-    return β[1] + sum(β[2*l] * cos(2π * l * t) + β[2*l+1] * sin(2π * l * t) for l = 1:d; init = zero(t))
+    return β[1] + sum(β[2*l] * cos(2π * l * t) + β[2*l+1] * sin(2π * l * t) for l = 1:d; init=zero(t))
 end
 
-function polynomial_trigo(t::AbstractArray{F}, β) where F<:AbstractFloat
+function polynomial_trigo(t::AbstractArray{<:Number}, β)
     d = (length(β) - 1) ÷ 2
     # everything is shifted from 1 from usual notation due to array starting at 1
-    return β[1] .+ sum(β[2*l] * cos.(2π * l * t) + β[2*l+1] * sin.(2π * l * t) for l = 1:d; init = zero(t))
+    return β[1] .+ sum(β[2*l] * cos.(2π * l * t) + β[2*l+1] * sin.(2π * l * t) for l = 1:d; init=zero(t))
 end
 
-μₜ(t, θ::AbstractArray, T) = polynomial_trigo(t, θ[:], T)
-ρₜ(t, θ::AbstractArray, T) = 2 / (1 + exp(-polynomial_trigo(t, θ[:], T))) - 1
-σₜ(t, θ::AbstractArray, T) = exp(polynomial_trigo(t, θ[:], T))
+# Legacy spelling, kept because `polynomial_trigo` is exported. It takes `t` in units of time
+# steps together with the period `T`, and forwards to the normalized form above. No `depwarn`:
+# this is called once per time step inside the likelihoods, where that cost would show.
+polynomial_trigo(t::Number, β, T) = polynomial_trigo(t / T, β)
+polynomial_trigo(t::AbstractArray, β, T) = polynomial_trigo(t ./ T, β)
 
+# Link functions mapping the trigonometric polynomial onto each parameter's domain.
+# `t` is in fractions of a period, as for `polynomial_trigo`.
 μₜ(t, θ::AbstractArray) = polynomial_trigo(t, θ[:]) # not constrained
 αₜ(t, θ::AbstractArray) = 1 / (1 + exp(-polynomial_trigo(t, θ[:]))) # [0,1] parameter
 σₜ(t, θ::AbstractArray) = exp(polynomial_trigo(t, θ[:])) # >0 parameter
 ρₜ(t, θ::AbstractArray) = 2 / (1 + exp(-polynomial_trigo(t, θ[:]))) - 1 # [-1,1]
+
+# Legacy spellings taking the period explicitly, as for `polynomial_trigo`
+μₜ(t, θ::AbstractArray, T) = μₜ(t / T, θ)
+ρₜ(t, θ::AbstractArray, T) = ρₜ(t / T, θ)
+σₜ(t, θ::AbstractArray, T) = σₜ(t / T, θ)
