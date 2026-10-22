@@ -14,13 +14,48 @@ end
 
 n_per_category(s, h, t, y, n_in_t, n_occurence_history::AbstractArray{<:AbstractVector, 3}) = (n_in_t[t] ∩ n_occurence_history[s, h, y])
 
-bin2digit(x) = sum(x[length(x)-i+1] * 2^(i - 1) for i = 1:length(x)) + 1
-bin2digit(x::Tuple) = bin2digit([x...])
+"""
+    bin2digit(x) -> Int
 
+Index in `1:2^length(x)` of the binary pattern `x`, read with `x[1]` as the most significant bit
+and counted from 1:
+
+```julia
+bin2digit([0, 0]) == 1    bin2digit([0, 1]) == 2
+bin2digit([1, 0]) == 3    bin2digit([1, 1]) == 4
+```
+
+This is how the local memory of a site becomes the last index `h` of an emission array
+`B[k, t, j, h]`. There `x[m]` is the value of the site `m` steps earlier, so the *most recent*
+lag is the most significant bit, and `h = 1` is the all-dry history — the convention
+`sort_wrt_ref!` relies on.
+
+Any `x` supporting `length` and `getindex` works, `Tuple` included.
+"""
+bin2digit(x) = sum(x[length(x)-i+1] * 2^(i - 1) for i = 1:length(x)) + 1
+
+"""
+    dayx(lag_obs) -> Matrix{Int}
+
+Memory category of every (observation, site), from `lag_obs[m][n, j]`, the value of site `j` at
+`m` steps before `n`. Entry `[n, j]` is `bin2digit((lag_obs[1][n, j], …, lag_obs[order][n, j]))`,
+that is `1 + sum(lag_obs[m][n, j] * 2^(order - m) for m = 1:order)`.
+
+Equivalent to `bin2digit.(tuple.(lag_obs...))`, accumulated in place: splatting a `Vector` whose
+length is only known at run time makes that broadcast uninferrable, which costs one allocation
+per entry.
+"""
 function dayx(lag_obs::AbstractArray)
     order = length(lag_obs)
-    t = tuple.([lag_obs[m] for m = 1:order]...)
-    bin2digit.(t)
+    lag_cat = fill(1, size(lag_obs[1]))
+    for m = 1:order
+        w = 2^(order - m)
+        lag_obs_m = lag_obs[m]
+        for i in eachindex(lag_cat, lag_obs_m)
+            lag_cat[i] += w * lag_obs_m[i]
+        end
+    end
+    return lag_cat
 end
 
 function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool})

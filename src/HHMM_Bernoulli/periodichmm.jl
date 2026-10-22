@@ -69,24 +69,37 @@ function rand(
 
     # @argcheck length(n2t) == length(z)
     # Check the initial conditions
-    @argcheck size(y_ini) == (order, D) "Initial condition is not correct: You give $(size(y_ini)) instead of $((order, D))" 
+    @argcheck size(y_ini) == (order, D) "Initial condition is not correct: You give $(size(y_ini)) instead of $((order, D))"
 
-    if order > 0
-        # One could do some specialized for each value of order e.g. for order = 1, we have simply previous_day_category = y[n-1,:].+1
-        y[1:order, :] = y_ini
-        previous_day_category = zeros(Int, D)
-        for n in eachindex(z)[order+1:end]
-            t = n2t[n] # periodic t
-            previous_day_category[:] = bin2digit.(eachcol([y[n-m, j] for m = 1:order, j = 1:D]))
-            @views y[n, :] = rand(rng, product_distribution(hmm.B[CartesianIndex.(z[n], t, 1:D, previous_day_category)]))
-        end
-    else
-        for n in eachindex(z)
-            t = n2t[n] # periodic t
-            @views y[n, :] = rand(rng, product_distribution(hmm.B[CartesianIndex.(z[n], t, 1:D, 1)]))
+    y[1:order, :] = y_ini   # empty slice when order == 0
+    rand_emissions!(y, rng, hmm.B, z, n2t, order)
+    return y
+end
+
+"""
+    rand_emissions!(y, rng, B, z, n2t, order)
+
+Fill `y[order+1:end, :]` from the emission distributions `B` along the state path `z`: site `j`
+at time `n` is drawn from `B[z[n], n2t[n], j, h]`, where `h` encodes the `order` previous values
+of site `j` the way `bin2digit` does. The first `order` rows of `y` are the initial condition.
+
+Equivalent to drawing each row from `product_distribution(B[z[n], n2t[n], :, h])`, and out of the
+same random stream, since a product distribution draws its components site by site too.
+`B` is an argument so this specializes on its concrete element type; the `hmm.B` field is
+abstractly typed.
+"""
+function rand_emissions!(y::AbstractMatrix{Bool}, rng::AbstractRNG, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}, order::Integer)
+    D = size(y, 2)
+    for n in eachindex(z)[order+1:end]
+        t = n2t[n] # periodic t
+        for j in OneTo(D)
+            h = 1 # memory category of site j
+            for m = 1:order
+                h += y[n-m, j] * 2^(order - m)
+            end
+            y[n, j] = rand(rng, B[z[n], t, j, h])
         end
     end
-    return y
 end
 
 """

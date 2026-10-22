@@ -52,7 +52,7 @@ end
     @test length(n_to_t(100, 7)) == 100
     @test all(1 .≤ n_to_t(100, 7) .≤ 7)
 
-    # `bin2digit` indexes the 2^order possible memories, last entry = most recent lag
+    # `bin2digit` indexes the 2^order possible memories, first entry = most significant bit
     @test SPSM.bin2digit([false]) == 1
     @test SPSM.bin2digit([true]) == 2
     @test SPSM.bin2digit((true, false)) == 3
