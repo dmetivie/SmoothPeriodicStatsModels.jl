@@ -62,7 +62,13 @@ z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 
 ### Fit
 
+Fitting lives in a package extension, so the solver stack has to be loaded. Any
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/) algorithm will then do; this picks
+`LBFGS` from `OptimizationOptimJL`, which is also the default.
+
 ```julia
+using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+
 trans_θ_guess = rand(K, K-1, size_degree_of_P)
 Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
 trans_θ_guess[:,:,1] .= trans_θ[:,:,1] # cheating on initial guess to recover very good MLE maxima

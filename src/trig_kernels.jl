@@ -28,20 +28,14 @@ end
 """
     log1pexp_sum(x) -> Number
 
-`log(1 + Σᵢ exp(xᵢ))`, computed by shifting out the largest exponent so that it does not overflow
-for large `xᵢ`. Equal to `logsumexp` over `x` with an extra zero entry.
+`log(1 + Σᵢ exp(xᵢ))`: the normalization of a multinomial logit whose reference category has a
+polynomial fixed to zero.
+
+Composed of two `LogExpFunctions` primitives rather than written out, so the overflow handling is
+theirs: `log1p(sum(exp, x))` returns `Inf` once any `xᵢ` passes ~710, where this returns the
+right answer.
 """
-function log1pexp_sum(x)
-    m = zero(eltype(x))
-    for xi in x
-        xi > m && (m = xi)
-    end
-    s = exp(-m)                 # the implicit zero entry
-    for xi in x
-        s += exp(xi - m)
-    end
-    return m + log(s)
-end
+log1pexp_sum(x) = log1pexp(logsumexp(x))
 
 """
     bernoulli_logit_nll(θ, (γ, basis)) -> Number

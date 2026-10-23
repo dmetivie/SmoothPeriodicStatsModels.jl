@@ -20,15 +20,21 @@ function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::A
 
     γₛ!(γₛ, γ, n_all)
 
-    all_iter = vcat(vec([[tuple(k,j,h) for h in 1:(length(θᴮ[k, j]))] for j in 1:D, k in 1:K])...)
-    θ_res = pmap(all_iter) do tup
-        k, s, h = tup
-        solve_unconstrained(bernoulli_logit_nll,
-            collect(θᴮ[k, s][h]), (γₛ[s][k, h, :, :], basis); solver, adtype, solve_kwargs)
-    end
-    for (i, tup) in enumerate(all_iter)
-        k, s, h = tup
-        θᴮ[k, s][h] = θ_res[i]
+    # One independent problem per (state, site, memory), as in the dense `update_B!`; the sites
+    # may each carry their own memory order, so the index list is ragged.
+    idx = vcat(vec([[(k, j, h) for h = 1:length(θᴮ[k, j])] for j = 1:D, k = 1:K])...)
+    emission_data(k, s, h) = (view(γₛ[s], k, h, :, :), basis)
+    base = OptimizationProblem(OptimizationFunction(bernoulli_logit_nll, adtype),
+        collect(θᴮ[idx[1][1], idx[1][2]][idx[1][3]]), emission_data(idx[1]...))
+    eprob = EnsembleProblem(base;
+        prob_func=(prob, ctx) -> remake(prob;
+            u0=collect(θᴮ[idx[ctx.sim_id][1], idx[ctx.sim_id][2]][idx[ctx.sim_id][3]]),
+            p=emission_data(idx[ctx.sim_id]...)))
+    sol = solve(eprob, solver, ensemble; trajectories=length(idx), solve_kwargs...)
+
+    for (i, (k, s, h)) in enumerate(idx)
+        successful_retcode(sol.u[i].retcode) || @warn "emission ($k, $s, $h): $(sol.u[i].retcode)"
+        θᴮ[k, s][h] = sol.u[i].u
     end
 
     for k = 1:K, t = 1:T, s = 1:D

@@ -9,7 +9,6 @@ projects = ["test", "benchmark"]
 [deps]
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 Copulas = "ae264745-0b69-425e-9d9d-cf662c5eec93"
-Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 LogExpFunctions = "2ab3a3ac-af41-5b50-aa03-7779005ae688"
 MvNormalCDF = "37188c8d-bc69-4638-b057-733e744175ec"

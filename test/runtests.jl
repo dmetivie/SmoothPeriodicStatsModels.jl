@@ -524,6 +524,43 @@ end
     @test max(mean(ẑ .== z), mean(ẑ .!= z)) > 0.6
 end
 
+@testset "sARPeriodicHMM: site-dependent memory" begin
+    K, T, deg = 2, 5, 1
+    orders = [0, 1, 2] # each site carries its own memory order
+    D = length(orders)
+    rng = MersenneTwister(33)
+    θᴬ = 0.5randn(rng, K, K - 1, 2deg + 1)
+    θᴮ = [[0.5randn(rng, 2deg + 1) for _ = 1:2^orders[j]] for k = 1:K, j = 1:D]
+    hmm = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
+    @test size(hmm) == (K, D, T, 2 .^ orders)
+
+    N = 2_000
+    n2t = n_to_t(N, T)
+    y_past = [rand(rng, Bool, orders[j]) for j = 1:D]
+    z, y = rand(MersenneTwister(34), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    @test size(y) == (N, D)
+    @test all(1 .≤ z .≤ K)
+
+    # Guess: right mean level, no seasonality
+    θᴬ0 = zeros(K, K - 1, 2deg + 1)
+    θᴬ0[:, :, 1] = θᴬ[:, :, 1]
+    θᴮ0 = [[vcat(θᴮ[k, j][h][1], zeros(2deg)) for h = 1:2^orders[j]] for k = 1:K, j = 1:D]
+    hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+
+    hmm_fit, θᴬ_fit, θᴮ_fit, hist = fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past;
+        n2t=n2t, maxiter=30, tol=1e-4, robust=true)
+    logtots = hist["logtots"]
+    @test all(diff(logtots) .> -1e-8 * abs(logtots[1])) # Baum-Welch increases the loglikelihood
+    @test logtots[end] > logtots[1]
+    @test size(θᴬ_fit) == size(θᴬ)
+
+    # The M-step problems are independent, so the parallel backend must not change the answer
+    _, θᴬ_thr, θᴮ_thr, _ = fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past;
+        n2t=n2t, maxiter=30, tol=1e-4, robust=true, ensemble=EnsembleThreads())
+    @test θᴬ_thr ≈ θᴬ_fit
+    @test all(θᴮ_thr[k, j][h] ≈ θᴮ_fit[k, j][h] for k = 1:K, j = 1:D for h = 1:2^orders[j])
+end
+
 @testset "PeriodicHMM" begin
     Random.seed!(2020)
     K = 3 # Number of Hidden states

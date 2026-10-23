@@ -42,7 +42,6 @@ using SciMLBase: successful_retcode, NonlinearFunction, NonlinearLeastSquaresPro
 using ArgCheck
 using Base: OneTo
 using Base.Threads
-using Distributed
 using Random: AbstractRNG, GLOBAL_RNG
 using Distributions
 using LogExpFunctions: logsumexp, logsumexp!, log1pexp
