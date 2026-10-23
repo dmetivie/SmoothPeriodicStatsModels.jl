@@ -12,3 +12,11 @@ jobs:
       - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
         with:
           julia-version: '1'
+          # Run the PR's benchmark script, not the default branch's. The action freezes the
+          # script on the default branch by default, which cannot work for a PR that changes the
+          # API: the frozen script only knows the old one. Taking it from the PR means a PR that
+          # adds or fixes a benchmark gets measured, at the cost of trusting the PR's script.
+          bench-on: ${{ github.event.pull_request.head.sha }}
+          # Weak dependencies of the package since v3, so the benchmark environment has to ask
+          # for them explicitly or the fitting extension never loads.
+          extra-pkgs: Optimization,OptimizationOptimJL,SimpleNonlinearSolve,ForwardDiff,OptimizationMOI

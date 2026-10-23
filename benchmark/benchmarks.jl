@@ -4,12 +4,26 @@ using Random
 using StableRNGs
 using SmoothPeriodicStatsModels
 using Ipopt, OptimizationMOI, OptimizationOptimJL
-using Optimization, SimpleNonlinearSolve, ForwardDiff # trigger the fitting extension
+using Optimization, SimpleNonlinearSolve, ForwardDiff # with Optimization: triggers the v3 fitting extension
 using LinearAlgebra: BLAS
 
 BLAS.set_num_threads(1)
 
 const SPSM = SmoothPeriodicStatsModels
+
+# ── Running against both v2 and v3 ───────────────────────────────────────────
+# AirspeedVelocity benchmarks two revisions with a *single* script, so to measure the v2 → v3
+# migration this file has to speak both APIs. Two call sites differ; everything else is common
+# (`silence`/`warm_start` are still accepted by v3, with a deprecation warning).
+#
+# Delete this block, and the two uses below, once v3 is on the default branch.
+const V3 = isdefined(SPSM, :fit_mle_AR1)
+
+# v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
+const ar1_fit = V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
+
+# v3 funnels solver options through `solve_kwargs` instead of a `kwargs...` slurp.
+const ipopt_quiet = V3 ? (; solve_kwargs=(print_level=0,)) : (; print_level=0)
 const SUITE = BenchmarkGroup()
 
 """
@@ -234,7 +248,7 @@ let
         ℓ = (θ, x) -> -sum(logpdf(mixture_exp2(t / T, θ), x[n]) for (n, t) in enumerate(n2t))
 
         SUITE["mixture"]["OptimMLE"]["Ipopt T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, opt, $θ0), $y; solve_kwargs=(print_level=0,)),
+            fit_mle(OptimMLE($ℓ, opt, $θ0), $y; $ipopt_quiet...),
             setup = (opt = Ipopt.Optimizer()),
             evals = 1
         )
@@ -266,6 +280,6 @@ let
     for N in [2_000, 5_000]
         Random.seed!(1)
         y = rand(AR, N; y₁=0.0)
-        SUITE["ar1"]["fit_mle"][N] = @benchmarkable(fit_mle_AR1($y, $d, $T), evals = 1)
+        SUITE["ar1"]["fit_mle"][N] = @benchmarkable($ar1_fit($y, $d, $T), evals = 1)
     end
 end
