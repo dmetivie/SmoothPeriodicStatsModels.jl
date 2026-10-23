@@ -62,16 +62,34 @@ z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 
 ### Fit
 
+Fitting lives in a package extension, so the solver stack has to be loaded. Any
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/) algorithm will then do; this picks
+`LBFGS` from `OptimizationOptimJL`, which is also the default.
+
 ```julia
+using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+
 trans_θ_guess = rand(K, K-1, size_degree_of_P)
 Bernoulli_θ_guess = zeros(K, D, size_order, size_degree_of_P)
 trans_θ_guess[:,:,1] .= trans_θ[:,:,1] # cheating on initial guess to recover very good MLE maxima
 Bernoulli_θ_guess[:,:,:,1] = Bernoulli_θ[:,:,:,1]
 hmm_guess = Trig2ARPeriodicHMM([1/4, 1/4, 1/2], trans_θ_guess, Bernoulli_θ_guess, T)
 
-@time "FitMLE SHMM (Baum Welch)" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; display=:iter, silence=true, tol=1e-3, θ_iters=true, n2t=n2t);
-# EM converged in 317 iterations, logtot = -194299.4177103428
-# FitMLE SHMM (Baum Welch): 72.532794 seconds (344.65 M allocations: 27.641 GiB, 3.59% gc time)
+@time "FitMLE SHMM (Baum Welch)" hmm_fit, θq_fit, θy_fit, hist, histo_A, histo_B = fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past, maxiter=10000, robust=true; display=:iter, tol=1e-3, θ_iters=true, n2t=n2t);
+# EM converged in 317 iterations, logtot = -194299.41771034154
+# FitMLE SHMM (Baum Welch): 8.808367 seconds (7.63 M allocations: 798.943 MiB, 3.00% gc time)
+```
+
+Every `fit_mle` takes the solver as a keyword, so any algorithm of the
+[Optimization.jl](https://docs.sciml.ai/Optimization/stable/) ecosystem can be used, and the
+independent sub-problems of each M-step can be run in parallel:
+
+```julia
+using OptimizationOptimJL
+fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past; n2t=n2t,
+        solver = LBFGS(),                    # any Optimization.jl solver; this is the default
+        ensemble = EnsembleThreads(),        # EnsembleSerial (default) / EnsembleThreads / EnsembleDistributed
+        solve_kwargs = (maxiters = 100,))    # forwarded verbatim to `solve`
 ```
 
 ### Plots

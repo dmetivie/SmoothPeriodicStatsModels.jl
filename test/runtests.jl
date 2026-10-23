@@ -2,9 +2,52 @@ using Test
 using SmoothPeriodicStatsModels
 using Distributions, Random
 using Optimization, OptimizationOptimJL
+using SimpleNonlinearSolve, ForwardDiff # with Optimization, these trigger the fitting extension
 using Ipopt, OptimizationMOI
 
 const SPSM = SmoothPeriodicStatsModels
+
+# * Fitting extension * #
+
+# Fitting lives in an extension, so a missing `using` or `import` in it shows up only when a
+# given entry point is first called. This calls every one of them on a tiny problem, so that an
+# import regression fails here in seconds instead of somewhere deep in the suite.
+@testset "every fitting entry point is reachable" begin
+    @test !isnothing(Base.get_extension(SPSM, :SmoothPeriodicStatsModelsOptimizationExt))
+
+    K, D, T, order, deg, N = 2, 3, 5, 1, 1, 400
+    rng = MersenneTwister(1)
+    hmm = Trig2ARPeriodicHMM(fill(1 / K, K), 0.5randn(rng, K, K - 1, 2deg + 1),
+        0.5randn(rng, K, D, 2^order, 2deg + 1), T)
+    n2t = n_to_t(N, T)
+    y_past = rand(rng, Bool, order, D)
+    z, y = rand(MersenneTwister(2), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+
+    @test length(fit_θ(hmm, deg)) == 2
+    @test length(fit_θ!(copy(hmm), deg)) == 2
+    @test length(fit_mle(hmm, 0.5randn(rng, K, K - 1, 2deg + 1),
+        0.5randn(rng, K, D, 2^order, 2deg + 1), y, y_past; n2t=n2t, maxiter=2, tol=0.0)) == 4
+    @test length(fit_mle_RO(y, y_past, z, n2t, deg, K, T)) == 2
+
+    y_ar = rand(AR1([0.1t for t = 1:T], fill(0.3, T), fill(0.5, T)), 500; y₁=0.0)
+    @test length(fit_mle_AR1(y_ar, deg, T)) == 3
+    @test length(fit_mle_AR1(y_ar, rand(rng, 1:2, 500), deg, T)) == 3
+    @test length(model_for_loglikelihood_AR1_full(y_ar, deg, T)) == 3 # legacy alias
+
+    mix(t, θ) = MixtureModel([Exponential(σₜ(t, θ[:, 1])), Exponential(σₜ(t, θ[:, 2]))],
+        [αₜ(t, θ[:, 3]), 1 - αₜ(t, θ[:, 3])])
+    θtrue = hcat([1.0, 1, -0.2], [3.0, -0.5, 0.6], [0.1, -0.5, 1.0])
+    θ0 = hcat([0.0, 0, 0], [5.0, 0, 0], [0.0, 0.2, 0])
+    Tm, Nm = 20, 400
+    n2tm = repeat(1:Tm, Nm ÷ Tm)
+    ym = [rand(rng, mix(t / Tm, θtrue)) for t in n2tm]
+    @test length(fit_mle([mix(t / Tm, θ0) for t = 1:Tm], permutedims(θ0[:, 3]),
+        [θ0[:, 1], θ0[:, 2]], ym, n2tm; maxiter=2, tol=0.0)) == 4
+
+    ℓ(θ, x) = sum(abs2, θ .- 1.0)
+    @test fit_mle(OptimMLE(ℓ, [0.0, 0.0]), [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
+    @test fit_loss_optim(ℓ, [1.0], [0.0, 0.0]).u ≈ [1.0, 1.0] atol = 1e-6
+end
 
 # * Utilities * #
 
@@ -215,7 +258,7 @@ end
     Random.seed!(2024)
     y = rand(AR, 20_000; y₁=0.0)
 
-    θμ̂, θρ̂, θσ̂ = model_for_loglikelihood_AR1_full(y, d, T)
+    θμ̂, θρ̂, θσ̂ = fit_mle_AR1(y, d, T)
 
     # The seasonal curves are what the model is about, check them rather than the raw coefficients
     @test maximum(abs, [μₜ(t, θμ̂, T) for t = 1:T] - μ) < 5e-2
@@ -479,6 +522,43 @@ end
     # Decoding agrees with the true states, up to the label switching EM is free to do
     ẑ = viterbi(hmm_fit, y, y_past; n2t=n2t)
     @test max(mean(ẑ .== z), mean(ẑ .!= z)) > 0.6
+end
+
+@testset "sARPeriodicHMM: site-dependent memory" begin
+    K, T, deg = 2, 5, 1
+    orders = [0, 1, 2] # each site carries its own memory order
+    D = length(orders)
+    rng = MersenneTwister(33)
+    θᴬ = 0.5randn(rng, K, K - 1, 2deg + 1)
+    θᴮ = [[0.5randn(rng, 2deg + 1) for _ = 1:2^orders[j]] for k = 1:K, j = 1:D]
+    hmm = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
+    @test size(hmm) == (K, D, T, 2 .^ orders)
+
+    N = 2_000
+    n2t = n_to_t(N, T)
+    y_past = [rand(rng, Bool, orders[j]) for j = 1:D]
+    z, y = rand(MersenneTwister(34), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    @test size(y) == (N, D)
+    @test all(1 .≤ z .≤ K)
+
+    # Guess: right mean level, no seasonality
+    θᴬ0 = zeros(K, K - 1, 2deg + 1)
+    θᴬ0[:, :, 1] = θᴬ[:, :, 1]
+    θᴮ0 = [[vcat(θᴮ[k, j][h][1], zeros(2deg)) for h = 1:2^orders[j]] for k = 1:K, j = 1:D]
+    hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+
+    hmm_fit, θᴬ_fit, θᴮ_fit, hist = fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past;
+        n2t=n2t, maxiter=30, tol=1e-4, robust=true)
+    logtots = hist["logtots"]
+    @test all(diff(logtots) .> -1e-8 * abs(logtots[1])) # Baum-Welch increases the loglikelihood
+    @test logtots[end] > logtots[1]
+    @test size(θᴬ_fit) == size(θᴬ)
+
+    # The M-step problems are independent, so the parallel backend must not change the answer
+    _, θᴬ_thr, θᴮ_thr, _ = fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past;
+        n2t=n2t, maxiter=30, tol=1e-4, robust=true, ensemble=EnsembleThreads())
+    @test θᴬ_thr ≈ θᴬ_fit
+    @test all(θᴮ_thr[k, j][h] ≈ θᴮ_fit[k, j][h] for k = 1:K, j = 1:D for h = 1:2^orders[j])
 end
 
 @testset "PeriodicHMM" begin
