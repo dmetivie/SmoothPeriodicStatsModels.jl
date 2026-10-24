@@ -30,7 +30,7 @@ parallel.
 """
 function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, basis::AbstractMatrix;
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
-    @argcheck size(γ, 1) == size(Y, 1)
+    @argcheck size(γ, 1) == size(Y, 2)
     @argcheck size(γ, 2) == size(B, 1)
     K, T, D, size_order = size(B)
 
@@ -157,7 +157,7 @@ function fit_mle!(
     θᴮ::AbstractArray{<:AbstractFloat,4},
     Y::AbstractArray{<:Bool},
     Y_past::AbstractArray{<:Bool};
-    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     display=:none,
     maxiter=100,
     tol=1e-3,
@@ -173,7 +173,7 @@ function fit_mle!(
     @argcheck maxiter >= 0
     _warn_legacy_solver_kwargs(silence, warm_start)
 
-    N, K, T, size_order, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
+    N, K, T, size_order, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 
     deg_θᴬ = (size(θᴬ, 3) - 1) ÷ 2
     deg_θᴮ = (size(θᴮ, 4) - 1) ÷ 2
@@ -200,7 +200,7 @@ function fit_mle!(
     # @show lag_cat[end,:]
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
+    n_occurence_history = [findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
     basis_A = K ≥ 2 ? trig_basis(T, deg_θᴬ) : nothing # `nothing` disables the transition M-step

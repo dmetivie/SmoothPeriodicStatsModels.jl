@@ -114,10 +114,10 @@ end
     @test size(model) == (K, D, T, size_order)
 
     # rand
-    Y_past = rand(Bool, autoregressive_order, D)
+    Y_past = rand(Bool, D, autoregressive_order)
     z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
 
-    @test size(Y) == (N, D)
+    @test size(Y) == (D, N)
 
     # initial guess close to truth (cheating) for fast convergence in test
     thetaA = copy(trans_θ)

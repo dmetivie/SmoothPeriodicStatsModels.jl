@@ -1,5 +1,5 @@
 function fit_mle_all_slices(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool};
-    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     Yₜ_extanted = [0],
     robust=false,
     history=false,
@@ -7,8 +7,8 @@ function fit_mle_all_slices(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_pas
 
     hmm = copy(hmm)
 
-    N, K, T = size(Y, 1), size(hmm, 1), size(hmm, 3)
-    @argcheck size(Y, 1) == size(n2t, 1)
+    N, K, T = size(Y, 2), size(hmm, 1), size(hmm, 3)
+    @argcheck size(Y, 2) == size(n2t, 1)
 
     # assign category for observation depending in the past Y
     lag_cat = conditional_to(Y, Y_past)
@@ -92,7 +92,7 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractArray{F,3} where {F<:
     Y::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
     n_random_ini=10, Dirichlet_α=0.8, display_random=false, kwargs...)
 
-    D = size(Y, 2)
+    D = size(Y, 1)
     K = size(α, 1)
     size_order = size(B, 3)
 
@@ -122,7 +122,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
 
-    N, K, D, size_order = size(Y, 1), size(B, 1), size(B, 2), size(B, 3)
+    N, K, D, size_order = size(Y, 2), size(B, 1), size(B, 2), size(B, 3)
     history = Dict("converged" => false, "iterations" => 0, "logtots" => Float64[])
 
     # Allocate order for in-place updates
@@ -136,7 +136,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
     # E-step
     # evaluate likelihood for each type k
     for k in OneTo(K), n in OneTo(N)
-        LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), Y[n, :])
+        LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, view(lag_cat, :, n))]), view(Y, :, n))
     end
     for k = 1:K
         LL[:, k] .+= log(α[k])
@@ -170,7 +170,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
         # E-step
         # evaluate likelihood for each type k
         @inbounds for k in OneTo(K), n in OneTo(N)
-            LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, lag_cat[n, :])]), Y[n, :])
+            LL[n, k] = logpdf(product_distribution(B[CartesianIndex.(k, 1:D, view(lag_cat, :, n))]), view(Y, :, n))
         end
         for k = 1:K
             LL[:, k] .+= log(α[k])

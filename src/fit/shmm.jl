@@ -12,7 +12,7 @@ end
 
 function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::AbstractMatrix, γₛ::AbstractVector, Y, n_all, basis::AbstractMatrix;
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
-    @argcheck size(γ, 1) == size(Y, 1)
+    @argcheck size(γ, 1) == size(Y, 2)
     @argcheck size(γ, 2) == size(B, 1)
     K, T, D = size(B)
     ## For periodicHMM only the n Y corresponding to B(t) are used to update B(t)
@@ -48,7 +48,7 @@ function fit_mle!(
     θᴮ::AbstractMatrix,
     Y::AbstractMatrix{<:Bool},
     Y_past::AbstractVector;
-    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     display=:none,
     maxiter=100,
     tol=1e-3,
@@ -64,7 +64,7 @@ function fit_mle!(
     @argcheck maxiter >= 0
     _warn_legacy_solver_kwargs(silence, warm_start)
 
-    N, K, T, size_orders, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
+    N, K, T, size_orders, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 
     deg_θᴬ = (size(θᴬ, 3) - 1) ÷ 2
     rain_cat = 2 # dry or wet
@@ -90,7 +90,7 @@ function fit_mle!(
     # @show lag_cat[end,:]
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [[findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for h = 1:size_orders[j], y = 0:1] for j = 1:D] # dry or wet
+    n_occurence_history = [[findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for h = 1:size_orders[j], y = 0:1] for j = 1:D] # dry or wet
     n_all = [[n_per_category(tup..., n_in_t, n_occurence_history[j]) for tup in Iterators.product(1:size_orders[j], 1:T, 1:rain_cat)] for j in 1:D]
 
     basis_A = K ≥ 2 ? trig_basis(T, deg_θᴬ) : nothing

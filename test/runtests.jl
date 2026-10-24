@@ -20,7 +20,7 @@ const SPSM = SmoothPeriodicStatsModels
     hmm = Trig2ARPeriodicHMM(fill(1 / K, K), 0.5randn(rng, K, K - 1, 2deg + 1),
         0.5randn(rng, K, D, 2^order, 2deg + 1), T)
     n2t = n_to_t(N, T)
-    y_past = rand(rng, Bool, order, D)
+    y_past = rand(rng, Bool, D, order)
     z, y = rand(MersenneTwister(2), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
 
     @test length(fit_θ(hmm, deg)) == 2
@@ -101,12 +101,12 @@ end
     @test SPSM.bin2digit((true, false)) == 3
     @test sort(vec([SPSM.bin2digit([b₁, b₂]) for b₁ in (false, true), b₂ in (false, true)])) == 1:4
 
-    Y = Bool[0 1; 1 1; 0 0]
+    Y = Bool[0 1 0; 1 1 0]           # D = 2 sites, N = 3 observations
     # Without memory every observation falls in the single category 1
-    @test SPSM.conditional_to(Y, zeros(Bool, 0, 2)) == ones(Int, 3, 2)
-    # With memory 1 the category is `1 + previous value`, the first row coming from `Y_past`
-    Y_past = Bool[1 0]
-    @test SPSM.conditional_to(Y, Y_past) == [Y_past; Y[1:end-1, :]] .+ 1
+    @test SPSM.conditional_to(Y, zeros(Bool, 2, 0)) == ones(Int, 2, 3)
+    # With memory 1 the category is `1 + previous value`, the first column coming from `Y_past`
+    Y_past = Bool[1; 0;;]            # D × order
+    @test SPSM.conditional_to(Y, Y_past) == [Y_past Y[:, 1:end-1]] .+ 1
 end
 
 @testset "Utilities: number of parameters and BIC" begin
@@ -282,7 +282,7 @@ end
     for order in 0:3
         hmm_random = randARPeriodicHMM(K, T, D, order; ξ=ξ, ref_station=ref_station)
 
-        z, y = rand(hmm_random, N, seq=true, z_ini=1, y_ini=zeros(Int, order, D))
+        z, y = rand(hmm_random, N, seq=true, z_ini=1, y_ini=zeros(Int, D, order))
 
         y = rand(hmm_random, N)
     end
@@ -376,24 +376,24 @@ end
     rng = MersenneTwister(3)
     hmm = Trig2ARPeriodicHMM([0.4, 0.6], 0.5randn(rng, K, K - 1, 2deg + 1),
         0.5randn(rng, K, D, 2^order, 2deg + 1), T)
-    y_ini = rand(MersenneTwister(4), Bool, order, D)
+    y_ini = rand(MersenneTwister(4), Bool, D, order)
     N = 50
     n2t = n_to_t(N, T)
 
     z, y = rand(MersenneTwister(5), hmm, n2t; y_ini=y_ini, z_ini=1, seq=true)
     @test y isa Matrix{Bool}
-    @test size(y) == (N, D)
+    @test size(y) == (D, N)
     @test size(z) == (N,)
     @test all(1 .≤ z .≤ K)
     @test z[1] == 1
-    @test y[1:order, :] == y_ini
+    @test y[:, 1:order] == y_ini
 
     # `seq=false` returns the observations of the very same draw
     @test rand(MersenneTwister(5), hmm, n2t; y_ini=y_ini, z_ini=1) == y
     # Giving `N` or the season index map `n2t` is equivalent
     @test rand(MersenneTwister(5), hmm, N; y_ini=y_ini, z_ini=1) == y
 
-    @test_throws ArgumentError rand(MersenneTwister(5), hmm, n2t; y_ini=zeros(Bool, order + 1, D), z_ini=1)
+    @test_throws ArgumentError rand(MersenneTwister(5), hmm, n2t; y_ini=zeros(Bool, D, order + 1), z_ini=1)
 end
 
 @testset "ARPeriodicHMM: rand follows the emission probabilities" begin
@@ -404,13 +404,13 @@ end
 
     N = 300_000
     n2t = n_to_t(N, T)
-    y_past = zeros(Bool, order, D)
+    y_past = zeros(Bool, D, order)
     y = rand(MersenneTwister(42), hmm, n2t; y_ini=y_past, z_ini=1)
     lag_cat = SPSM.conditional_to(y, y_past)
 
     for t = 1:T, j = 1:D, h = 1:2^order
-        n = findall((n2t .== t) .& (lag_cat[:, j] .== h))
-        @test mean(y[n, j]) ≈ p[1, t, j, h] atol = 1e-2
+        n = findall((n2t .== t) .& (lag_cat[j, :] .== h))
+        @test mean(y[j, n]) ≈ p[1, t, j, h] atol = 1e-2
     end
 end
 
@@ -423,7 +423,7 @@ end
 
     N = 200_000
     n2t = n_to_t(N, T)
-    z, _ = rand(MersenneTwister(7), hmm, n2t; y_ini=zeros(Bool, 0, 1), z_ini=1, seq=true)
+    z, _ = rand(MersenneTwister(7), hmm, n2t; y_ini=zeros(Bool, 1, 0), z_ini=1, seq=true)
 
     Â = zeros(K, K, T)
     for n = 1:N-1
@@ -440,7 +440,7 @@ end
         0.5randn(rng, K, D, 2^order, 2deg + 1), T)
     N = 200
     n2t = n_to_t(N, T)
-    y_past = rand(rng, Bool, order, D)
+    y_past = rand(rng, Bool, D, order)
     z, y = rand(MersenneTwister(12), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
     lag_cat = SPSM.conditional_to(y, y_past)
 
@@ -452,7 +452,7 @@ end
     @test log.(L) ≈ LL
 
     # Column k is the emission loglikelihood of the whole site vector in state k
-    manual = [sum(logpdf(hmm.B[k, n2t[n], j, lag_cat[n, j]], y[n, j]) for j = 1:D) for n = 1:N, k = 1:K]
+    manual = [sum(logpdf(hmm.B[k, n2t[n], j, lag_cat[j, n]], y[j, n]) for j = 1:D) for n = 1:N, k = 1:K]
     @test LL ≈ manual
 
     # Complete loglikelihood = chain term + emission term along the given path
@@ -470,7 +470,7 @@ end
     p[1, :, :, 1] .= 0.05
     p[2, :, :, 1] .= 0.95
     hmm_sep = ARPeriodicHMM([0.5, 0.5], A, Bernoulli.(p))
-    y_past_sep = zeros(Bool, 0, 4)
+    y_past_sep = zeros(Bool, 4, 0)
     n2t_sep = n_to_t(2000, Ts)
     z_sep, y_sep = rand(MersenneTwister(13), hmm_sep, n2t_sep; y_ini=y_past_sep, z_ini=1, seq=true)
 
@@ -491,7 +491,7 @@ end
     hmm = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
 
     n2t = n_to_t(N, T)
-    y_past = rand(rng, Bool, order, D)
+    y_past = rand(rng, Bool, D, order)
     z, y = rand(MersenneTwister(2022), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
 
     # Guess: right mean level, no seasonality at all
@@ -538,7 +538,7 @@ end
     n2t = n_to_t(N, T)
     y_past = [rand(rng, Bool, orders[j]) for j = 1:D]
     z, y = rand(MersenneTwister(34), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
-    @test size(y) == (N, D)
+    @test size(y) == (D, N)
     @test all(1 .≤ z .≤ K)
 
     # Guess: right mean level, no seasonality
@@ -575,7 +575,7 @@ end
     Bernoulli_θ = 2 * (rand(K, D, size_order, size_degree_of_P) .- 1 / 2)
     hmm = Trig2ARPeriodicHMM([1 / 3, 1 / 6, 1 / 2], trans_θ, Bernoulli_θ, T)
     z_ini = 1
-    y_past = rand(Bool, autoregressive_order, D)
+    y_past = rand(Bool, D, autoregressive_order)
     n2t = n_to_t(N, T)
     z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 
@@ -612,7 +612,7 @@ end
         ξ = (1:K) / sum(1:K)
         hmm = Trig2ARPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
         z_ini = 1
-        y_past = rand(Bool, autoregressive_order, D)
+        y_past = rand(Bool, D, autoregressive_order)
         n2t = n_to_t(N, T)
         z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 
@@ -662,7 +662,7 @@ addprocs(2)
     ξ = (1:K) / sum(1:K)
     hmm = Trig2ARPeriodicHMM(ξ, trans_θ, Bernoulli_θ, T)
     z_ini = 1
-    y_past = rand(Bool, autoregressive_order, D)
+    y_past = rand(Bool, D, autoregressive_order)
     n2t = n_to_t(N, T)
     z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 

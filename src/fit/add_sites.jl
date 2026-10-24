@@ -1,5 +1,7 @@
 """
-    fit_mle_RO(Y::AbstractMatrix{<:Bool}[, Y_past::AbstractMatrix{<:Bool}], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); silence=true, warm_start = true)
+    fit_mle_RO(Y::AbstractMatrix{<:Bool}[, Y_past::AbstractMatrix{<:Bool}], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); solver, adtype, ensemble, solve_kwargs)
+
+`Y` is `D × N` and the optional `Y_past` is `D × order`.
 This function fits at one location the observed rain occurrences (RO) `Y` with a (smooth) periodic Bernoulli distribution. 
 The autoregressive order is determined by the size of the initial (past) input `Y_past`. If not provided, autoregressive order is `0`.
 `K` and `T` can be provided if different from `K = length(unique(z))` and `T = length(unique(n2t))`.
@@ -15,15 +17,15 @@ function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z
     @assert K ≥ length(unique(z)) "The provided `K` is smaller than the number of states in the provided sequence `z`"
     @assert T ≥ length(unique(n2t)) "The provided `T` is smaller than the number of days in the provided sequence `n2t`"
 
-    order = size(Y_past, 1) #! Table convention
+    order = size(Y_past, 2)
     size_order = 2^order #! Bernoulli
     rain_cat = 2 #! bernoulli
-    N, D = size(Y) #! old convention
+    D, N = size(Y)
     γₛ = zeros(K, D, size_order, T, rain_cat) # summed smoothing proba
     ν = [Bernoulli() for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     lag_cat = conditional_to(Y, Y_past)
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
+    n_occurence_history = [findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
     basis_B = trig_basis(T, deg_θᴮ)
     γ = zeros(eltype(z), N, K) # regular smoothing proba
@@ -38,16 +40,16 @@ end
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), silence=nothing, warm_start=nothing)
     _warn_legacy_solver_kwargs(silence, warm_start)
-    N, D = size(Y) #! Table convention
-    Y_past = zeros(Int, 0, D)
-    order = size(Y_past, 1) #! Table convention
+    D, N = size(Y)
+    Y_past = falses(D, 0)
+    order = size(Y_past, 2)
     size_order = 2^order #! Bernoulli
     rain_cat = 2 #! bernoulli
     γₛ = zeros(K, D, size_order, T, rain_cat) # summed smoothing proba
     ν = [Bernoulli() for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     lag_cat = conditional_to(Y, Y_past)
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
+    n_occurence_history = [findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
     basis_B = trig_basis(T, deg_θᴮ)
     γ = zeros(eltype(z), N, K) # regular smoothing proba

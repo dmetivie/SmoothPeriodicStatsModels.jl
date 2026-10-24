@@ -53,9 +53,13 @@ hmm = Trig2ARPeriodicHMM([1/3, 1/6, 1/2], trans_θ, Bernoulli_θ, T)
 
 ### Simulations
 
+Multivariate observations are `dimension × sample`, the convention of `Distributions.jl`: `y[j, n]`
+is site `j` at time `n`, and the initial condition `y_past[j, m]` is site `j` at `m` steps before
+the first observation. The same holds for `Y`, `Y_past` and `lag_cat` everywhere in the package.
+
 ```julia
 z_ini = 1
-y_past = rand(Bool, autoregressive_order, D)
+y_past = rand(Bool, D, autoregressive_order)
 n2t = SmoothPeriodicStatsModels.n_to_t(N,T)
 z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 ```

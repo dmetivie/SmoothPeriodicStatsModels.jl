@@ -37,9 +37,9 @@ bin2digit(x) = sum(x[length(x)-i+1] * 2^(i - 1) for i = 1:length(x)) + 1
 """
     dayx(lag_obs) -> Matrix{Int}
 
-Memory category of every (observation, site), from `lag_obs[m][n, j]`, the value of site `j` at
-`m` steps before `n`. Entry `[n, j]` is `bin2digit((lag_obs[1][n, j], …, lag_obs[order][n, j]))`,
-that is `1 + sum(lag_obs[m][n, j] * 2^(order - m) for m = 1:order)`.
+Memory category of every (site, observation), from `lag_obs[m][j, n]`, the value of site `j` at
+`m` steps before `n`. Entry `[j, n]` is `bin2digit((lag_obs[1][j, n], …, lag_obs[order][j, n]))`,
+that is `1 + sum(lag_obs[m][j, n] * 2^(order - m) for m = 1:order)`.
 
 Equivalent to `bin2digit.(tuple.(lag_obs...))`, accumulated in place: splatting a `Vector` whose
 length is only known at run time makes that broadcast uninferrable, which costs one allocation
@@ -58,15 +58,22 @@ function dayx(lag_obs::AbstractArray)
     return lag_cat
 end
 
+"""
+    conditional_to(Y, Y_past) -> Matrix{Int}
+
+Memory category `lag_cat[j, n]` of every site `j` at every observation `n`, from the `D × N`
+observations `Y` and the `D × order` initial condition `Y_past`, whose column `m` is the value
+`m` steps before the first observation.
+"""
 function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool})
-    order = size(Y_past, 1)
+    D, N = size(Y)
+    order = size(Y_past, 2)
     if order == 0
-        return ones(Int, size(Y))
+        return ones(Int, D, N)
     else
-        lag_obs = [copy(lag(Y, m)) for m = 1:order]  # transform dry=0 into 1 and wet=1 into 2 for array indexing
-        for m = 1:order
-            lag_obs[m][1:m, :] .= reverse(Y_past[1:m, :], dims=1) # avoid the missing first row
-        end
+        # lag_obs[m][j, n] is the value of site j, m steps before n; the first m observations
+        # take it from the initial condition instead
+        lag_obs = [[n > m ? Y[j, n-m] : Y_past[j, m-n+1] for j = 1:D, n = 1:N] for m = 1:order]
         return dayx(lag_obs)
     end
 end
@@ -75,13 +82,13 @@ function idx_observation_of_past_cat(lag_cat, n2t, T, size_order)
     # Matrix(T,D) of vector that give the index of data of same Y_past.
     # ie. size_order = 1 (no order) -> every data is in category 1
     # ie size_order = 2 (order on previous day) -> idx_tj[t,j][1] = vector of index of data where previous day was dry, idx_tj[t,j][2] = index of data where previous day was wet
-    D = size(lag_cat, 2)
+    D = size(lag_cat, 1)
     idx_tj = Matrix{Vector{Vector{Int}}}(undef, T, D)
     n_in_t = [findall(n2t .== t) for t = 1:T] # could probably be speeded up e.g. recusivly suppressing already classified label with like sortperm
     for t in OneTo(T)
         n_t = n_in_t[t]
         for j = 1:D
-            n_tm = [findall(lag_cat[n_t, j] .== m) for m = 1:size_order]
+            n_tm = [findall(view(lag_cat, j, n_t) .== m) for m = 1:size_order]
             idx_tj[t, j] = [n_t[n_tm[m]] for m = 1:size_order]
             ##
         end
@@ -93,10 +100,10 @@ function idx_observation_of_past_cat(lag_cat, size_order::Integer)
     # Matrix(T,D) of vector that give the index of data of same past.
     # ie. size_order = 1 (no order) -> every data is in category 1
     # ie size_order = 2 (order on previous day) -> idx_tj[t,j][1] = vector of index of data where previous day was dry, idx_tj[t,j][2] = index of data where previous day was wet
-    D = size(lag_cat, 2)
+    D = size(lag_cat, 1)
     idx_j = Vector{Vector{Vector{Int}}}(undef, D)
     for j = 1:D
-        idx_j[j] = [findall(lag_cat[:, j] .== m) for m = 1:size_order]
+        idx_j[j] = [findall(view(lag_cat, j, :) .== m) for m = 1:size_order]
     end
     return idx_j
 end
