@@ -87,6 +87,22 @@ end
 
 M-step for one seasonal `Exponential` component: refit its trigonometric coefficients against the
 posterior weights `γ`, and return the refitted distributions together with the coefficients.
+
+This is the extension point for new emission families: `fit_mle` dispatches here on the component
+type, so adding a method for your own distribution is enough to make the whole seasonal EM work
+with it — nothing else in the E-step or the mixture-weight M-step is `Exponential`-specific.
+
+A method owns four family-specific decisions, which is why the negative loglikelihood alone is
+not a sufficient interface:
+
+1. which sufficient statistics to aggregate per period index `t` (here `s_π` and `s_πy`);
+2. the layout of `θ_Y`, one block of `size(basis, 2)` coefficients per seasonal parameter;
+3. the objective, any `(θ, p) -> Number` — a plain function, handed to [`solve_unconstrained`](@ref);
+4. the link mapping `basis * θ` back onto the parameter domain (here `exp`, for a positive scale).
+
+`dist` is the `T`-long vector of the component's current distributions, `γ[n]` the posterior weight
+of observation `n`, and `n_in_t[t]` the observation indices sharing period index `t`. Return the
+refitted vector and the coefficients. See the README for a worked `Rayleigh` example.
 """
 function update_dist(dist::AbstractVector{F} where {F<:Exponential}, θ_Y::AbstractArray, γ::AbstractVector, observations::AbstractArray, n_in_t, basis::AbstractMatrix;
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))

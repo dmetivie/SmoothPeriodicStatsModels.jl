@@ -49,6 +49,48 @@ const SPSM = SmoothPeriodicStatsModels
     @test fit_loss_optim(ℓ, [1.0], [0.0, 0.0]).u ≈ [1.0, 1.0] atol = 1e-6
 end
 
+
+# A user-supplied emission family, added from outside the package by a single `update_dist`
+# method -- the extension point documented in the README. Guards that the seasonal EM is generic
+# in the component type: nothing in the E-step or the weight M-step may assume `Exponential`.
+@testset "Extensibility: a user-defined seasonal family" begin
+    rng = MersenneTwister(1234)
+
+    # Seasonal Rayleigh, scale S(t) = exp(P(t)): logpdf = log y - 2log S - y^2/(2S^2)
+    rayleigh_nll(theta, (s_pi, s_piy2, basis)) =
+        sum(2 * s_pi[t] * P + s_piy2[t] * exp(-2P) / 2 for (t, P) in enumerate(basis * theta))
+
+    function SPSM.update_dist(dist::AbstractVector{<:Rayleigh}, theta_Y, gamma, obs, n_in_t,
+        basis; solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+        T = length(dist)
+        theta_Y = copy(theta_Y)
+        s_pi = [sum(gamma[n] for n in n_in_t[t]; init=0.0) for t = 1:T]
+        s_piy2 = [sum(gamma[n] * obs[n]^2 for n in n_in_t[t]; init=0.0) for t = 1:T]
+        theta_Y[:] = solve_unconstrained(rayleigh_nll, collect(theta_Y[:]),
+            (s_pi, s_piy2, basis); solver, adtype, solve_kwargs)
+        return Rayleigh.([exp(polynomial_trigo(t / T, theta_Y[:])) for t = 1:T]), theta_Y
+    end
+
+    T, N = 20, 4000
+    theta_true = hcat([0.3, 0.4, -0.2], [1.6, -0.3, 0.5], [0.1, -0.5, 1.0])
+    mixR(t, th) = MixtureModel(
+        [Rayleigh(exp(polynomial_trigo(t, th[:, 1]))), Rayleigh(exp(polynomial_trigo(t, th[:, 2])))],
+        [αₜ(t, th[:, 3]), 1 - αₜ(t, th[:, 3])])
+
+    n2t = repeat(1:T, N ÷ T)
+    y = [rand(rng, mixR(t / T, theta_true)) for t in n2t]
+
+    theta0 = hcat([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.2, 0.0])
+    mix_fit, _, theta_Y, history = fit_mle([mixR(t / T, theta0) for t = 1:T],
+        permutedims(theta0[:, 3]), [theta0[:, 1], theta0[:, 2]], y, n2t; maxiter=200, tol=1e-5)
+
+    @test history["converged"]
+    @test all(diff(history["logtots"]) .>= -1e-8)             # EM still monotone
+    @test components(mix_fit[1])[1] isa Rayleigh              # the family survived the loop
+    @test theta_Y[1] ≈ theta_true[:, 1] atol = 0.15      # and the truth is recovered
+    @test theta_Y[2] ≈ theta_true[:, 2] atol = 0.15
+end
+
 # * Utilities * #
 
 @testset "Utilities: trigonometric parametrization" begin

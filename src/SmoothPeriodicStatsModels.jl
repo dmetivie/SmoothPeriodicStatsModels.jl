@@ -39,6 +39,7 @@ include("utilities.jl")
 include("legacy_kwargs.jl")
 include("fit_stubs.jl")
 export default_solver, default_nlls_solver, default_adtype, default_ensemble
+export solve_unconstrained, solve_nlls
 
 # ## M-step objectives shared by the seasonal EM algorithms
 include("trig_kernels.jl")
