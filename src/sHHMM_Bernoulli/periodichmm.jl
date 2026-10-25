@@ -61,7 +61,7 @@ function rand(
     y_ini=[rand(Bernoulli(), Int(log2(size(hmm, 4)[j]))) for j in 1:size(hmm, 2)]
 )
     D = size(hmm, 2)
-    y = Matrix{Bool}(undef, length(z), D)
+    y = Matrix{Bool}(undef, D, length(z))
     orders = Int.(log2.(size(hmm, 4)))
 
     # @argcheck length(n2t) == length(z)
@@ -73,16 +73,16 @@ function rand(
         order = orders[j]
         if order > 0
             # One could do some specialized for each value of order e.g. for order = 1, we have simply previous_day_category = y[n-1,:].+1
-            y[1:order, j] .= y_ini[j]
+            y[j, 1:order] .= y_ini[j]
             for n in eachindex(z)[order+1:end]
                 t = n2t[n] # periodic t
-                @views previous_day_category = bin2digit([y[n-m, j] for m = 1:order])
-                y[n, j] = rand(rng, hmm.B[z[n], t, j][previous_day_category])
+                @views previous_day_category = bin2digit([y[j, n-m] for m = 1:order])
+                y[j, n] = rand(rng, hmm.B[z[n], t, j][previous_day_category])
             end
         else
             for n in eachindex(z)
                 t = n2t[n] # periodic t
-                y[n, j] = rand(rng, hmm.B[z[n], t, j][1])
+                y[j, n] = rand(rng, hmm.B[z[n], t, j][1])
             end
         end
     end

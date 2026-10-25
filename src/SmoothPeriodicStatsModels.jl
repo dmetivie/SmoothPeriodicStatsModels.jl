@@ -5,7 +5,6 @@ module SmoothPeriodicStatsModels
 # ## Utilities
 using ArgCheck
 using Base: OneTo
-using ShiftedArrays: lead, lag
 # ## Optimization
 # The solver stack lives in `ext/SmoothPeriodicStatsModelsOptimizationExt.jl`: simulating from a
 # model and evaluating its likelihood need none of it, and it is about half of this package's
@@ -40,6 +39,7 @@ include("utilities.jl")
 include("legacy_kwargs.jl")
 include("fit_stubs.jl")
 export default_solver, default_nlls_solver, default_adtype, default_ensemble
+export solve_unconstrained, solve_nlls
 
 # ## M-step objectives shared by the seasonal EM algorithms
 include("trig_kernels.jl")

@@ -1,5 +1,5 @@
 function fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector;
-    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     Yₜ_extanted = [0],
     robust=false,
     history=false,
@@ -7,8 +7,8 @@ function fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_pa
 
     hmm = copy(hmm)
 
-    N, K, T = size(Y, 1), size(hmm, 1), size(hmm, 3)
-    @argcheck size(Y, 1) == size(n2t, 1)
+    N, K, T = size(Y, 2), size(hmm, 1), size(hmm, 3)
+    @argcheck size(Y, 2) == size(n2t, 1)
 
     # assign category for observation depending in the past Y
     lag_cat = conditional_to(Y, Y_past)
@@ -62,7 +62,7 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractMatrix,
     Y::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
     n_random_ini=10, Dirichlet_α=0.8, display_random=false, kwargs...)
 
-    D = size(Y, 2)
+    D = size(Y, 1)
     K = size(α, 1)
     size_order = [length(B[1,j]) for j in 1:D]
 
@@ -92,7 +92,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
 
-    N, K, D = size(Y, 1), size(B, 1), size(B, 2)
+    N, K, D = size(Y, 2), size(B, 1), size(B, 2)
     size_order = [length(B[1,j]) for j in 1:D]
 
     history = Dict("converged" => false, "iterations" => 0, "logtots" => Float64[])
@@ -108,7 +108,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
     # E-step
     # evaluate likelihood for each type k
     for k in OneTo(K), n in OneTo(N)
-        LL[n, k] = logpdf(product_distribution([B[k, j][lag_cat[n, j]] for j in 1:D]), Y[n, :])
+        LL[n, k] = logpdf(product_distribution([B[k, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
     end
     for k = 1:K
         LL[:, k] .+= log(α[k])
@@ -142,7 +142,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
         # E-step
         # evaluate likelihood for each type k
         @inbounds for k in OneTo(K), n in OneTo(N)
-            LL[n, k] = logpdf(product_distribution([B[k, j][lag_cat[n, j]] for j in 1:D]), Y[n, :])
+            LL[n, k] = logpdf(product_distribution([B[k, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
         end
         for k = 1:K
             LL[:, k] .+= log(α[k])

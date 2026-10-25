@@ -10,7 +10,7 @@ function fit_mle!(
     adtype=default_adtype(),
     ensemble=default_ensemble(),
     solve_kwargs=(;),
-    n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     display=:iter,
     maxiter=100,
     tol=1e-3,
@@ -25,7 +25,7 @@ function fit_mle!(
     @argcheck maxiter >= 0
     _warn_legacy_solver_kwargs(silence, warm_start)
     # println("tdist = ",tdist)
-    N, K, T, size_order, D = size(Y, 1), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
+    N, K, T, size_order, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
     # @show N, K, T, size_order, D  # debug
 
     deg_A = (size(thetaA, 3) - 1) ÷ 2
@@ -57,7 +57,7 @@ function fit_mle!(
     lag_cat = conditional_to(Y, Y_past)
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(Y[:, j] .== y, lag_cat[:, j] .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
+    n_occurence_history = [findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
     basis_A = K ≥ 2 ? trig_basis(T, deg_A) : nothing
@@ -74,9 +74,9 @@ function fit_mle!(
     for n in 1:N
         for i in 1:D
             for j in 1:D
-                lci = lag_cat[n, i]
-                lcj = lag_cat[n, j]
-                cur_idx = 2 * (1 - Int(Y[n, i])) + (1 - Int(Y[n, j])) + 1
+                lci = lag_cat[i, n]
+                lcj = lag_cat[j, n]
+                cur_idx = 2 * (1 - Int(Y[i, n])) + (1 - Int(Y[j, n])) + 1
                 SituationIdx[n, i, j] = (size_order - lci) * size_order * 4 + (size_order - lcj) * 4 + cur_idx
             end
         end
@@ -168,7 +168,7 @@ function fit_mle!(
 
 end
 
-function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 1), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
+function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
     T = size(B, 1)
     pairwise_indices2 = Tuple.(findall(wp .> 0))
     size_order = size(B, 3)  # 1 for no memory, 2^order for memory >= 1
@@ -200,8 +200,8 @@ end
 
 function update_R!(hmm::ARPeriodicHMMSpatial,
     Range_θ::AbstractArray{N,2} where {N},
-    γ::AbstractMatrix, wp, Y, SituationIdx::AbstractArray{<:Integer,3}; n2t=n_to_t(size(Y, 1), size(hmm, 3))::AbstractVector{<:Integer}, solver, maxiters=10)
-    @argcheck size(γ, 1) == size(Y, 1)
+    γ::AbstractMatrix, wp, Y, SituationIdx::AbstractArray{<:Integer,3}; n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer}, solver, maxiters=10)
+    @argcheck size(γ, 1) == size(Y, 2)
     N_obs = size(γ, 1)
     R = hmm.R
     D = size(hmm, 2)

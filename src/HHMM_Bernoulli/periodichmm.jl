@@ -61,17 +61,17 @@ function rand(
     hmm::ARPeriodicHMM,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=rand(Bernoulli(), Int(log2(size(hmm, 4))), size(hmm, 2))
+    y_ini=rand(Bernoulli(), size(hmm, 2), Int(log2(size(hmm, 4))))
 )
     D = size(hmm, 2)
-    y = Matrix{Bool}(undef, length(z), D)
+    y = Matrix{Bool}(undef, D, length(z))
     order = Int(log2(size(hmm, 4)))
 
     # @argcheck length(n2t) == length(z)
     # Check the initial conditions
-    @argcheck size(y_ini) == (order, D) "Initial condition is not correct: You give $(size(y_ini)) instead of $((order, D))"
+    @argcheck size(y_ini) == (D, order) "Initial condition is not correct: You give $(size(y_ini)) instead of $((D, order))"
 
-    y[1:order, :] = y_ini   # empty slice when order == 0
+    y[:, 1:order] = y_ini   # empty slice when order == 0
     rand_emissions!(y, rng, hmm.B, z, n2t, order)
     return y
 end
@@ -79,25 +79,25 @@ end
 """
     rand_emissions!(y, rng, B, z, n2t, order)
 
-Fill `y[order+1:end, :]` from the emission distributions `B` along the state path `z`: site `j`
+Fill `y[:, order+1:end]` from the emission distributions `B` along the state path `z`: site `j`
 at time `n` is drawn from `B[z[n], n2t[n], j, h]`, where `h` encodes the `order` previous values
-of site `j` the way `bin2digit` does. The first `order` rows of `y` are the initial condition.
+of site `j` the way `bin2digit` does. The first `order` columns of `y` are the initial condition.
 
-Equivalent to drawing each row from `product_distribution(B[z[n], n2t[n], :, h])`, and out of the
+Equivalent to drawing each column from `product_distribution(B[z[n], n2t[n], :, h])`, and out of the
 same random stream, since a product distribution draws its components site by site too.
 `B` is an argument so this specializes on its concrete element type; the `hmm.B` field is
 abstractly typed.
 """
 function rand_emissions!(y::AbstractMatrix{Bool}, rng::AbstractRNG, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}, order::Integer)
-    D = size(y, 2)
+    D = size(y, 1)
     for n in eachindex(z)[order+1:end]
         t = n2t[n] # periodic t
         for j in OneTo(D)
             h = 1 # memory category of site j
             for m = 1:order
-                h += y[n-m, j] * 2^(order - m)
+                h += y[j, n-m] * 2^(order - m)
             end
-            y[n, j] = rand(rng, B[z[n], t, j, h])
+            y[j, n] = rand(rng, B[z[n], t, j, h])
         end
     end
 end

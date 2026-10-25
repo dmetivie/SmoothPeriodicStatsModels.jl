@@ -53,9 +53,13 @@ hmm = Trig2ARPeriodicHMM([1/3, 1/6, 1/2], trans_θ, Bernoulli_θ, T)
 
 ### Simulations
 
+Multivariate observations are `dimension × sample`, the convention of `Distributions.jl`: `y[j, n]`
+is site `j` at time `n`, and the initial condition `y_past[j, m]` is site `j` at `m` steps before
+the first observation. The same holds for `Y`, `Y_past` and `lag_cat` everywhere in the package.
+
 ```julia
 z_ini = 1
-y_past = rand(Bool, autoregressive_order, D)
+y_past = rand(Bool, D, autoregressive_order)
 n2t = SmoothPeriodicStatsModels.n_to_t(N,T)
 z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
 ```
@@ -91,6 +95,73 @@ fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past; n2t=n2t,
         ensemble = EnsembleThreads(),        # EnsembleSerial (default) / EnsembleThreads / EnsembleDistributed
         solve_kwargs = (maxiters = 100,))    # forwarded verbatim to `solve`
 ```
+
+### Adding your own seasonal family
+
+The seasonal mixture EM is not tied to `Exponential`. `fit_mle` dispatches the component M-step on
+the distribution type, so a new family is **one method of `update_dist`** — defined from outside
+the package, with no change to it.
+
+Such a method owns the four things that genuinely vary between families: which sufficient
+statistics to aggregate per period index, how `theta_Y` lays out the coefficients, the negative
+loglikelihood (any plain `(theta, p) -> Number`), and the link mapping the trigonometric
+polynomial back onto the parameter domain.
+
+Here is a seasonal `Rayleigh`, scale `S(t) = exp(P(t))`, in full:
+
+```julia
+using SmoothPeriodicStatsModels, Distributions
+using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+const SPSM = SmoothPeriodicStatsModels
+
+# logpdf = log(y) - 2log(S) - y^2 / (2S^2), weighted by the posteriors and summed per period
+function rayleigh_nll(theta, (s_pi, s_piy2, basis))
+    P = basis * theta
+    nll = zero(eltype(P))
+    for t in eachindex(P)
+        nll += 2 * s_pi[t] * P[t] + s_piy2[t] * exp(-2P[t]) / 2
+    end
+    return nll
+end
+
+function SPSM.update_dist(dist::AbstractVector{<:Rayleigh}, theta_Y, gamma, obs, n_in_t, basis;
+        solver = default_solver(), adtype = default_adtype(), solve_kwargs = (;))
+    T = length(dist)
+    theta_Y = copy(theta_Y)
+    s_pi   = [sum(gamma[n]              for n in n_in_t[t]; init = 0.0) for t = 1:T]
+    s_piy2 = [sum(gamma[n] * obs[n]^2   for n in n_in_t[t]; init = 0.0) for t = 1:T]
+
+    theta_Y[:] = solve_unconstrained(rayleigh_nll, collect(theta_Y[:]), (s_pi, s_piy2, basis);
+        solver, adtype, solve_kwargs)
+
+    return Rayleigh.([exp(polynomial_trigo(t / T, theta_Y[:])) for t = 1:T]), theta_Y
+end
+```
+
+That is the whole addition -- `fit_mle` is then used exactly as with `Exponential`:
+
+```julia
+T, N = 20, 4000
+n2t = repeat(1:T, N ÷ T)
+theta_true = hcat([0.3, 0.4, -0.2], [1.6, -0.3, 0.5], [0.1, -0.5, 1.0])
+mix(t, th) = MixtureModel([Rayleigh(exp(polynomial_trigo(t, th[:, 1]))),
+                           Rayleigh(exp(polynomial_trigo(t, th[:, 2])))],
+                          [αₜ(t, th[:, 3]), 1 - αₜ(t, th[:, 3])])
+y = [rand(mix(t / T, theta_true)) for t in n2t]
+
+theta0 = hcat([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.2, 0.0])
+mix_fit, theta_a, theta_Y, history = fit_mle([mix(t / T, theta0) for t = 1:T],
+    permutedims(theta0[:, 3]), [theta0[:, 1], theta0[:, 2]], y, n2t; maxiter = 200, tol = 1e-5)
+
+# A typical run (the draws above are unseeded, so the digits move a little):
+# EM converged in 101 iterations, loglikelihood -8386.55 -> -8165.31
+# theta_Y[1] = [0.338, 0.435, -0.235]   (true [0.3, 0.4, -0.2])
+# theta_Y[2] = [1.588, -0.288, 0.495]   (true [1.6, -0.3, 0.5])
+```
+
+Note that the emission of `ARPeriodicHMM` is *not yet* pluggable this way: the binary memory encoding
+(`conditional_to`, `bin2digit`, the `2^order` axis of `B`) makes the Bernoulli family structural
+there rather than a choice.
 
 ### Plots
 
