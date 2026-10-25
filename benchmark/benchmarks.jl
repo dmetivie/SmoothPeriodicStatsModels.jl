@@ -12,11 +12,11 @@ BLAS.set_num_threads(1)
 const SPSM = SmoothPeriodicStatsModels
 
 # ── Running against both v2 and v3 ───────────────────────────────────────────
-# AirspeedVelocity benchmarks two revisions with a *single* script, so to measure the v2 → v3
-# migration this file has to speak both APIs. Two call sites differ; everything else is common
-# (`silence`/`warm_start` are still accepted by v3, with a deprecation warning).
+# AirspeedVelocity benchmarks two revisions with a *single* script, so this file has to speak
+# the API of the branch *and* of whatever is on master. Three things differ; everything else is
+# common (`silence`/`warm_start` are still accepted, with a deprecation warning).
 #
-# Delete this block, and the two uses below, once v3 is on the default branch.
+# Delete this block, and the uses below, once both features below are on the default branch.
 const V3 = isdefined(SPSM, :fit_mle_AR1)
 
 # v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
@@ -24,6 +24,19 @@ const ar1_fit = V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
 
 # v3 funnels solver options through `solve_kwargs` instead of a `kwargs...` slurp.
 const ipopt_quiet = V3 ? (; solve_kwargs=(print_level=0,)) : (; print_level=0)
+
+# Observations became sites-first: `D × N` instead of `N × D`, and `D × order` instead of
+# `order × D` for the initial condition. This came *after* the v3 release, so neither `V3` nor
+# the version number tells the two layouts apart — ask the package instead. A 2-site, 4-step
+# draw is unambiguous, and `order = 0` means no initial condition to orient in the first place.
+const DXN = let
+    hmm = Trig2ARPeriodicHMM(fill(1 / 2, 2), zeros(2, 1, 1), zeros(2, 2, 1, 1), 2)
+    size(rand(StableRNG(0), hmm, n_to_t(4, 2); z_ini=1)) == (2, 4)
+end
+
+# Observation matrices are written sites-first below and transposed when the loaded version wants
+# them time-first, so both revisions are timed on the very same data.
+const as_obs = DXN ? identity : permutedims
 const SUITE = BenchmarkGroup()
 
 """
@@ -80,8 +93,8 @@ let
     SUITE["utilities"]["conditional_to"] = BenchmarkGroup()
     for order in [1, 2, 3]
         N, D = 50_000, 20
-        Y = rand(StableRNG(1), Bool, D, N)
-        Y_past = rand(StableRNG(2), Bool, D, order)
+        Y = as_obs(rand(StableRNG(1), Bool, D, N))
+        Y_past = as_obs(rand(StableRNG(2), Bool, D, order))
         SUITE["utilities"]["conditional_to"]["order=$order"] =
             @benchmarkable SPSM.conditional_to($Y, $Y_past)
     end
@@ -96,7 +109,7 @@ let
     for (K, D, order) in [(2, 5, 0), (2, 5, 1), (4, 20, 1), (4, 20, 2)]
         hmm, = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = rand(StableRNG(2), Bool, D, order)
+        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
         SUITE["hmm"]["rand"]["K=$K D=$D order=$order"] = @benchmarkable(
             rand(rng, $hmm, $n2t; y_ini=$y_ini, z_ini=1),
             setup = (rng = StableRNG(3)),
@@ -115,7 +128,7 @@ let
     for (K, D, order, N) in [(2, 5, 1, 10_000), (4, 20, 1, 10_000), (4, 20, 2, 50_000)]
         hmm, = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = rand(StableRNG(2), Bool, D, order)
+        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
         z, y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1, seq=true)
 
         key = "K=$K D=$D order=$order N=$N"
@@ -155,7 +168,7 @@ let
     for (K, D, order, N) in [(2, 5, 1, 5_000), (3, 6, 1, 10_000), (4, 10, 1, 10_000), (3, 6, 2, 10_000)]
         hmm, θᴬ, θᴮ = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = rand(StableRNG(2), Bool, D, order)
+        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
         y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
 
         θᴬ0, θᴮ0 = flat_guess(θᴬ, θᴮ)
@@ -190,7 +203,7 @@ let
 
         hmm = Trig2ARPeriodicHMMSpatial(fill(1 / K, K), θᴬ, θᴮ, θᴿ, T, distance)
         n2t = n_to_t(N, T)
-        y_ini = rand(StableRNG(2), Bool, D, order)
+        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
         y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
 
         key = "D=$D N=$N"
