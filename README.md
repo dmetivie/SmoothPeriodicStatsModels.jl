@@ -96,6 +96,20 @@ fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past; n2t=n2t,
         solve_kwargs = (maxiters = 100,))    # forwarded verbatim to `solve`
 ```
 
+### The seasonal mixture
+
+The EM loop for the seasonal mixture is
+[ExpectationMaximization.jl](https://github.com/dmetivie/ExpectationMaximization.jl)'s. Only the
+*parametrization* here is periodic, so this package supplies that — the weights and components as
+trigonometric polynomials — and hands the iteration over. Concretely, `SeasonalWeights`,
+`SeasonalFamily` and `SeasonalSample` carry the parametrization, and the `loglikelihoods!` and
+`M_step!` methods they dispatch are the seasonal E- and M-steps. Nothing in that package needed
+changing.
+
+A consequence worth knowing: its keywords work here too. `rtol` alongside `tol`,
+`method = StochasticEM(rng)` for stochastic EM, and a vector of per-observation weights passed
+positionally after `n2t`.
+
 ### Adding your own seasonal family
 
 The seasonal mixture EM is not tied to `Exponential`. `fit_mle` dispatches the component M-step on
