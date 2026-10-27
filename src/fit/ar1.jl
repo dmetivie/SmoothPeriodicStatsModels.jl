@@ -27,8 +27,8 @@ end
 Maximum likelihood fit of one periodic AR(1) per hidden state, given the state sequence `z`. Each
 returned array is `(2d+1) × K`, column `k` holding the coefficients of state `k`.
 
-The states share no parameters, so the `K` fits are independent and are run as one
-`EnsembleProblem`. A state that `z` never visits has no data and keeps its starting value.
+Pass `ensemble = EnsembleThreads()` to run the `K` fits in parallel. A state that `z` never
+visits has no data and keeps its starting value.
 """
 function fit_mle_AR1(y::AbstractVector, z::AbstractVector{<:Integer}, d::Integer, T::Integer;
     n2t=n_to_t(length(y), T)::AbstractVector{<:Integer},

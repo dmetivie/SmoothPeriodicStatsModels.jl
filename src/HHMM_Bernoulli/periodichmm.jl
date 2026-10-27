@@ -61,7 +61,7 @@ function rand(
     hmm::ARPeriodicHMM,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=rand(Bernoulli(), size(hmm, 2), Int(log2(size(hmm, 4))))
+    y_ini=rand(rng, Bernoulli(), size(hmm, 2), Int(log2(size(hmm, 4))))
 )
     D = size(hmm, 2)
     y = Matrix{Bool}(undef, D, length(z))
@@ -76,17 +76,14 @@ function rand(
     return y
 end
 
+rand(hmm::ARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
+
 """
     rand_emissions!(y, rng, B, z, n2t, order)
 
 Fill `y[:, order+1:end]` from the emission distributions `B` along the state path `z`: site `j`
 at time `n` is drawn from `B[z[n], n2t[n], j, h]`, where `h` encodes the `order` previous values
 of site `j` the way `bin2digit` does. The first `order` columns of `y` are the initial condition.
-
-Equivalent to drawing each column from `product_distribution(B[z[n], n2t[n], :, h])`, and out of the
-same random stream, since a product distribution draws its components site by site too.
-`B` is an argument so this specializes on its concrete element type; the `hmm.B` field is
-abstractly typed.
 """
 function rand_emissions!(y::AbstractMatrix{Bool}, rng::AbstractRNG, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}, order::Integer)
     D = size(y, 1)

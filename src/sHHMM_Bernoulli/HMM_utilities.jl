@@ -25,7 +25,7 @@ n_per_category(h, t, y, n_in_t, n_occurence_history::AbstractMatrix) = (n_in_t[t
 function randARPeriodicHMM(rng::AbstractRNG, K, T, orders::AbstractVector; ref_station=1, ξ=ones(K) / K)
     D = length(orders)
     size_order = 2 .^ orders
-    B_rand = [[Bernoulli(rand()) for h in 1:size_order[j]] for k in 1:K, t in 1:T, j in 1:D] # completly random -> bad
+    B_rand = [[Bernoulli(rand(rng)) for h in 1:size_order[j]] for k in 1:K, t in 1:T, j in 1:D] # completly random -> bad
     Q_rand = zeros(K, K, T)
     for t in 1:T
         Q_rand[:, :, t] = PeriodicHiddenMarkovModels.randtransmat(rng, K) # completly random -> bad

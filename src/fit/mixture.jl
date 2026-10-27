@@ -1,85 +1,114 @@
-function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractArray, θ_Y::AbstractArray, y::AbstractVecOrMat, n2t::AbstractVector;
-    display=:none, maxiter=100, tol=1e-3, robust=false,
+# `θ_α::AbstractMatrix`, not `AbstractArray`: `ExpectationMaximization`'s multi-start
+# `fit_mle(::AbstractArray{<:MixtureModel}, ::AbstractVecOrMat, weights...)` also matches, and only
+# the narrower second argument makes this method strictly more specific than that one.
+"""
+    fit_mle(mix, θ_α, θ_Y, y, n2t; kwargs...) -> (mixtures, θ_α, θ_Y, history)
+
+Fit a seasonal mixture by EM: both the mixing weights and the component parameters vary with the
+period index `t`, through trigonometric polynomials.
+
+`mix` is the `T`-long vector of initial mixtures, `θ_α` the `(K-1) × (2dα+1)` multinomial-logit
+coefficients of the weights, `θ_Y[k]` the coefficients of component `k` (degrees may differ per
+component), `y` the observations and `n2t[n] ∈ 1:T` the period index of observation `n`.
+
+Returns the refitted `T`-long vector of `MixtureModel`s, the refitted coefficients, and the
+`history` `Dict` with `"converged"`, `"iterations"` and `"logtots"`.
+
+`ExpectationMaximization`'s own keywords are accepted here too: `rtol`,
+`method = StochasticEM()`, and a positional vector of per-observation weights after `n2t`.
+
+To fit a component family other than `Exponential`, add a method of [`update_dist`](@ref); see the
+README.
+"""
+function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix, θ_Y::AbstractVector, y::AbstractVecOrMat, n2t::AbstractVector, weights...;
+    display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false, method=ClassicEM(),
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;),
     silence=nothing, warm_start=nothing)
-    @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
     _warn_legacy_solver_kwargs(silence, warm_start)
 
-    N, K, T = size_sample(y), ncomponents(mix[1]), size(mix, 1)
+    K, T = ncomponents(mix[1]), size(mix, 1)
     # TODO deal with K=1 case
     @argcheck K > 1
-    d = (length(θ_α[1, :]) - 1) ÷ 2 #
-    history = Dict("converged" => false, "iterations" => 0, "logtots" => zeros(0))
-    # Allocate memory for in-place updates
 
-    LL = zeros(N, K)
-    γ = similar(LL)
-    s_γ = zeros(T, K)
-
-    c = zeros(N)
-
-    # Initial parameters
+    # Initial parameters. `θ_Y` is a vector of vectors, so `copy` would leave the inner vectors
+    # shared with the caller's: the refitted coefficients are returned as fresh vectors instead.
     θ_α = copy(θ_α)
-    θ_Y = copy(θ_Y)
-    n_in_t = [findall(n2t .== t) for t = 1:T]
 
-    α = copy(hcat(probs.(mix)...))
     dists = copy(hcat(components.(mix)...))
     types = typeof.(dists[:, 1])
-    dists = [convert(Vector{types[k, 1]}, dists[k, :]) for k = 1:K] # I have to separate the array to preserve types
+    # separate the array per component to preserve types
+    comps = [SeasonalFamily(convert(Vector{types[k, 1]}, dists[k, :]), collect(float(θ_Y[k]))) for k = 1:K]
 
-    basis_α = trig_basis(T, (size(θ_α, 2) - 1) ÷ 2)
     basis_Y = [trig_basis(T, (length(θ_Y[k]) - 1) ÷ 2) for k = 1:K]
+    α = SeasonalWeights(hcat(probs.(mix)...), reshape(θ_α, K - 1, :),
+        trig_basis(T, (size(θ_α, 2) - 1) ÷ 2),
+        (; solver, adtype, solve_kwargs, basis_Y))
 
-    # E-step
-    # evaluate likelihood for each type k
-    E_step!(LL, c, γ, dists, α, y, n2t; robust=robust)
+    sample = SeasonalSample(y, n2t, T)
 
-    # Loglikelihood
-    logtot = sum(c)
-    (display == :iter) && println("Method = $(method)\nIteration 0: Loglikelihood = ", logtot)
+    history = em_fit_mle!(α, comps, sample, weights..., method;
+        display=display, maxiter=maxiter, atol=tol, rtol=rtol, robust=robust)
 
-    for it = 1:maxiter
+    θ_α[:, :] = reshape(α.θ, size(θ_α))
+    return [MixtureModel([comps[k].dists[t] for k = 1:K], [α.α[k, t] for k = 1:K]) for t = 1:T],
+    θ_α, [comps[k].θ for k = 1:K], history
+end
 
-        # M-step
-        # with γ in hand, maximize (update) the parameters
-        s_γα!(s_γ, γ, n_in_t)
-        update_α!(α, θ_α, s_γ, basis_α; solver, adtype, solve_kwargs)
-        for k = 1:K
-            dists[k][:], θ_Y[k] = update_dist(dists[k], θ_Y[k], γ[:, k], y, n_in_t, basis_Y[k]; solver, adtype, solve_kwargs)
-        end
+"""
+    M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, ::ClassicEM)
 
-        # E-step
-        # evaluate likelihood for each type k
-        E_step!(LL, c, γ, dists, α, y, n2t; robust=robust)
+M-step of the seasonal mixture: refit the weights' multinomial-logit coefficients, then each
+component's own coefficients, from the posteriors `γ`.
 
-        # Loglikelihood
-        logtotp = sum(c)
-        (display == :iter) && println("Iteration $(it): loglikelihood = ", logtotp)
+`γ` may alias the log-likelihood matrix the E-step wrote, so it is only ever read here.
+"""
+function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, ::ClassicEM)
+    K, T = size(α.α)
+    cfg = α.cfg
 
-        push!(history["logtots"], logtotp)
-        history["iterations"] += 1
+    s_γ = zeros(T, K)
+    s_γα!(s_γ, γ, y.n_in_t)
+    update_α!(α.α, α.θ, s_γ, α.basis; cfg.solver, cfg.adtype, cfg.solve_kwargs)
 
-        if abs(logtotp - logtot) < tol
-            (display in [:iter, :final]) &&
-                println("EM converged in ", it, " iterations, final loglikelihood = ", logtotp)
-            history["converged"] = true
-            break
-        end
-
-        logtot = logtotp
+    for k = 1:K
+        dists[k].dists[:], θₖ = update_dist(dists[k].dists, dists[k].θ, view(γ, :, k), y.y,
+            y.n_in_t, cfg.basis_Y[k]; cfg.solver, cfg.adtype, cfg.solve_kwargs)
+        dists[k].θ[:] = θₖ
     end
+end
 
-    if !history["converged"]
-        if display in [:iter, :final]
-            println(
-                "EM has not converged after $(history["iterations"]) iterations, final loglikelihood = $logtot",
-            )
-        end
+"""
+    M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
+
+Same M-step with per-observation weights `w`, folded into the posteriors `γ`, which is scratch
+here.
+"""
+function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
+    γ .*= w
+    M_step!(α, dists, y, γ, ClassicEM())
+end
+
+"""
+    M_step!(α::SeasonalWeights, dists, y::SeasonalSample, cat, ::StochasticEM)
+
+Stochastic-EM M-step: `cat[k]` holds the observations the S-step assigned to component `k`, so the
+posteriors are the hard assignment, and the seasonal refits are then the `ClassicEM` ones.
+"""
+function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, cat::AbstractVector{<:AbstractVector{<:Integer}}, ::StochasticEM)
+    γ = zeros(length(y), size(α.α, 1))
+    for (k, cₖ) in enumerate(cat)
+        γ[cₖ, k] .= 1
     end
+    M_step!(α, dists, y, γ, ClassicEM())
+end
 
-    return [MixtureModel([dists[k][t] for k = 1:K], [α[k, t] for k = 1:K]) for t = 1:T], θ_α, θ_Y, history
+function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, cat::AbstractVector{<:AbstractVector{<:Integer}}, w, ::StochasticEM)
+    γ = zeros(length(y), size(α.α, 1))
+    for (k, cₖ) in enumerate(cat)
+        γ[cₖ, k] .= 1
+    end
+    M_step!(α, dists, y, γ, w, ClassicEM())
 end
 
 """
@@ -89,11 +118,9 @@ M-step for one seasonal `Exponential` component: refit its trigonometric coeffic
 posterior weights `γ`, and return the refitted distributions together with the coefficients.
 
 This is the extension point for new emission families: `fit_mle` dispatches here on the component
-type, so adding a method for your own distribution is enough to make the whole seasonal EM work
-with it — nothing else in the E-step or the mixture-weight M-step is `Exponential`-specific.
+type, so a method for your own distribution is enough.
 
-A method owns four family-specific decisions, which is why the negative loglikelihood alone is
-not a sufficient interface:
+A method owns four family-specific decisions:
 
 1. which sufficient statistics to aggregate per period index `t` (here `s_π` and `s_πy`);
 2. the layout of `θ_Y`, one block of `size(basis, 2)` coefficients per seasonal parameter;
@@ -162,49 +189,5 @@ function update_α!(
     [α[k, t] /= normalization_polynomial[t] for k = 1:K, t = 1:T]
 end
 
-function E_step!(
-    LL::AbstractMatrix{T},
-    c::AbstractVector{T},
-    γ::AbstractMatrix{T},
-    dists::AbstractArray,
-    α::AbstractMatrix,
-    y::AbstractVector{<:Real}, n2t::AbstractVector;
-    robust=false
-) where {T<:AbstractFloat}
-    # evaluate likelihood for each type k
-    for k in eachindex(dists)
-        for (n, t) in enumerate(n2t)
-            LL[n, k] = log(α[k, t]) + logpdf(dists[k][t], y[n])
-        end
-    end
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
-    # get posterior of each category
-    logsumexp!(c, LL) # ⇔ c[:] = logsumexp(LL, dims=2)
-    γ[:, :] .= exp.(LL .- c)
-end
-
-function E_step!(
-    LL::AbstractMatrix{T},
-    c::AbstractVector{T},
-    γ::AbstractMatrix{T},
-    dists::AbstractArray,
-    α::AbstractMatrix,
-    y::AbstractMatrix, n2t::AbstractVector;
-    robust=false
-) where {T<:AbstractFloat}
-    # evaluate likelihood for each type k
-    for k in eachindex(dists)
-        for (n, t) in enumerate(n2t)
-            LL[n, k] = log(α[k, t]) + logpdf(dists[k][t], y[:, n])
-        end
-    end
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
-    # get posterior of each category
-    c[:] = logsumexp(LL, dims=2)
-    γ[:, :] = exp.(LL .- c)
-end
-
-# Utilities 
-
-size_sample(y::AbstractMatrix) = size(y, 2)
-size_sample(y::AbstractVector) = length(y)
+# The E-step and the driver loop come from `ExpectationMaximization`; the seasonal part of the
+# E-step is the `loglikelihoods!` method in `src/seasonal_mixture.jl`.

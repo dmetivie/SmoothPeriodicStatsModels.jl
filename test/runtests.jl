@@ -221,6 +221,79 @@ end
     @test ll(mixt) ≈ history["logtots"][end]
 end
 
+
+# The seasonal EM loop is `ExpectationMaximization`'s; this package supplies only the seasonal
+# parametrization. These cover what that buys and what it must not break.
+@testset "Mixture: the ExpectationMaximization driver" begin
+    Random.seed!(1234)
+    g(th) = MixtureModel([Exponential(th[1]), Exponential(th[2])], [th[3], 1 - th[3]])
+    g(t, th) = g([σₜ(t, th[:, 1]), σₜ(t, th[:, 2]), αₜ(t, th[:, 3])])
+    thtrue = hcat([1, 1, -0.2], [3, -0.5, 0.6], [0.1, -0.5, 1])
+    T, N = 20, 2000
+    n2t = repeat(1:T, N / T |> Int)
+    y = [rand(g(t / T, thtrue)) for t in n2t]
+    th0 = hcat([0, 0, 0], [5, 0, 0.0], [0.0, 0.2, 0])
+    mix0 = [g(t / T, th0) for t in 1:T]
+    base() = (mix0, permutedims(th0[:, 3]), [th0[:, 1], th0[:, 2]], y, n2t)
+
+    # `display=:iter` used to throw `UndefVarError: method` from this package's own loop
+    @test_nowarn fit_mle(base()...; display=:iter, maxiter=2, tol=0.0)
+
+    # `rtol`, which the hand-rolled loop had no equivalent of
+    _, _, _, h_rtol = fit_mle(base()...; maxiter=1000, tol=0.0, rtol=1e-6)
+    @test h_rtol["converged"]
+    @test h_rtol["iterations"] < 1000
+
+    # Stochastic EM: a different driver over the same seasonal M-step
+    mS, _, thS, hS = fit_mle(base()...; method=StochasticEM(MersenneTwister(1)), maxiter=200, tol=1e-5)
+    @test length(mS) == T
+    @test components(mS[1])[1] isa Exponential
+    @test hS["logtots"][end] > hS["logtots"][1]
+    @test thS[2] ≈ thtrue[:, 2] rtol = 2e-1
+
+    # Per-observation weights agree with replicating the observations they weight
+    w = [isodd(n) ? 2.0 : 1.0 for n = 1:N]
+    rep = findall(isodd, 1:N)
+    _, a_w, Y_w, _ = fit_mle(mix0, permutedims(th0[:, 3]), [th0[:, 1], th0[:, 2]], y, n2t, w;
+        maxiter=500, tol=1e-8)
+    _, a_r, Y_r, _ = fit_mle(mix0, permutedims(th0[:, 3]), [th0[:, 1], th0[:, 2]],
+        vcat(y, y[rep]), vcat(n2t, n2t[rep]); maxiter=500, tol=1e-8)
+    @test Y_w[1] ≈ Y_r[1] rtol = 1e-4
+    @test Y_w[2] ≈ Y_r[2] rtol = 1e-4
+    @test vec(a_w) ≈ vec(a_r) rtol = 1e-4
+
+    # The caller's starting coefficients must survive the fit. `theta_Y` is a vector of vectors,
+    # so a shallow `copy` would leave the inner vectors shared and the refit would overwrite them.
+    # All-Float64 inputs are the case that bites: a mixed Int/Float64 pair is promoted on
+    # construction, which silently copies and hides the aliasing.
+    thY_keep = [[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]]
+    tha_keep = permutedims([0.0, 0.2, 0.0])
+    thY_snapshot = deepcopy(thY_keep); tha_snapshot = copy(tha_keep)
+    _, a_out, Y_out, _ = fit_mle(mix0, tha_keep, thY_keep, y, n2t; maxiter=20, tol=1e-6)
+    @test thY_keep == thY_snapshot
+    @test tha_keep == tha_snapshot
+    @test Y_out[1] != thY_snapshot[1]   # and the fit did move, so the check is not vacuous
+end
+
+
+@testset "OptimMLE is concrete and bounds θ₀" begin
+    loss(th, x) = sum(abs2, th .- 1.0)
+    o = OptimMLE(loss, [0.0, 0.0])
+
+    # Every field parametric, so the struct is concrete. `ℓ::Function` would not be: `Function`
+    # is abstract, and the compiler then cannot see through `OptimizationFunction(opt.ℓ, adtype)`.
+    @test isconcretetype(typeof(o))
+    @test all(isconcretetype, fieldtypes(typeof(o)))
+    @test fieldtype(typeof(o), :ℓ) === typeof(loss)
+
+    # `θ₀` must be a vector. The bound used to be written as a trailing `where` on the supertype,
+    # where it silently did nothing and a scalar was accepted, failing much later inside `solve`.
+    @test_throws MethodError OptimMLE(loss, default_solver(), 5)
+    @test_throws MethodError OptimMLE(loss, 5)
+
+    @test fit_mle(o, [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
+end
+
 # Optim for Mixture
 @testset "Mixture: fit_mle_trig_exp2_Optim" begin
     Random.seed!(1234)

@@ -48,9 +48,8 @@ default_ensemble() = EnsembleSerial()
 """
     solve_unconstrained(objective, u0, p; solver, adtype, solve_kwargs) -> minimizer
 
-Minimize `objective(u, p)` from the starting point `u0`, and return the minimizer. Warns, rather
-than throwing, when the solver reports an unsuccessful return code — the caller usually has a
-usable iterate anyway and an EM loop should not die on one bad M-step.
+Minimize `objective(u, p)` from the starting point `u0`, and return the minimizer. An
+unsuccessful solver return code warns instead of throwing.
 """
 function solve_unconstrained(objective, u0, p;
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))

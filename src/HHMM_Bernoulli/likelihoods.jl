@@ -5,11 +5,6 @@ likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMM, Y::AbstractMatrix, lag_cat::
 
 Fill `L[n, k]` with the likelihood of observation `n` in state `k`, i.e. the product over the
 sites `j` of `pdf(B[k, n2t[n], j, lag_cat[j, n]], Y[j, n])`.
-
-Equivalent to `pdf(product_distribution(B[k, n2t[n], :, lag_cat[:, n]]), Y[:, n])`, without
-building the index vector, the distribution and the observation slice for every `(n, k)`.
-`B` is an argument so this specializes on its concrete element type; the `hmm.B` field is
-abstractly typed.
 """
 function likelihoods!(L::AbstractMatrix, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(B, 2))::AbstractVector{<:Integer})
     N, K, D = size(Y, 2), size(B, 1), size(Y, 1)
@@ -100,10 +95,6 @@ end
 Loglikelihood of the observations `y` along the state path `z`, i.e. the sum over `n` and over
 the sites `j` of `logpdf(B[z[n], n2t[n], j, lag_cat[j, n]], y[j, n])`. This is the emission part
 of [`complete_loglikelihood`](@ref), the other one being the transition term.
-
-Equivalent to `sum(logpdf(product_distribution(B[z[n], n2t[n], :, lag_cat[:, n]]), y[:, n]))`.
-`B` is an argument so this specializes on its concrete element type; the `hmm.B` field is
-abstractly typed.
 """
 function emission_loglikelihood(B::AbstractArray{F,4} where {F<:UnivariateDistribution}, y::AbstractMatrix, z::AbstractVector, lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer})
     D, N = size(y)

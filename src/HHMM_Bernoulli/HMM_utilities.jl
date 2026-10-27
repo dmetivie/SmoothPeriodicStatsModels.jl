@@ -25,10 +25,8 @@ bin2digit([0, 0]) == 1    bin2digit([0, 1]) == 2
 bin2digit([1, 0]) == 3    bin2digit([1, 1]) == 4
 ```
 
-This is how the local memory of a site becomes the last index `h` of an emission array
-`B[k, t, j, h]`. There `x[m]` is the value of the site `m` steps earlier, so the *most recent*
-lag is the most significant bit, and `h = 1` is the all-dry history — the convention
-`sort_wrt_ref!` relies on.
+Used for the last index `h` of an emission array `B[k, t, j, h]`, where `x[m]` is the value of
+the site `m` steps earlier, so `h = 1` is the all-dry history.
 
 Any `x` supporting `length` and `getindex` works, `Tuple` included.
 """
@@ -40,12 +38,10 @@ bin2digit(x) = sum(x[length(x)-i+1] * 2^(i - 1) for i = 1:length(x)) + 1
 Memory category of every (site, observation), from `lag_obs[m][j, n]`, the value of site `j` at
 `m` steps before `n`. Entry `[j, n]` is `bin2digit((lag_obs[1][j, n], …, lag_obs[order][j, n]))`,
 that is `1 + sum(lag_obs[m][j, n] * 2^(order - m) for m = 1:order)`.
-
-Equivalent to `bin2digit.(tuple.(lag_obs...))`, accumulated in place: splatting a `Vector` whose
-length is only known at run time makes that broadcast uninferrable, which costs one allocation
-per entry.
 """
 function dayx(lag_obs::AbstractArray)
+    # Accumulated in place rather than as `bin2digit.(tuple.(lag_obs...))`: splatting a `Vector`
+    # whose length is only known at run time makes that broadcast uninferrable.
     order = length(lag_obs)
     lag_cat = fill(1, size(lag_obs[1]))
     for m = 1:order

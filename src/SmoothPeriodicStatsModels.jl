@@ -19,7 +19,16 @@ using Distributions
 using Random: AbstractRNG, GLOBAL_RNG, rand!
 
 # ## Special function
-using LogExpFunctions: logsumexp!, logsumexp, log1pexp
+using LogExpFunctions: logsumexp, log1pexp
+
+# ## EM
+# The seasonal mixture is fitted by `ExpectationMaximization`'s driver; this package supplies only
+# the parametrization, as the types in `seasonal_mixture.jl` and the two hooks they dispatch.
+using ExpectationMaximization: ClassicEM, StochasticEM
+# aliased because `fit_mle!` in this namespace is PeriodicHiddenMarkovModels', a different function
+using ExpectationMaximization: fit_mle! as em_fit_mle!
+import ExpectationMaximization: loglikelihoods!, M_step!
+export ClassicEM, StochasticEM
 
 # ## HMM
 using PeriodicHiddenMarkovModels
@@ -43,6 +52,9 @@ export solve_unconstrained, solve_nlls
 
 # ## M-step objectives shared by the seasonal EM algorithms
 include("trig_kernels.jl")
+
+# ## The seasonal mixture, stated for ExpectationMaximization.jl
+include("seasonal_mixture.jl")
 
 # ## Generic MLE problem solved with Optimization
 include("optim_mle_type.jl")

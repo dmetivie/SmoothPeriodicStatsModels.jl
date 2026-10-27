@@ -10,8 +10,6 @@
 
 `T × (2d+1)` matrix whose row `t` is `[1, cos(2π t/T), sin(2π t/T), …, cos(2π d t/T), sin(2π d t/T)]`,
 so that `basis * β` evaluates [`polynomial_trigo`](@ref) at every `t = 1:T` at once.
-
-Built once per model instead of inside every objective evaluation.
 """
 function trig_basis(T::Integer, d::Integer)
     basis = Matrix{Float64}(undef, T, 2d + 1)
@@ -29,11 +27,7 @@ end
     log1pexp_sum(x) -> Number
 
 `log(1 + Σᵢ exp(xᵢ))`: the normalization of a multinomial logit whose reference category has a
-polynomial fixed to zero.
-
-Composed of two `LogExpFunctions` primitives rather than written out, so the overflow handling is
-theirs: `log1p(sum(exp, x))` returns `Inf` once any `xᵢ` passes ~710, where this returns the
-right answer.
+polynomial fixed to zero. Overflow-safe for large arguments.
 """
 log1pexp_sum(x) = log1pexp(logsumexp(x))
 

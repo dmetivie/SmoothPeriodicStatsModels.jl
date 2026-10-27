@@ -34,7 +34,7 @@ function rand(rng::AbstractRNG,
     hmm::ARPeriodicHMMSpatial,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=rand(Bool, size(hmm, 2), Int(log2(size(hmm, 4))))
+    y_ini=rand(rng, Bool, size(hmm, 2), Int(log2(size(hmm, 4))))
 )
     N = length(n2t)
     D = size(hmm, 2)
@@ -68,6 +68,8 @@ function rand(rng::AbstractRNG,
     end
     return y
 end
+
+rand(hmm::ARPeriodicHMMSpatial, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 # ## peut être pas necessaire car déjà dans rand(rng, hmm, z, n2t, y_ini) pour les AbsractHMM
 # function rand(rng::AbstractRNG,
