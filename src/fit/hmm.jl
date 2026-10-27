@@ -24,9 +24,7 @@ M-step for the emission probabilities: refit the trigonometric coefficients `θ�
 every (state, site, memory) triple against the aggregated posteriors `γₛ`, then write the
 resulting probabilities into `B`.
 
-The triples are independent problems differing only in their starting point and their data, so
-they are solved as one `EnsembleProblem`; pass `ensemble = EnsembleThreads()` to run them in
-parallel.
+Pass `ensemble = EnsembleThreads()` to refit the triples in parallel.
 """
 function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, basis::AbstractMatrix;
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))

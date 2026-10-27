@@ -24,8 +24,8 @@ expressed in **fractions of a period**: `t` and `t + 1` give the same value.
 β₁ + \\sum_{l=1}^{d} β_{2l} \\cos(2π l t) + β_{2l+1} \\sin(2π l t)
 ```
 
-A degree-0 `β` gives the constant `β[1]`. This normalized form is the convention used throughout
-the package; `polynomial_trigo(t, β, T)` is the legacy spelling of `polynomial_trigo(t / T, β)`.
+A degree-0 `β` gives the constant `β[1]`. `polynomial_trigo(t, β, T)` takes `t` in time
+steps and is `polynomial_trigo(t / T, β)`.
 """
 function polynomial_trigo(t::Number, β)
     d = (length(β) - 1) ÷ 2

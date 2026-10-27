@@ -58,7 +58,7 @@ function rand(
     hmm::sARPeriodicHMM,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=[rand(Bernoulli(), Int(log2(size(hmm, 4)[j]))) for j in 1:size(hmm, 2)]
+    y_ini=[rand(rng, Bernoulli(), Int(log2(size(hmm, 4)[j]))) for j in 1:size(hmm, 2)]
 )
     D = size(hmm, 2)
     y = Matrix{Bool}(undef, D, length(z))
@@ -88,6 +88,8 @@ function rand(
     end
     return y
 end
+
+rand(hmm::sARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 """
     size(hmm, [dim]) -> Int | Tuple

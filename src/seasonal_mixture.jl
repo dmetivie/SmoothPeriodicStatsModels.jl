@@ -19,20 +19,18 @@
 The sample of a seasonal fit: the observations together with the period index of each one.
 
 `n2t[n] ∈ 1:T` is the period index of observation `n`, and `n_in_t[t]` the indices of the
-observations sharing period index `t` — the inverse map, built once because every M-step
-aggregates over it.
-
-A view, not a copy: `y` is stored as given. Subtyping `AbstractVector` is what makes
-`ExpectationMaximization` accept it as a sample and count it with `size_sample`.
+observations sharing period index `t`. `y` is stored as given, not copied.
 """
-struct SeasonalSample{V<:AbstractVector} <: AbstractVector{Float64}
+struct SeasonalSample{T,V<:AbstractVector{T}} <: AbstractVector{T}
     y::V
     n2t::Vector{Int}
     n_in_t::Vector{Vector{Int}}
 end
 
-SeasonalSample(y::AbstractVector, n2t::AbstractVector, T::Integer) =
-    SeasonalSample(y, collect(Int, n2t), [findall(==(t), n2t) for t = 1:T])
+# `n2t` and `n_in_t` are deliberately not parametric: they are period indices, built here rather
+# than taken from the caller, so there is nothing for a type parameter to vary over.
+SeasonalSample(y::AbstractVector, n2t::AbstractVector, nT::Integer) =
+    SeasonalSample{eltype(y),typeof(y)}(y, collect(Int, n2t), [findall(==(t), n2t) for t = 1:nT])
 
 Base.size(s::SeasonalSample) = size(s.y)
 Base.getindex(s::SeasonalSample, n) = s.y[n]
@@ -47,18 +45,22 @@ vector to have.
 `(K-1) × (2d+1)` multinomial-logit coefficients that generate it, with component `K` as the
 reference, and `basis` is the `T × (2d+1)` design matrix from [`trig_basis`](@ref).
 
-`cfg` carries what the M-step needs and cannot otherwise reach: the solver settings and the
-components' own bases. `ExpectationMaximization.M_step!` receives only `(α, dists, y, γ, method)`
-and `ClassicEM` is a singleton, so this struct is the one place left to put them.
+`cfg` holds what the M-step needs: the solver settings and the components' own bases.
 
-Indexing it returns the time-averaged weight of a component, so that it still reads as the
-length-`K` vector of weights its supertype promises.
+Indexing it returns the time-averaged weight of a component.
 """
-mutable struct SeasonalWeights{C} <: AbstractVector{Float64}
-    α::Matrix{Float64}
-    θ::Matrix{Float64}
-    basis::Matrix{Float64}
+mutable struct SeasonalWeights{T,C} <: AbstractVector{T}
+    α::Matrix{T}
+    θ::Matrix{T}
+    basis::Matrix{T}
     cfg::C
+end
+
+# The three matrices come from different places — the initial mixtures, the caller's coefficients
+# and `trig_basis` — so they are promoted to a common element type rather than assumed to share one.
+function SeasonalWeights(α::AbstractMatrix, θ::AbstractMatrix, basis::AbstractMatrix, cfg)
+    T = promote_type(eltype(α), eltype(θ), eltype(basis))
+    return SeasonalWeights{T,typeof(cfg)}(Matrix{T}(α), Matrix{T}(θ), Matrix{T}(basis), cfg)
 end
 
 Base.size(a::SeasonalWeights) = (size(a.α, 1),)
@@ -70,9 +72,8 @@ Base.getindex(a::SeasonalWeights, k::Integer) = sum(view(a.α, k, :)) / size(a.�
 One component of a seasonal mixture: the `T` distributions it takes over a period, and the
 trigonometric coefficients `θ` that generate them.
 
-It subtypes `Distribution` only because `ExpectationMaximization.fit_mle!` types its components as
-`AbstractVector{F} where {F<:Distribution}`. Nothing ever calls `logpdf`, `rand` or `params` on
-the family itself — only on `dists[t]` — so it implements none of that interface.
+It implements no part of the `Distribution` interface itself: `logpdf`, `rand` and `params` are
+called on `dists[t]`.
 """
 struct SeasonalFamily{D<:Distribution} <: Distribution{Univariate,Continuous}
     dists::Vector{D}

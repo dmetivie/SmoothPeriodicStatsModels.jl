@@ -1,5 +1,7 @@
 abstract type AbstractMLE end
 
+# All three fields are parametric so that the type stays concrete: with `ℓ::Function` the compiler
+# cannot see through `OptimizationFunction(opt.ℓ, adtype)`.
 """
     OptimMLE(ℓ, solver, θ₀)
     OptimMLE(ℓ, θ₀)
@@ -14,9 +16,9 @@ dedicated `fit_mle` for.
 
 The solver stored here is a default, not a constraint: `fit_mle(opt, y; solver = …)` wins.
 """
-struct OptimMLE{T,V} <: AbstractMLE where {T,V<:AbstractVector}
-    ℓ::Function # -loglikelihood
-    solver::T
+struct OptimMLE{F,S,V<:AbstractVector} <: AbstractMLE
+    ℓ::F # -loglikelihood
+    solver::S
     θ₀::V
 end
 

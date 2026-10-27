@@ -275,6 +275,25 @@ end
     @test Y_out[1] != thY_snapshot[1]   # and the fit did move, so the check is not vacuous
 end
 
+
+@testset "OptimMLE is concrete and bounds θ₀" begin
+    loss(th, x) = sum(abs2, th .- 1.0)
+    o = OptimMLE(loss, [0.0, 0.0])
+
+    # Every field parametric, so the struct is concrete. `ℓ::Function` would not be: `Function`
+    # is abstract, and the compiler then cannot see through `OptimizationFunction(opt.ℓ, adtype)`.
+    @test isconcretetype(typeof(o))
+    @test all(isconcretetype, fieldtypes(typeof(o)))
+    @test fieldtype(typeof(o), :ℓ) === typeof(loss)
+
+    # `θ₀` must be a vector. The bound used to be written as a trailing `where` on the supertype,
+    # where it silently did nothing and a scalar was accepted, failing much later inside `solve`.
+    @test_throws MethodError OptimMLE(loss, default_solver(), 5)
+    @test_throws MethodError OptimMLE(loss, 5)
+
+    @test fit_mle(o, [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
+end
+
 # Optim for Mixture
 @testset "Mixture: fit_mle_trig_exp2_Optim" begin
     Random.seed!(1234)

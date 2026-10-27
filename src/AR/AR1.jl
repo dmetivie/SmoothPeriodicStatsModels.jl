@@ -24,30 +24,36 @@ struct AR1{T} <: AbstractPeriodicAR{T}
 end
 # https://stackoverflow.com/questions/56714992/julia-multiple-dispatch-for-mutable-struct-items
 
-function rand(AR::AR1, N::Integer; y₁=rand(Normal(0, AR.σ[1])))
+function rand(rng::AbstractRNG, AR::AR1, N::Integer; y₁=rand(rng, Normal(0, AR.σ[1])))
     T = size(AR.μ, 1)
     n2t = n_to_t(N, T)
-    return rand(AR, n2t; y₁=y₁)
+    return rand(rng, AR, n2t; y₁=y₁)
 end
 
+rand(AR::AR1, N::Integer; kwargs...) = rand(GLOBAL_RNG, AR, N; kwargs...)
+
 #TODO: add distribution into AR field
-function rand(AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer}; y₁=rand(Normal(0, AR.σ[1])))
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
     N = length(n2t)
     y = zeros(eltype(y₁), N)
     y[1] = y₁
     for n = 2:N
-        y[n] = AR.μ[n2t[n]] + AR.ρ[n2t[n]] * y[n-1] + rand(Normal(0, AR.σ[n2t[n]]))
+        y[n] = AR.μ[n2t[n]] + AR.ρ[n2t[n]] * y[n-1] + rand(rng, Normal(0, AR.σ[n2t[n]]))
     end
     return y
 end
 
-function rand(AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(Normal(0, AR.σ[1])))
+rand(AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, n2t; kwargs...)
+
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
     N = length(n2t)
-    ϵ = randn(N)
-    return rand(AR, ϵ, n2t, z; y₁=y₁)
+    ϵ = randn(rng, N)
+    return rand(rng, AR, ϵ, n2t, z; y₁=y₁)
 end
 
-function rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(Normal(0, AR.σ[1])))
+rand(AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, n2t, z; kwargs...)
+
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
     @assert length(z) == length(n2t)
     @assert length(z) == length(ϵ) "got $(length(z)) == $(length(ϵ))"
     N = length(n2t)
@@ -58,6 +64,8 @@ function rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector
     end
     return y
 end
+
+rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, ϵ, n2t, z; kwargs...)
 
 # function rand2(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
 #     @assert length(z) == length(n2t)
@@ -79,7 +87,7 @@ end
 #     return y
 # end
 
-function rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1])), output_ϵ = false) where T<:AR1{<:AbstractMatrix}
+function rand(rng::AbstractRNG, ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(rng, MvNormal(Σ[1])), output_ϵ = false) where T<:AR1{<:AbstractMatrix}
     @assert length(z) == length(n2t)
     @assert size(ARs) == size(y₁)
     N = length(n2t)
@@ -89,7 +97,7 @@ function rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::Abstract
         Nₖ = findall(z .== k)
         C = GaussianCopula(Σₖ) #! use cor2cov if you just have correlations matrix !!! (#? in practice does it make a difference?)
         𝔇 = SklarDist(C, 𝖀) 
-        @views ϵ[:,Nₖ] .= rand(𝔇, length(Nₖ))
+        @views ϵ[:,Nₖ] .= rand(rng, 𝔇, length(Nₖ))
     end
     # for n = 1:N
     #     k = z[n]
@@ -97,20 +105,24 @@ function rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::Abstract
     #     𝔇 = SklarDist(C, 𝖀) 
     #     @views ϵ[:,n] .= rand(𝔇)
     # end
-    y = rand(ARs, ϵ, n2t, z, Σ; y₁=y₁)
+    y = rand(rng, ARs, ϵ, n2t, z, Σ; y₁=y₁)
     return output_ϵ ? (y, ϵ) : y
 end
 
-function rand(ARs::AbstractArray{T}, ϵ::AbstractMatrix, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
+rand(ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; kwargs...) where {T<:AR1{<:AbstractMatrix}} = rand(GLOBAL_RNG, ARs, n2t, z, Σ; kwargs...)
+
+function rand(rng::AbstractRNG, ARs::AbstractArray{T}, ϵ::AbstractMatrix, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(rng, MvNormal(Σ[1]))) where T<:AR1{<:AbstractMatrix}
     @assert length(z) == length(n2t)
     @assert size(ARs) == size(y₁)
     N = length(n2t)
     y = zeros(eltype(y₁), N, size(y₁)...)
     for (j, AR) in enumerate(ARs)
-        @views y[:, j] = rand(AR, ϵ[j, :], n2t, z, y₁ = y₁[j])
+        @views y[:, j] = rand(rng, AR, ϵ[j, :], n2t, z, y₁ = y₁[j])
     end
     return permutedims(y)
 end
+
+rand(ARs::AbstractArray{T}, ϵ::AbstractMatrix, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; kwargs...) where {T<:AR1{<:AbstractMatrix}} = rand(GLOBAL_RNG, ARs, ϵ, n2t, z, Σ; kwargs...)
 
 # # Fitting a periodic AR(1) by maximum likelihood
 
@@ -121,9 +133,6 @@ Per-period sufficient statistics of the periodic AR(1) loglikelihood: for each p
 the number of transitions `N` and the sums `∑y²`, `∑y₋²`, `∑yy₋`, `∑y`, `∑y₋` taken over the
 observations `n ∈ ns` with `n2t[n] == t`. `ns` defaults to every observation that has a
 predecessor; restrict it to fit one hidden state at a time.
-
-The loglikelihood depends on the data only through these, so this one `O(length(ns))` pass makes
-every later objective evaluation `O(T)` — regardless of how long the series is.
 """
 function ar1_sufficient_statistics(y::AbstractVector, n2t::AbstractVector{<:Integer}, T::Integer, ns=2:length(y))
     N = zeros(Int, T)

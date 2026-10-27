@@ -1,4 +1,4 @@
-function fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector;
+function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector;
     n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     Yₜ_extanted = [0],
     robust=false,
@@ -22,7 +22,7 @@ function fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_pa
 
     for t = 1:T
         n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle.(t .+ Yₜ_extanted, T)]...)) # extend dataset
-        hist[t] = fit_mle_B_slice!(@view(α[:, t]), hmm.B[:, t, :], Y[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
+        hist[t] = fit_mle_B_slice!(rng, @view(α[:, t]), hmm.B[:, t, :], Y[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
     end
 
     LL = zeros(N, K)
@@ -39,7 +39,9 @@ function fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_pa
     return history ? (hmm, hist) : hmm
 end
 
-function fit_mle_B_slice!(α::AbstractVector, B::AbstractMatrix,
+fit_mle_all_slices(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector; kwargs...) = fit_mle_all_slices(GLOBAL_RNG, hmm, Y, Y_past; kwargs...)
+
+function fit_mle_B_slice!(rng::AbstractRNG, α::AbstractVector, B::AbstractMatrix,
     Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer};
     rand_ini=true,
     n_random_ini=10, display_random=false,
@@ -50,7 +52,7 @@ function fit_mle_B_slice!(α::AbstractVector, B::AbstractMatrix,
     Idx = idx_observation_of_past_cat(lag_cat, size_order)
 
     if rand_ini == true
-        α[:], B[:], h = fit_em_multiD_rand(α, B, Y, lag_cat, Idx; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, display_random=display_random, kwargs...)
+        α[:], B[:], h = fit_em_multiD_rand(rng, α, B, Y, lag_cat, Idx; n_random_ini=n_random_ini, Dirichlet_α=Dirichlet_α, display_random=display_random, kwargs...)
     else
         h = fit_em_multiD!(α, B, Y, lag_cat, Idx; kwargs...)
     end
@@ -58,7 +60,9 @@ function fit_mle_B_slice!(α::AbstractVector, B::AbstractMatrix,
     return h
 end
 
-function fit_em_multiD_rand(α::AbstractVector, B::AbstractMatrix,
+fit_mle_B_slice!(α::AbstractVector, B::AbstractMatrix, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; kwargs...) = fit_mle_B_slice!(GLOBAL_RNG, α, B, Y, lag_cat; kwargs...)
+
+function fit_em_multiD_rand(rng::AbstractRNG, α::AbstractVector, B::AbstractMatrix,
     Y::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};
     n_random_ini=10, Dirichlet_α=0.8, display_random=false, kwargs...)
 
@@ -72,8 +76,8 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractMatrix,
     h_max = h
     (display_random == :iter) && println("random IC 1: logtot = $(h["logtots"][end])")
     for i = 1:(n_random_ini-1)
-        B = [[Bernoulli(rand()) for h in 1:size_order[j]] for k in 1:K, j in 1:D]
-        α[:] = rand(Dirichlet(K, Dirichlet_α))
+        B = [[Bernoulli(rand(rng)) for h in 1:size_order[j]] for k in 1:K, j in 1:D]
+        α[:] = rand(rng, Dirichlet(K, Dirichlet_α))
         h = fit_em_multiD!(α, B, Y, lag_cat, idx_j; kwargs...)
         (display_random == :iter) && println("random IC $(i+1): logtot = $(h["logtots"][end])")
         if h["logtots"][end] > log_max
@@ -84,6 +88,8 @@ function fit_em_multiD_rand(α::AbstractVector, B::AbstractMatrix,
     end
     return α_max, B_max, h_max
 end
+
+fit_em_multiD_rand(α::AbstractVector, B::AbstractMatrix, Y::AbstractMatrix{<:Integer}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}}; kwargs...) = fit_em_multiD_rand(GLOBAL_RNG, α, B, Y, lag_cat, idx_j; kwargs...)
 
 function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
     Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}, idx_j::AbstractVector{Vector{Vector{Int}}};

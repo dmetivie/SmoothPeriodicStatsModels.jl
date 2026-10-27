@@ -1,3 +1,6 @@
+# `θ_α::AbstractMatrix`, not `AbstractArray`: `ExpectationMaximization`'s multi-start
+# `fit_mle(::AbstractArray{<:MixtureModel}, ::AbstractVecOrMat, weights...)` also matches, and only
+# the narrower second argument makes this method strictly more specific than that one.
 """
     fit_mle(mix, θ_α, θ_Y, y, n2t; kwargs...) -> (mixtures, θ_α, θ_Y, history)
 
@@ -11,21 +14,11 @@ component), `y` the observations and `n2t[n] ∈ 1:T` the period index of observ
 Returns the refitted `T`-long vector of `MixtureModel`s, the refitted coefficients, and the
 `history` `Dict` with `"converged"`, `"iterations"` and `"logtots"`.
 
-The EM loop itself is `ExpectationMaximization.fit_mle!`; this package contributes the seasonal
-parametrization, as [`SeasonalWeights`](@ref), [`SeasonalFamily`](@ref) and
-[`SeasonalSample`](@ref) plus the `loglikelihoods!` and `M_step!` methods they dispatch. So the
-keywords of that package are available here too: `rtol`, `method = StochasticEM()`, and a
-positional vector of per-observation weights after `n2t`.
+`ExpectationMaximization`'s own keywords are accepted here too: `rtol`,
+`method = StochasticEM()`, and a positional vector of per-observation weights after `n2t`.
 
 To fit a component family other than `Exponential`, add a method of [`update_dist`](@ref); see the
 README.
-
-!!! note
-    `θ_α` is typed `AbstractMatrix` rather than `AbstractArray` on purpose. `ExpectationMaximization`
-    also has a `fit_mle(::AbstractArray{<:MixtureModel}, y::AbstractVecOrMat, weights...)` — its
-    multi-start entry point — and only the narrower second argument makes this method strictly more
-    specific than that one. Loosening it brings back a `MethodError: … is ambiguous`. The body
-    already required a matrix (`size(θ_α, 2)`, `reshape(θ_α, K - 1, :)`).
 """
 function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix, θ_Y::AbstractVector, y::AbstractVecOrMat, n2t::AbstractVector, weights...;
     display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false, method=ClassicEM(),
@@ -48,7 +41,7 @@ function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix, θ_Y
     comps = [SeasonalFamily(convert(Vector{types[k, 1]}, dists[k, :]), collect(float(θ_Y[k]))) for k = 1:K]
 
     basis_Y = [trig_basis(T, (length(θ_Y[k]) - 1) ÷ 2) for k = 1:K]
-    α = SeasonalWeights(copy(hcat(probs.(mix)...)), Matrix{Float64}(reshape(θ_α, K - 1, :)),
+    α = SeasonalWeights(hcat(probs.(mix)...), reshape(θ_α, K - 1, :),
         trig_basis(T, (size(θ_α, 2) - 1) ÷ 2),
         (; solver, adtype, solve_kwargs, basis_Y))
 
@@ -67,9 +60,6 @@ end
 
 M-step of the seasonal mixture: refit the weights' multinomial-logit coefficients, then each
 component's own coefficients, from the posteriors `γ`.
-
-This is the method that makes `ExpectationMaximization`'s driver fit a *seasonal* mixture. It is
-strictly more specific than that package's own `M_step!`, which leaves `α` untyped.
 
 `γ` may alias the log-likelihood matrix the E-step wrote, so it is only ever read here.
 """
@@ -91,9 +81,8 @@ end
 """
     M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
 
-Same M-step with per-observation weights `w`. Folding `w` into the posteriors is enough: every
-sufficient statistic downstream is a `γ`-weighted sum, so the weighted and unweighted paths differ
-only in what `γ` holds. (`γ` is scratch here, as in `ExpectationMaximization`'s own weighted step.)
+Same M-step with per-observation weights `w`, folded into the posteriors `γ`, which is scratch
+here.
 """
 function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
     γ .*= w
@@ -129,11 +118,9 @@ M-step for one seasonal `Exponential` component: refit its trigonometric coeffic
 posterior weights `γ`, and return the refitted distributions together with the coefficients.
 
 This is the extension point for new emission families: `fit_mle` dispatches here on the component
-type, so adding a method for your own distribution is enough to make the whole seasonal EM work
-with it — nothing else in the E-step or the mixture-weight M-step is `Exponential`-specific.
+type, so a method for your own distribution is enough.
 
-A method owns four family-specific decisions, which is why the negative loglikelihood alone is
-not a sufficient interface:
+A method owns four family-specific decisions:
 
 1. which sufficient statistics to aggregate per period index `t` (here `s_π` and `s_πy`);
 2. the layout of `θ_Y`, one block of `size(basis, 2)` coefficients per seasonal parameter;

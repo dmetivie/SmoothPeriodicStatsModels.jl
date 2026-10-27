@@ -3,9 +3,8 @@
 
 Warn once for each of the two JuMP-era keywords still accepted by the fitting entry points.
 
-`silence` silenced Ipopt; verbosity is now whatever the chosen solver understands, passed through
-`solve_kwargs`. `warm_start` toggled `set_start_value`; every M-step now starts from the previous
-iterate unconditionally, which is what `warm_start = true` did.
+`silence` is replaced by the chosen solver's own verbosity settings, passed through
+`solve_kwargs`; `warm_start` is now always on.
 """
 function _warn_legacy_solver_kwargs(silence, warm_start)
     silence === nothing ||
