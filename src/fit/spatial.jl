@@ -15,15 +15,12 @@ function fit_mle!(
     maxiter=100,
     tol=1e-3,
     robust=false,
-    silence=nothing,
-    warm_start=nothing,
     tdist=1,
     QMC_m=30,
     maxiters_R=10, QMC_E=1, wp=1.0 .* (hmm.h .< maximum(hmm.h) * tdist)
 )
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
-    _warn_legacy_solver_kwargs(silence, warm_start)
     # println("tdist = ",tdist)
     N, K, T, size_order, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
     # @show N, K, T, size_order, D  # debug

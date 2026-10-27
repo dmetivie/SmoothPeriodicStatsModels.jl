@@ -19,7 +19,7 @@ using Distributions
 using Random: AbstractRNG, GLOBAL_RNG, rand!
 
 # ## Special function
-using LogExpFunctions: logsumexp, log1pexp
+using LogExpFunctions: logsumexp, log1pexp, logistic
 
 # ## EM
 # The seasonal mixture is fitted by `ExpectationMaximization`'s driver; this package supplies only
@@ -45,7 +45,6 @@ using Base.Threads
 include("utilities.jl")
 
 # ## One solver convention shared by every fit in the package
-include("legacy_kwargs.jl")
 include("fit_stubs.jl")
 export default_solver, default_nlls_solver, default_adtype, default_ensemble
 export solve_unconstrained, solve_nlls
@@ -119,7 +118,6 @@ export sARPeriodicHMM
 
 export AR1
 export fit_mle_AR1, ar1_sufficient_statistics, ar1_nll
-export model_for_loglikelihood_AR1_full # legacy alias of `fit_mle_AR1`
 export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
 export fit_loss_optim, fit_mle

@@ -14,7 +14,7 @@ const SPSM = SmoothPeriodicStatsModels
 # ── Running against both v2 and v3 ───────────────────────────────────────────
 # AirspeedVelocity benchmarks two revisions with a *single* script, so this file has to speak
 # the API of the branch *and* of whatever is on master. Three things differ; everything else is
-# common (`silence`/`warm_start` are still accepted, with a deprecation warning).
+# common. (`silence`/`warm_start` are not passed at all: v3 ignores them, v4 removed them.)
 #
 # Delete this block, and the uses below, once both features below are on the default branch.
 const V3 = isdefined(SPSM, :fit_mle_AR1)
@@ -84,9 +84,9 @@ let
     for T in [100, 10_000]
         ts = collect(1:T)
         SUITE["utilities"]["polynomial_trigo_scalar"][T] =
-            @benchmarkable [SPSM.polynomial_trigo(t, $β, $T) for t = 1:$T]
+            @benchmarkable [SPSM.polynomial_trigo(t / $T, $β) for t = 1:$T]
         SUITE["utilities"]["polynomial_trigo_vector"][T] =
-            @benchmarkable SPSM.polynomial_trigo($ts, $β, $T)
+            @benchmarkable SPSM.polynomial_trigo($ts ./ $T, $β)
     end
 
     # `conditional_to` turns the raw observations into the memory category of every (n, site)
@@ -176,7 +176,7 @@ let
 
         SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] = @benchmarkable(
             fit_mle($hmm0, $θᴬ0, $θᴮ0, $y, $y_ini;
-                n2t=$n2t, maxiter=$maxiter, tol=0.0, robust=true, silence=true),
+                n2t=$n2t, maxiter=$maxiter, tol=0.0, robust=true),
             evals = 1
         )
     end
@@ -240,7 +240,7 @@ let
 
         SUITE["mixture"]["fit_mle_EM"]["T=$T N=$N"] = @benchmarkable(
             fit_mle($mix0, $θ_α0, $θ_Y0, $y, $n2t;
-                maxiter=$maxiter, tol=0.0, robust=false, silence=true, warm_start=true),
+                maxiter=$maxiter, tol=0.0, robust=false),
             evals = 1
         )
     end
@@ -279,9 +279,9 @@ SUITE["ar1"]["fit_mle"] = BenchmarkGroup()
 
 let
     T, d = 20, 1
-    μ = [μₜ(t, [0.5, 0.3, -0.2], T) for t = 1:T]
-    ρ = [ρₜ(t, [0.4, 0.2, 0.1], T) for t = 1:T]
-    σ = [σₜ(t, [-0.5, 0.1, 0.2], T) for t = 1:T]
+    μ = [μₜ(t / T, [0.5, 0.3, -0.2]) for t = 1:T]
+    ρ = [ρₜ(t / T, [0.4, 0.2, 0.1]) for t = 1:T]
+    σ = [σₜ(t / T, [-0.5, 0.1, 0.2]) for t = 1:T]
     AR = AR1(μ, ρ, σ)
 
     for N in [10_000, 100_000]

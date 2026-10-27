@@ -22,10 +22,8 @@ README.
 """
 function fit_mle(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix, θ_Y::AbstractVector, y::AbstractVecOrMat, n2t::AbstractVector, weights...;
     display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false, method=ClassicEM(),
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;),
-    silence=nothing, warm_start=nothing)
+    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck maxiter >= 0
-    _warn_legacy_solver_kwargs(silence, warm_start)
 
     K, T = ncomponents(mix[1]), size(mix, 1)
     # TODO deal with K=1 case

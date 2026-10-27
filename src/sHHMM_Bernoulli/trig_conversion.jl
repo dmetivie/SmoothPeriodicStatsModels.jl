@@ -22,8 +22,8 @@ function Trig2ARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:AbstractFl
             A[k, l, t] /= normalization_polynomial[k, t]
         end
     end
-    #TODO use μ, α, θ functions
-    B = [Bernoulli.([1 / (1 + exp(polynomial_trigo(t / T, θh))) for θh in θᴮ[k, s]]) for k = 1:K, t = 1:T, s = 1:D]
+    # `αₜ`'s link, inlined: calling `αₜ` would copy `θ[:]` once per (k, t, s)
+    B = [Bernoulli.([logistic(polynomial_trigo(t / T, θh)) for θh in θᴮ[k, s]]) for k = 1:K, t = 1:T, s = 1:D]
 
     return sARPeriodicHMM(a, A, B)
 end

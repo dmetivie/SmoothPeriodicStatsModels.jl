@@ -23,7 +23,7 @@ end
 for f in (:default_solver, :default_nlls_solver, :default_adtype, :default_ensemble,
     :solve_unconstrained, :solve_nlls,
     :fit_θ, :fit_θ!, :fit_θᴬ!, :fit_θᴮ!,
-    :fit_mle_AR1, :model_for_loglikelihood_AR1_full,
+    :fit_mle_AR1,
     :fit_mle_RO, :fit_loss_optim,
     :update_A!, :update_B!, :update_α!, :update_dist, :update_R!)
     # A `Vararg` fallback is less specific than every method the extension defines, so the real

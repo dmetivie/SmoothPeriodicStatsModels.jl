@@ -55,16 +55,3 @@ function fit_mle_AR1(y::AbstractVector, z::AbstractVector{<:Integer}, d::Integer
     return θμ, θρ, θσ
 end
 
-# Legacy spellings. The name said "model" but these always built *and* solved; they are now
-# aliases of `fit_mle_AR1`, which returns the same `(θμ, θρ, θσ)` triple.
-function model_for_loglikelihood_AR1_full(y::AbstractVector, d::Integer, T::Integer,
-    n2t=n_to_t(length(y), T); silence=nothing, kwargs...)
-    _warn_legacy_solver_kwargs(silence, nothing)
-    return fit_mle_AR1(y, d, T; n2t, kwargs...)
-end
-
-function model_for_loglikelihood_AR1_full(y::AbstractVector, z::AbstractVector{<:Integer},
-    d::Integer, T::Integer, n2t=n_to_t(length(y), T); silence=nothing, kwargs...)
-    _warn_legacy_solver_kwargs(silence, nothing)
-    return fit_mle_AR1(y, z, d, T; n2t, kwargs...)
-end

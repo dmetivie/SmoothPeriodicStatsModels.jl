@@ -49,7 +49,7 @@ function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} wh
         θᴮ[k, s, h, :] = sol.u[i].u
     end
 
-    p = [1 / (1 + exp(polynomial_trigo(t / T, θᴮ[k, s, h, :]))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
+    p = [logistic(polynomial_trigo(t / T, θᴮ[k, s, h, :])) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     _assign_B!(B, p)
 end
 
@@ -164,12 +164,9 @@ function fit_mle!(
     adtype=default_adtype(),
     ensemble=default_ensemble(),
     solve_kwargs=(;),
-    silence=nothing,
-    warm_start=nothing
 )
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
-    _warn_legacy_solver_kwargs(silence, warm_start)
 
     N, K, T, size_order, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 

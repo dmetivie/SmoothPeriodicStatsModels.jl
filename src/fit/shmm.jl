@@ -38,7 +38,7 @@ function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::A
     end
 
     for k = 1:K, t = 1:T, s = 1:D
-        B[k, t, s][:] .= Bernoulli.([1 / (1 + exp(polynomial_trigo(t / T, θh))) for θh in θᴮ[k, s]])
+        B[k, t, s][:] .= Bernoulli.([logistic(polynomial_trigo(t / T, θh)) for θh in θᴮ[k, s]])
     end
 end
 
@@ -57,12 +57,9 @@ function fit_mle!(
     adtype=default_adtype(),
     ensemble=default_ensemble(),
     solve_kwargs=(;),
-    silence=nothing,
-    warm_start=nothing
 )
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
-    _warn_legacy_solver_kwargs(silence, warm_start)
 
     N, K, T, size_orders, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
 
