@@ -1,4 +1,4 @@
-function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, T::Integer, h::AbstractMatrix)
+function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, T::Integer, h::AbstractMatrix; QMC_m::Integer=30)
     K, D, size_order = size(Bernoulli_θ)
     @assert K == size(trans_θ, 1)
 
@@ -28,7 +28,7 @@ function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:
     # range is a K (states)* T(period)  * m+1 (memory) vector.
     # return (A, p, range)
 
-    model = ARPeriodicHMMSpatial(a, A, range, p, h)
+    model = ARPeriodicHMMSpatial(a, A, range, p, h, Int(QMC_m))
     return model
 end
 

@@ -96,38 +96,223 @@ fit_mle(hmm_guess, trans_θ_guess, Bernoulli_θ_guess, y, y_past; n2t=n2t,
         solve_kwargs = (maxiters = 100,))    # forwarded verbatim to `solve`
 ```
 
+### The periodic AR(1): explicit parameters
+
+Every model here is the same construction — a basis expansion pushed through a link that keeps a
+parameter in its domain. As of v4 that construction has a name, in
+[TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl): a `ParamSpec`,
+one basis and one link per named parameter. The AR(1)
+
+```math
+y_n = \mu(t) + \rho(t) y_{n-1} + \sigma(t)\varepsilon_n, \qquad t = \texttt{n2t}[n]
+```
+
+is `ar1_spec(d, T)`, which is exactly
+
+```julia
+ParamSpec(
+    μ = TrigBasis(T, d) => IdentityLink(),      # free
+    ρ = TrigBasis(T, d) => IntervalLink(-1, 1), # stationary
+    σ = TrigBasis(T, d) => LogLink(),           # positive
+)
+```
+
+`TrigBasis(T, d)` is the `2d+1` column design `[1, cos, sin, cos 2, sin 2, …]` this package has
+always used, so coefficients fitted under v3 keep their meaning.
+
+A model is that **structure** together with its **parameters**, held apart the way `Lux.jl` holds
+a layer apart from its weights:
+
+```julia
+m  = SmoothAR1(d, T)       # structure: bases, links, the period
+ps = parameters(m)         # ComponentArray(μ = …, ρ = …, σ = …)
+```
+
+`ps` is named *and* a plain `AbstractVector`, so the same object reads as `ps.ρ` to you and goes
+straight into an `OptimizationProblem` or through `ForwardDiff` with nothing flattened. That is
+what replaces passing `θᴬ`, `θᴮ`, `θ_α`, `θ_Y` loose beside the model.
+
+### Fitting: model in, model out
+
+```julia
+m, history = fit_mle(m, y; n2t)
+```
+
+Two values, always, for every model in the package. This is the convention of every
+sequence-model package in the Julia ecosystem — `HiddenMarkovModels.baum_welch`,
+`HMMBase.fit_mle`, `PeriodicHiddenMarkovModels.fit_mle`,
+[`ExpectationMaximization.fit_mle`](https://github.com/dmetivie/ExpectationMaximization.jl) — and
+it works because the coefficients travel *inside* the model, so nothing has to come back beside
+it.
+
+```julia
+parameters(m).ρ      # that parameter's 2d+1 coefficients, by name
+curve(m, :σ)         # σ(t) for t = 1:T, links already applied
+m(196)               # (μ, ρ, σ) at one time
+nparams(m)           # the number of free coefficients
+
+AR1(m)               # the evaluated twin: three curves, ready to simulate from
+rand(m, 10_000)      # ... or simulate from the model directly
+
+history.converged
+history.retcode      # what the solver reported
+history.objective    # the attained negative loglikelihood
+history.stats        # iterations, function evaluations, time
+
+loglikelihood(m, y; n2t)   # normalising constant included, so it is comparable
+```
+
+Pass `spec` to fit a parametrization other than the trigonometric one — a trend beside the
+seasonal cycle, a different degree per parameter, monthly indicators:
+
+```julia
+spec = ParamSpec(
+    μ = ConstantBasis() + PolynomialBasis(1; center = T/2, scale = T) + FourierBasis(T, 1) => IdentityLink(),
+    ρ = TrigBasis(T, 1) => IntervalLink(-1, 1),
+    σ = TrigBasis(T, 2) => LogLink(),
+)
+m, history = fit_mle(SmoothAR1(spec, T), y; n2t)
+```
+
+`σ`'s link has to stay `LogLink()` — that is the one thing `ar1_nll` assumes, since it reads σ on
+the log scale rather than exponentiating and taking the log back.
+
+`fit_mle(m, y, z; n2t)` fits one AR(1) per hidden state in an `EnsembleProblem`. Build the model
+with `SmoothAR1(d, T; K)` and `parameters(m).ρ` is `(2d+1) × K`, `curve(m, :ρ)` is `K × T` — the
+layout `AR1` indexes as `ρ[k, t]` — and `history.retcode` is one code per state. Without `K`
+every state simply starts from the same column.
+
+### Choosing between fits
+
+`fit_mle` deliberately does not remember the data, so it cannot answer `aic` or `bic`.
+`fit(SeasonalFit, …)` is the second tier, borrowed from
+[Copulas.jl](https://github.com/lrnv/Copulas.jl): the same estimator, with the inference metadata
+kept.
+
+```julia
+f = fit(SeasonalFit, SmoothAR1(d, T), y; n2t)
+
+f.model, f.history   # exactly what `fit_mle` would have returned
+coef(f, :ρ)          # and the usual accessors
+curve(f, :σ)
+rand(f, 10_000)
+
+loglikelihood(f), dof(f), nobs(f)
+aic(f), bic(f)       # free: `SeasonalFit` is a `StatsAPI.StatisticalModel`
+```
+
+`bic` is what to reach for when choosing a degree or a number of states; it replaces assembling
+`bic_sel(LL, K, memory, d, D, penality)` by hand. Note `nobs` counts *transitions*, not
+observations: the AR(1) likelihood is conditional on the first point, which contributes no term.
+
+> **Migrating from v3.** `fit_mle_AR1(y, d, T)` returned `(θμ, θρ, θσ)`. The replacement is
+> `fit_mle(SmoothAR1(d, T), y; n2t)`, returning `(model, history)`, with the three coefficient
+> blocks at `parameters(model).μ`, `.ρ` and `.σ`. The coefficients themselves are unchanged, so
+> `parameters(model).μ == θμ` up to the fit.
+
 ### The seasonal mixture
 
-The EM loop for the seasonal mixture is
-[ExpectationMaximization.jl](https://github.com/dmetivie/ExpectationMaximization.jl)'s. Only the
-*parametrization* here is periodic, so this package supplies that — the weights and components as
-trigonometric polynomials — and hands the iteration over. Concretely, `SeasonalWeights`,
-`SeasonalFamily` and `SeasonalSample` carry the parametrization, and the `loglikelihoods!` and
-`M_step!` methods they dispatch are the seasonal E- and M-steps. Nothing in that package needed
-changing.
+A mixture whose weights *and* component parameters are smooth functions of the period index is
+the same `(structure, parameters)` pair as the AR(1), fitted by the same call:
 
-A consequence worth knowing: its keywords work here too. `rtol` alongside `tol`,
-`method = StochasticEM(rng)` for stochastic EM, and a vector of per-observation weights passed
-positionally after `n2t`.
+```julia
+m  = SmoothSeasonalMixture(Exponential, 2, 1, 366; init = [1.0, 5.0])  # K = 2, degree 1
+ps = parameters(m)         # ComponentArray(α = …, Y = …)
+ps.α                       # (2dα+1) × (K-1), the free categories' coefficients
+component_coefs(m, 2)      # component 2's own coefficients, a writable view into ps.Y
+
+m, history = fit_mle(m, y; n2t)
+
+m(196)                     # the `MixtureModel` at one period index
+mixtures(m)                # all T of them — the evaluated twin, to simulate from
+curve(m, :θ)               # K × T, each component's scale over the period
+mixture_weights(m)         # K × T, the mixing weights
+loglikelihood(m, y; n2t)
+```
+
+`init` gives each component its starting parameter — a number, a coefficient vector, or a
+`NamedTuple` for a family with several parameters — and the `K` entries must differ: identical
+components give identical posteriors, and EM cannot move off that point.
+
+**The components need not match.** Each one carries its own family *and* its own basis, so a
+mixture of two different laws, or of one seasonal law and one constant one, is a list of
+`distribution => degree` pairs:
+
+```julia
+m = SmoothSeasonalMixture([Exponential => 0, Gamma => 2], 366;
+                          init = [2.0, (α = 3.0, θ = 1.0)])
+
+component_coefs(m, 1)      # 1 coefficient  — degree 0, so no season
+component_coefs(m, 2)      # 10 coefficients — shape and scale, each at degree 2
+curve(m, :θ)               # 2 × T: both have a θ, read through their own bases
+```
+
+Because components may take different numbers of coefficients, `parameters(m).Y` holds them end
+to end rather than one per column, and `component_coefs(m, k)` is the way in. It is a view, so
+writing through it sets the model's coefficients. (`SmoothAR1`'s per-state blocks *are* a matrix
+— there every state shares one spec by construction, which a mixture's components need not.)
+
+The mixing weights are `mixture_weights(m)` and not `curve(m, :α)`, deliberately: `α` is this
+package's name for a weight and also `Gamma`'s name for its shape, and a `curve` that answered
+with the weights would silently shadow the shape of a `Gamma` mixture.
+
+The EM loop itself is
+[ExpectationMaximization.jl](https://github.com/dmetivie/ExpectationMaximization.jl)'s. Only the
+*parametrization* here is periodic, so this package supplies that — `SeasonalWeights`,
+`SeasonalFamily` and `SeasonalSample` carry it, and the `loglikelihoods!` and `M_step!` methods
+they dispatch are the seasonal E- and M-steps. Nothing in that package needed changing, and a
+consequence worth knowing is that its keywords work here too: `rtol` alongside `tol`,
+`method = StochasticEM(rng)`, and a vector of per-observation weights passed positionally after
+`y`.
 
 ### Adding your own seasonal family
 
-The seasonal mixture EM is not tied to `Exponential`. `fit_mle` dispatches the component M-step on
-the distribution type, so a new family is **one method of `update_dist`** — defined from outside
-the package, with no change to it.
-
-Such a method owns the four things that genuinely vary between families: which sufficient
-statistics to aggregate per period index, how `theta_Y` lays out the coefficients, the negative
-loglikelihood (any plain `(theta, p) -> Number`), and the link mapping the trigonometric
-polynomial back onto the parameter domain.
-
-Here is a seasonal `Rayleigh`, scale `S(t) = exp(P(t))`, in full:
+The seasonal mixture is not tied to `Exponential`. A family is used as a component as soon as
+this package knows **how its parameters vary with the period index** — one basis and one link
+each, in the order the constructor takes them. That is one line:
 
 ```julia
 using SmoothPeriodicStatsModels, Distributions
-using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
 const SPSM = SmoothPeriodicStatsModels
 
+SPSM.seasonal_family(::Type{Pareto}, basis) =
+    TimeVaryingFamily(Pareto, ParamSpec(α = basis => LogLink(), θ = basis => LogLink()))
+```
+
+`Exponential`, `Rayleigh`, `Gamma`, `Weibull`, `Normal` and `LogNormal` are declared already, so
+those need nothing at all:
+
+```julia
+using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+
+T, N = 20, 4000
+n2t = repeat(1:T, N ÷ T)
+theta_true = hcat([0.3, 0.4, -0.2], [1.6, -0.3, 0.5], [0.1, -0.5, 1.0])
+mix(t, th) = MixtureModel([Rayleigh(exp(polynomial_trigo(t, th[:, 1]))),
+                           Rayleigh(exp(polynomial_trigo(t, th[:, 2])))],
+                          [αₜ(t, th[:, 3]), 1 - αₜ(t, th[:, 3])])
+y = [rand(mix(t / T, theta_true)) for t in n2t]
+
+m, history = fit_mle(SmoothSeasonalMixture(Rayleigh, 2, 1, T; init = [1.0, exp(1.0)]), y; n2t)
+
+# A typical run (the draws above are unseeded, so the digits move a little):
+# history           converged in 101 iterations, loglikelihood -8165.31
+# parameters(m).Y   [0.338 1.588; 0.435 -0.288; -0.235 0.495]
+#                   (true [0.3, 0.4, -0.2] and [1.6, -0.3, 0.5])
+```
+
+The generic M-step maximizes the weighted loglikelihood of the family directly: one matrix-vector
+product per parameter and `T` distribution constructions per iteration, not `N` of them. A family
+with several seasonal parameters — `Gamma`'s shape *and* scale — costs nothing extra to state.
+
+#### When you want the sufficient-statistic speedup
+
+Some families collapse onto per-period sufficient statistics, and the observations then stop
+being touched inside the solver loop at all. That is worth writing by hand, and it is a method of
+`update_dist`, dispatched on the family. Here is the seasonal `Rayleigh` of above in that form —
+measured against the generic route, the `Exponential` equivalent runs its EM about 3.5× faster:
+
+```julia
 # logpdf = log(y) - 2log(S) - y^2 / (2S^2), weighted by the posteriors and summed per period
 function rayleigh_nll(theta, (s_pi, s_piy2, basis))
     P = basis * theta
@@ -138,40 +323,27 @@ function rayleigh_nll(theta, (s_pi, s_piy2, basis))
     return nll
 end
 
-function SPSM.update_dist(dist::AbstractVector{<:Rayleigh}, theta_Y, gamma, obs, n_in_t, basis;
+function SPSM.update_dist(fam::TimeVaryingFamily{SPSM.DistConstructor{Rayleigh}},
+        design::PeriodicDesign, theta, gamma, obs, n_in_t;
         solver = default_solver(), adtype = default_adtype(), solve_kwargs = (;))
-    T = length(dist)
-    theta_Y = copy(theta_Y)
-    s_pi   = [sum(gamma[n]              for n in n_in_t[t]; init = 0.0) for t = 1:T]
-    s_piy2 = [sum(gamma[n] * obs[n]^2   for n in n_in_t[t]; init = 0.0) for t = 1:T]
+    T, total = design.nT, sum(gamma)
+    s_pi   = [sum(gamma[n]            for n in n_in_t[t]; init = 0.0) / total for t = 1:T]
+    s_piy2 = [sum(gamma[n] * obs[n]^2 for n in n_in_t[t]; init = 0.0) / total for t = 1:T]
 
-    theta_Y[:] = solve_unconstrained(rayleigh_nll, collect(theta_Y[:]), (s_pi, s_piy2, basis);
-        solver, adtype, solve_kwargs)
+    theta = solve_unconstrained(rayleigh_nll, collect(float.(theta)),
+        (s_pi, s_piy2, design.designs[1]); solver, adtype, solve_kwargs)
 
-    return Rayleigh.([exp(polynomial_trigo(t / T, theta_Y[:])) for t = 1:T]), theta_Y
+    return distributions(fam, design, theta), theta
 end
 ```
 
-That is the whole addition -- `fit_mle` is then used exactly as with `Exponential`:
+Dividing by the total posterior weight is not cosmetic: it leaves the argmin alone and keeps the
+gradient independent of `N`, which is what stops the first `LBFGS` step from throwing the link
+into underflow. The methods in this package do the same.
 
-```julia
-T, N = 20, 4000
-n2t = repeat(1:T, N ÷ T)
-theta_true = hcat([0.3, 0.4, -0.2], [1.6, -0.3, 0.5], [0.1, -0.5, 1.0])
-mix(t, th) = MixtureModel([Rayleigh(exp(polynomial_trigo(t, th[:, 1]))),
-                           Rayleigh(exp(polynomial_trigo(t, th[:, 2])))],
-                          [αₜ(t, th[:, 3]), 1 - αₜ(t, th[:, 3])])
-y = [rand(mix(t / T, theta_true)) for t in n2t]
-
-theta0 = hcat([0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 0.2, 0.0])
-mix_fit, theta_a, theta_Y, history = fit_mle([mix(t / T, theta0) for t = 1:T],
-    permutedims(theta0[:, 3]), [theta0[:, 1], theta0[:, 2]], y, n2t; maxiter = 200, tol = 1e-5)
-
-# A typical run (the draws above are unseeded, so the digits move a little):
-# EM converged in 101 iterations, loglikelihood -8386.55 -> -8165.31
-# theta_Y[1] = [0.338, 0.435, -0.235]   (true [0.3, 0.4, -0.2])
-# theta_Y[2] = [1.588, -0.288, 0.495]   (true [1.6, -0.3, 0.5])
-```
+Nothing else changes: `fit_mle` is the same call, and the two routes reach the same estimator —
+the test suite asserts they agree to 1e-9 in the coefficients and take the same number of EM
+iterations.
 
 Note that the emission of `ARPeriodicHMM` is *not yet* pluggable this way: the binary memory encoding
 (`conditional_to`, `bin2digit`, the `2^order` axis of `B`) makes the Bernoulli family structural

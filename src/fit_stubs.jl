@@ -23,9 +23,10 @@ end
 for f in (:default_solver, :default_nlls_solver, :default_adtype, :default_ensemble,
     :solve_unconstrained, :solve_nlls,
     :fit_θ, :fit_θ!, :fit_θᴬ!, :fit_θᴮ!,
-    :fit_mle_AR1,
+    # `fit_mle` and `fit` are owned by PeriodicHiddenMarkovModels and StatsAPI respectively and
+    # already imported, so the extension adds methods to those directly.
     :fit_mle_RO, :fit_loss_optim,
-    :update_A!, :update_B!, :update_α!, :update_dist, :update_R!)
+    :update_B!, :update_α!, :update_dist, :update_R!)
     # A `Vararg` fallback is less specific than every method the extension defines, so the real
     # implementation always wins once the extension has loaded.
     @eval begin

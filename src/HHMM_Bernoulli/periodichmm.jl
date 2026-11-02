@@ -1,3 +1,10 @@
+# `ARPeriodicHMM` subtypes `HMMs.AbstractHMM` rather than
+# `PeriodicHiddenMarkovModels.AbstractPeriodicHMM`: Julia has single inheritance, and subtyping
+# `HiddenMarkovModels`' abstraction is what makes its inference and Baum-Welch apply here (see
+# `src/hmm_interface.jl`). The old supertype bought nothing that is lost: the `forwardlog!`,
+# `backwardlog!` and `viterbi` of that package are called in their loose-parameter form, on
+# `a`, `A` and `LL`, never on the model itself.
+
 """
     ARPeriodicHMM([a, ]A, B) -> ARPeriodicHMM
 
@@ -15,7 +22,7 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 - `B::AbstractMatrix{<:Distribution{F}}`: Y distributions.
 - or `B::AbstractMatrix`: emission matrix.
 """
-struct ARPeriodicHMM{F,T} <: AbstractPeriodicHMM{F}
+struct ARPeriodicHMM{F,T} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
     B::Array{<:Distribution{F},4}
@@ -77,6 +84,37 @@ function rand(
 end
 
 rand(hmm::ARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
+
+"""
+    rand([rng, ]hmm::ARPeriodicHMM, n2t; z_ini, y_ini, seq = false)
+    rand([rng, ]hmm::ARPeriodicHMM, N::Integer; kwargs...)
+
+Draw a state path and the observations along it: `seq = true` returns `(z, y)`, otherwise just
+`y`. `n2t[n]` is the period index of step `n`, or give a length `N` and get `n_to_t(N, T)`.
+
+The state path uses `A[z[n-1], :, n2t[n-1]]` — the transition matrix of the period the step
+*leaves*, this package's convention — and each observation is drawn from the emission selected
+by the memory its predecessors encode, which is why simulation cannot go through
+`HiddenMarkovModels`' own `rand`: that one fixes the whole control sequence first, and here the
+controls depend on the draws. See [`SeasonalControls`](@ref).
+"""
+function rand(rng::AbstractRNG, hmm::ARPeriodicHMM, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+rand(hmm::ARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...) =
+    rand(GLOBAL_RNG, hmm, n2t; kwargs...)
+rand(rng::AbstractRNG, hmm::ARPeriodicHMM, N::Integer; kwargs...) =
+    rand(rng, hmm, n_to_t(N, size(hmm, 3)); kwargs...)
+rand(hmm::ARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwargs...)
 
 """
     rand_emissions!(y, rng, B, z, n2t, order)

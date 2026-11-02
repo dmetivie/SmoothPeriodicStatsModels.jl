@@ -11,16 +11,25 @@ BLAS.set_num_threads(1)
 
 const SPSM = SmoothPeriodicStatsModels
 
-# ── Running against both v2 and v3 ───────────────────────────────────────────
+# ── Running against v2, v3 and v4 ────────────────────────────────────────────
 # AirspeedVelocity benchmarks two revisions with a *single* script, so this file has to speak
-# the API of the branch *and* of whatever is on master. Three things differ; everything else is
+# the API of the branch *and* of whatever is on master. A few things differ; everything else is
 # common. (`silence`/`warm_start` are not passed at all: v3 ignores them, v4 removed them.)
 #
-# Delete this block, and the uses below, once both features below are on the default branch.
+# Delete this block, and the uses below, once the features are on the default branch.
 const V3 = isdefined(SPSM, :fit_mle_AR1)
 
+# v4 put the seasonal parametrization in `ParamSpec`s, and then made the model carry its own
+# coefficients: `fit_mle(SmoothAR1(d, T), y)` in place of `fit_mle_AR1(y, d, T)`. Nothing here
+# reads a fit's return value, so only the entry points have to be told apart.
+const V4 = isdefined(SPSM, :ar1_spec)
+const V4R = isdefined(SPSM, :SmoothAR1)
+const V4M = isdefined(SPSM, :SmoothSeasonalMixture)
+
 # v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
-const ar1_fit = V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
+const ar1_fit =
+    V4R ? (y, d, T) -> SPSM.fit_mle(SPSM.SmoothAR1(d, T), y) :
+    V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
 
 # v3 funnels solver options through `solve_kwargs` instead of a `kwargs...` slurp.
 const ipopt_quiet = V3 ? (; solve_kwargs=(print_level=0,)) : (; print_level=0)
@@ -172,13 +181,21 @@ let
         y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
 
         θᴬ0, θᴮ0 = flat_guess(θᴬ, θᴮ)
-        hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
 
-        SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] = @benchmarkable(
-            fit_mle($hmm0, $θᴬ0, $θᴮ0, $y, $y_ini;
-                n2t=$n2t, maxiter=$maxiter, tol=0.0, robust=true),
-            evals = 1
-        )
+        # v4 moved Baum-Welch onto HiddenMarkovModels.jl: the loop and the forward/backward
+        # passes are that library's, and this package supplies only the M-step. The two were
+        # measured equivalent (coefficients to 1.2e-8) before the old loop was removed, so this
+        # entry is comparable across the break — it is the same estimator, driven differently.
+        hmm_fit = if isdefined(SPSM, :SmoothARPeriodicHMM)
+            m0 = SPSM.SmoothARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+            () -> fit_mle(m0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+        else
+            hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+            () -> fit_mle(hmm0, θᴬ0, θᴮ0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+        end
+
+        SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] =
+            @benchmarkable($hmm_fit(), evals = 1)
     end
 end
 
@@ -234,15 +251,20 @@ let
         rng = StableRNG(1)
         y = [rand(rng, mixture_exp2(t / T, θtrue)) for t in n2t]
 
-        mix0 = [mixture_exp2(t / T, θ0) for t = 1:T]
-        θ_α0 = permutedims(θ0[:, 3])
-        θ_Y0 = [θ0[:, 1], θ0[:, 2]]
+        # v4 made the mixture a model carrying its own coefficients, so the five loose
+        # arguments collapse to one. Both arms start from exactly the same `θ0`.
+        mix_fit = if V4M
+            m0 = SPSM.SmoothSeasonalMixture(Exponential, 2, 1, T; init=[θ0[:, 1], θ0[:, 2]])
+            SPSM.parameters(m0).α[:, 1] .= θ0[:, 3]
+            () -> fit_mle(m0, y; n2t=n2t, maxiter=maxiter, tol=0.0, robust=false)
+        else
+            mix0 = [mixture_exp2(t / T, θ0) for t = 1:T]
+            θ_α0 = permutedims(θ0[:, 3])
+            θ_Y0 = [θ0[:, 1], θ0[:, 2]]
+            () -> fit_mle(mix0, θ_α0, θ_Y0, y, n2t; maxiter=maxiter, tol=0.0, robust=false)
+        end
 
-        SUITE["mixture"]["fit_mle_EM"]["T=$T N=$N"] = @benchmarkable(
-            fit_mle($mix0, $θ_α0, $θ_Y0, $y, $n2t;
-                maxiter=$maxiter, tol=0.0, robust=false),
-            evals = 1
-        )
+        SUITE["mixture"]["fit_mle_EM"]["T=$T N=$N"] = @benchmarkable($mix_fit(), evals = 1)
     end
 end
 

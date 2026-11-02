@@ -14,14 +14,22 @@ If the initial state distribution `a` is not specified, it does not work. Please
 - `B`: rain probabilities
 - `R` : range parameter
 - `h` distance matrix.
+- `QMC_m`: quasi-Monte Carlo budget of the emission likelihood, as `m = D * QMC_m` points of
+  `MvNormalCDF.mvnormcdf`. It is a field rather than a keyword because the emission is read
+  through `HiddenMarkovModels`' `obs_distributions`/`obs_logdensities!`, whose signatures have
+  nowhere to put one. Raise it for accuracy, lower it for speed.
 """
-struct ARPeriodicHMMSpatial{T, AM} <: AbstractPeriodicHMM{Multivariate}
+struct ARPeriodicHMMSpatial{T,AM} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
     R::Array{T,2}
     B::Array{T,4}
     h::AM
+    QMC_m::Int
 end
+
+ARPeriodicHMMSpatial(a::AbstractVector, A::AbstractArray, R::AbstractArray, B::AbstractArray,
+    h::AbstractMatrix) = ARPeriodicHMMSpatial(a, A, R, B, h, 30)
 
 """
     size(hmm::ARPeriodicHMMSpatial, dim=:)
@@ -70,6 +78,36 @@ function rand(rng::AbstractRNG,
 end
 
 rand(hmm::ARPeriodicHMMSpatial, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
+
+"""
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, n2t; z_ini, y_ini, seq = false)
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...)
+
+Draw a state path and the observations along it; `seq = true` returns `(z, y)`.
+
+Ported here rather than inherited: this model used to subtype
+`PeriodicHiddenMarkovModels.AbstractPeriodicHMM`, which supplied these three methods, and it now
+subtypes `HiddenMarkovModels.AbstractHMM` instead (see `src/hmm_interface.jl`). The path uses
+`A[z[n-1], :, n2t[n-1]]` — the transition matrix of the period each step *leaves*, this
+package's convention.
+"""
+function rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+rand(hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer}; kwargs...) =
+    rand(GLOBAL_RNG, hmm, n2t; kwargs...)
+rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...) =
+    rand(rng, hmm, n_to_t(N, size(hmm, 3)); kwargs...)
+rand(hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwargs...)
 
 # ## peut être pas necessaire car déjà dans rand(rng, hmm, z, n2t, y_ini) pour les AbsractHMM
 # function rand(rng::AbstractRNG,
