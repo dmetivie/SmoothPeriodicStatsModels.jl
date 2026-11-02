@@ -155,7 +155,7 @@ include("sHHMM_Bernoulli/smooth.jl")
 include("HHMM_Bernoulli_spatial/smooth.jl")
 export SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial, degrees
 # for HMMMspa 
-export ARPeriodicHMMSpatial,norm_cdf_2d_vfast,Trig2ARPeriodicHMMSpatial,fit_mle!
+export ARPeriodicHMMSpatial,norm_cdf_2d_vfast,Trig2ARPeriodicHMMSpatial
 
 export
     # periodichmm.jl
