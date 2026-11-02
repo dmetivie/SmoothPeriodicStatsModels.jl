@@ -30,7 +30,7 @@ OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 SimpleNonlinearSolve = "727e6d20-b764-4bd8-a329-72de5adea6c7"
 
 [sources]
-TimeVaryingParameters = {url = "https://github.com/dmetivie/TimeVaryingParameters.jl/tree/harden-for-spsm"}
+TimeVaryingParameters = {url = "https://github.com/dmetivie/TimeVaryingParameters.jl", rev = "harden-for-spsm"}
 
 [extensions]
 SmoothPeriodicStatsModelsOptimizationExt = ["Optimization", "OptimizationOptimJL", "SimpleNonlinearSolve", "ForwardDiff"]
