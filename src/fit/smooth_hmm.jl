@@ -392,40 +392,12 @@ end
 # state), estimated by quasi-Monte Carlo, and `loglikelihoods!` parallelises over observations.
 # `HiddenMarkovModels`' forward pass is necessarily sequential, so evaluating the emission one
 # control at a time costs 8-10x (measured at `D = 10..20`, `N = 300`, 28 threads; caching the
-# `D x D` kernel recovers none of it, because `mvnormcdf` dominates). `CachedEmissions` below
-# is how both are had at once.
+# `D x D` kernel recovers none of it, because `mvnormcdf` dominates). `CachedEmissions`, in
+# `src/hmm_interface.jl`, is how both are had at once.
 #
 # It is also **stochastic**: `mvnormcdf` is randomized, so two E-steps at the same parameters
 # disagree and the loglikelihood path is noisy. That is why `fit_mle` returns the best iterate
 # rather than the last.
-
-"""
-    CachedEmissions(model, LL)
-
-An `AbstractHMM` that answers `initialization` and `transition_matrix` from `model` but reads
-its emission loglikelihoods out of `LL`, an `N x K` matrix filled beforehand.
-
-Internal to the spatial fitter. It exists so the expensive emission can be evaluated by the
-threaded [`loglikelihoods!`](@ref) in one batch while the forward-backward recursions and the
-transition marginals still come from `HiddenMarkovModels`. The cache cannot go stale: it is
-created, refilled and used inside a single `fit_mle` call and never escapes it — which is also
-why [`SpatialControls`](@ref) carries the observation index, the only way `obs_logdensities!`
-can find its row.
-"""
-struct CachedEmissions{M} <: HMMs.AbstractHMM
-    model::M
-    LL::Matrix{Float64}
-end
-
-HMMs.initialization(c::CachedEmissions) = HMMs.initialization(c.model)
-HMMs.transition_matrix(c::CachedEmissions, ctl::Tuple) = HMMs.transition_matrix(c.model, ctl)
-HMMs.obs_distributions(c::CachedEmissions, ctl::Tuple) = HMMs.obs_distributions(c.model, ctl)
-
-function HMMs.obs_logdensities!(logb::AbstractVector, c::CachedEmissions, obs, ctl::Tuple;
-    error_if_not_finite::Bool=true)
-    logb .= view(c.LL, ctl[3], :)
-    return nothing
-end
 
 struct SpatialHMMContext{I,A,AD,E,S,W,X,YY}
     n_in_t::Vector{Vector{Int}}
@@ -518,7 +490,6 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMMSpatial, fb_storage::HMMs.ForwardBa
 end
 
 _theta_A(m::SmoothARPeriodicHMMSpatial) = m.ps.A
-_controls_n2t(c::SpatialControls) = c.n2t
 _controls_n2t(c::SeasonalControls) = c.n2t
 
 """
@@ -549,7 +520,7 @@ function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
 
     N = size(Y, 2)
     lag_cat = conditional_to(Y, Y_past)
-    controls = SpatialControls(n2t, lag_cat)
+    controls = SeasonalControls(n2t, lag_cat)
     obs = [view(Y, :, n) for n = 1:N]
 
     cfg = SpatialHMMContext(m, Y, lag_cat, n2t; wp, QMC_E, maxiters_R,
@@ -627,7 +598,7 @@ function StatsAPI.loglikelihood(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{
     Y_past::AbstractArray{<:Bool}; n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer})
     N, K = size(Y, 2), size(m.stored.A, 1)
     lag_cat = conditional_to(Y, Y_past)
-    controls = SpatialControls(n2t, lag_cat)
+    controls = SeasonalControls(n2t, lag_cat)
     obs = [view(Y, :, n) for n = 1:N]
     cached = CachedEmissions(m, zeros(N, K))
     loglikelihoods!(cached.LL, m.stored, Y, lag_cat; n2t=n2t)

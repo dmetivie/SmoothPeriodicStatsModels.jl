@@ -56,28 +56,28 @@ export PeriodicNLL, PointwiseNLL, group_by_time, TimeVaryingFit
 # The seasonal mixture is fitted by `ExpectationMaximization`'s driver; this package supplies only
 # the parametrization, as the types in `seasonal_mixture.jl` and the two hooks they dispatch.
 using ExpectationMaximization: ClassicEM, StochasticEM
-# aliased because `fit_mle!` in this namespace is PeriodicHiddenMarkovModels', a different function
+# aliased because it is the EM driver, an implementation detail of the seasonal mixture, and not
+# a name this package means to re-export beside `fit_mle`
 using ExpectationMaximization: fit_mle! as em_fit_mle!
 import ExpectationMaximization: loglikelihoods!, M_step!
 export ClassicEM, StochasticEM
 
 # ## HMM
-# Pinned to `PeriodicHiddenMarkovModels` 0.1, deliberately: from v0.2 that package became a thin
-# extension of `HiddenMarkovModels.jl` and keeps none of what is imported below —
-# `AbstractPeriodicHMM`, `forwardlog!`, `backwardlog!`, `posteriors!`, `update_a!`, `istransmat`,
-# `vec_maximum`. Moving onto v0.3 means moving onto `HiddenMarkovModels.AbstractHMM` at the same
-# time, which is its own phase of the v4 work. (`Project.toml` cannot say this: `Pkg.resolve()`
-# rewrites that file and strips comments.)
 # A periodic HMM is a controlled HMM whose control is the period index, which is a case
 # `HiddenMarkovModels` documents and implements; `src/hmm_interface.jl` says so in three
 # accessors and the library's inference and Baum-Welch then apply to these models.
 import HiddenMarkovModels as HMMs
 
-using PeriodicHiddenMarkovModels
-using PeriodicHiddenMarkovModels: AbstractPeriodicHMM
-using PeriodicHiddenMarkovModels: viterbi, istransmat, update_a!, vec_maximum
-import PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, viterbi, viterbi!, viterbilog!, posteriors!
-import PeriodicHiddenMarkovModels: fit_mle!, fit_mle
+# From v0.2 on, `PeriodicHiddenMarkovModels` is itself a thin extension of `HiddenMarkovModels`,
+# so all this package takes from it is `n_to_t` — shared rather than redefined, because both
+# packages export that name and loading the two would otherwise make it ambiguous. The
+# forward/backward passes, `viterbi`, `istransmat` and `randtransmat` that v0.1 also supplied
+# are gone from it; the few still needed here are in `utilities.jl` and `viterbi.jl`.
+using PeriodicHiddenMarkovModels: n_to_t
+
+# Every `fit_mle` method in this package extends `Distributions`' generic, which is where the
+# name belongs and where `fit_mle(::Type{D}, x)` already lives.
+import Distributions: fit_mle
 
 # # Overloaded functions
 import Base: rand
@@ -149,7 +149,7 @@ include("HHMM_Bernoulli_spatial/trig_conversion.jl")
 # After all three HMM types: the accessors for every one of them are written in one place, so
 # this has to see each type's definition.
 include("hmm_interface.jl")
-export SeasonalControls, SpatialControls
+export SeasonalControls
 include("HHMM_Bernoulli/smooth.jl")
 include("sHHMM_Bernoulli/smooth.jl")
 include("HHMM_Bernoulli_spatial/smooth.jl")

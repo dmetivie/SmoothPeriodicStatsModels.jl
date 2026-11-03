@@ -1,8 +1,8 @@
 # # Fitting a periodic AR(1)
 #
 # `fit_mle(model, data...) -> (model, history)`, the convention every sequence-model package in
-# the ecosystem uses: `HiddenMarkovModels.baum_welch`, `HMMBase.fit_mle`,
-# `PeriodicHiddenMarkovModels.fit_mle` and `ExpectationMaximization.fit_mle` all take the model
+# the ecosystem uses: `HiddenMarkovModels.baum_welch`, `HMMBase.fit_mle` and
+# `ExpectationMaximization.fit_mle` all take the model
 # as the starting point and hand the same kind of model back. The coefficients travel inside it,
 # so nothing has to be returned beside it.
 #

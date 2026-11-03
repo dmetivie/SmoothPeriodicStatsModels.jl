@@ -108,12 +108,6 @@ function emission_loglikelihood(B::AbstractArray{F,4} where {F<:UnivariateDistri
     return ll
 end
 
-function complete_loglikelihood(hmm::PeriodicHMM, y::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
-    D, N = size(y)
-
-    return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], n2t[n], 1:D)]), view(y, :, n)) for n = 1:N)
-end
-
 nb_param(K, memory::Integer, d, D) = (2d + 1) * (K * 2^memory * D + K * (K - 1))
 bic_sel(LL, K, memory::Integer, d, D, penality) = LL - penality * nb_param(K, memory, d, D) / 2
 

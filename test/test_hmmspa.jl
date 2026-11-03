@@ -130,7 +130,7 @@ end
     # compared against the error `mvnormcdf` itself reports rather than a tolerance pulled from
     # the air.
     lag_cat = SPSM.conditional_to(Y, Y_past)
-    controls = SpatialControls(n2t, lag_cat)
+    controls = SeasonalControls(n2t, lag_cat)
     @test length(controls) == N
     @test controls[7] == (n2t[7], lag_cat[:, 7], 7)
     @test HMMs.initialization(model) == model.a

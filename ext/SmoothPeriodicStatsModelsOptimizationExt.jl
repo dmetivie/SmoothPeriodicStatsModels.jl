@@ -32,7 +32,7 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     OptimMLE, Trig2ARPeriodicHMM, Trig2ARPeriodicHMMSpatial,
     PeriodicDesign, SmoothAR1, SeasonalFit, FitHistory, seasonal_params, ncolumns, column,
     SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial,
-    SeasonalControls, SpatialControls, degrees, _refresh!,
+    SeasonalControls, CachedEmissions, degrees, _refresh!,
     TimeVaryingFamily, DistConstructor, PeriodicNLL, distributions, ParamSpec, TrigBasis,
     trig_basis, bernoulli_logit_nll, multinomial_logit_nll, exponential_nll, ar1_nll,
     bernoulli_residual, transition_residual, ar1_sufficient_statistics,
@@ -59,9 +59,7 @@ using Base.Threads
 using Random: AbstractRNG, GLOBAL_RNG
 using Distributions
 using LogExpFunctions: logsumexp, log1pexp, logistic
-using PeriodicHiddenMarkovModels: forwardlog!, backwardlog!, posteriors!, update_a!,
-    istransmat, vec_maximum, viterbi
-import PeriodicHiddenMarkovModels: fit_mle, fit_mle!
+import Distributions: fit_mle   # the generic every `fit_mle` method below extends
 import StatsAPI: fit
 
 include("../src/fit/solve_interface.jl")

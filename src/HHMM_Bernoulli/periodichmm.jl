@@ -1,9 +1,9 @@
 # `ARPeriodicHMM` subtypes `HMMs.AbstractHMM` rather than
 # `PeriodicHiddenMarkovModels.AbstractPeriodicHMM`: Julia has single inheritance, and subtyping
 # `HiddenMarkovModels`' abstraction is what makes its inference and Baum-Welch apply here (see
-# `src/hmm_interface.jl`). The old supertype bought nothing that is lost: the `forwardlog!`,
-# `backwardlog!` and `viterbi` of that package are called in their loose-parameter form, on
-# `a`, `A` and `LL`, never on the model itself.
+# `src/hmm_interface.jl`). The old supertype bought nothing that is lost: the only inference
+# this package still writes is `viterbi`, in its loose-parameter form on `a`, `A` and `LL`
+# (`src/viterbi.jl`), never on the model itself.
 
 """
     ARPeriodicHMM([a, ]A, B) -> ARPeriodicHMM

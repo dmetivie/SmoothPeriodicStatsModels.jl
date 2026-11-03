@@ -28,7 +28,7 @@ function randARPeriodicHMM(rng::AbstractRNG, K, T, orders::AbstractVector; ref_s
     B_rand = [[Bernoulli(rand(rng)) for h in 1:size_order[j]] for k in 1:K, t in 1:T, j in 1:D] # completly random -> bad
     Q_rand = zeros(K, K, T)
     for t in 1:T
-        Q_rand[:, :, t] = PeriodicHiddenMarkovModels.randtransmat(rng, K) # completly random -> bad
+        Q_rand[:, :, t] = randtransmat(rng, K) # completly random -> bad
     end
     hmm_random = sARPeriodicHMM(ξ, Q_rand, B_rand)
     sort_wrt_ref!(hmm_random, ref_station)

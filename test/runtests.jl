@@ -11,6 +11,10 @@ import HiddenMarkovModels as HMMs
 
 const SPSM = SmoothPeriodicStatsModels
 
+# A forward-backward written against this package's own indexing convention, to check the
+# library's against. See the file for why it is not vacuous.
+include("reference_inference.jl")
+
 # * Fitting extension * #
 
 # Fitting lives in an extension, so a missing `using` or `import` in it shows up only when a
@@ -729,7 +733,9 @@ end
     lag_cat = SPSM.conditional_to(y, y_past)
     controls = SeasonalControls(y, y_past; n2t=n2t)
     @test length(controls) == N
-    @test controls[7] == (n2t[7], lag_cat[:, 7])
+    # the third element is the observation index, which `CachedEmissions` reads and the
+    # accessors ignore
+    @test controls[7] == (n2t[7], lag_cat[:, 7], 7)
     @test SeasonalControls(n2t, lag_cat)[13] == controls[13]
     @test_throws ArgumentError SeasonalControls(n2t[1:10], lag_cat)
 
@@ -746,17 +752,21 @@ end
     # the marginal loglikelihood, from both forward passes
     α = zeros(N, K)
     c = zeros(N)
-    SPSM.forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
+    ref_forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
     @test HMMs.logdensityof(hmm, obs, controls; seq_ends=(N,)) ≈ sum(c)
 
     # the state posteriors, and the decoded path
     β = zeros(N, K)
-    SPSM.backwardlog!(β, c, hmm.a, hmm.A, LL; n2t=n2t)
+    ref_backwardlog!(β, c, hmm.a, hmm.A, LL; n2t=n2t)
     γ = zeros(N, K)
-    SPSM.posteriors!(γ, α, β)
+    ref_posteriors!(γ, α, β)
     γ_hmms, _ = HMMs.forward_backward(hmm, obs, controls; seq_ends=(N,))
     @test permutedims(γ_hmms) ≈ γ
 
+    # `viterbi` here decodes through `CachedEmissions`, so this compares the batched
+    # `loglikelihoods` against the pointwise `obs_distributions` path end to end; the decoder
+    # itself is HiddenMarkovModels' on both sides. That it recovers a known path, and
+    # maximizes the complete loglikelihood, is asserted separately further down.
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)
 
@@ -802,7 +812,7 @@ end
 
     α = zeros(N, K)
     c = zeros(N)
-    SPSM.forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
+    ref_forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
     @test HMMs.logdensityof(hmm, obs, controls; seq_ends=(N,)) ≈ sum(c)
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)

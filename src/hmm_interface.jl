@@ -13,10 +13,12 @@
 """
     SeasonalControls(n2t, lag_cat)
 
-The control sequence of a periodic autoregressive HMM: `(n2t[n], lag_cat[:, n])` at step `n`.
+The control sequence of a periodic autoregressive HMM: `(n2t[n], lag_cat[:, n], n)` at step `n`.
 
 `n2t[n] ∈ 1:T` is the period index and `lag_cat[j, n]` the memory category of site `j`, the
 `1 + ` binary encoding of its `order` previous values that [`conditional_to`](@ref) builds.
+The third element is the observation index, which the accessors ignore and
+[`CachedEmissions`](@ref) uses to find its row.
 
 Lazy on purpose: a year of 50 000 observations would otherwise be 50 000 allocated tuples, and
 the memory categories are already laid out contiguously by site.
@@ -28,7 +30,7 @@ end
 
 function SeasonalControls(n2t::AbstractVector{<:Integer}, lag_cat::AbstractMatrix{<:Integer})
     @argcheck length(n2t) == size(lag_cat, 2) "`n2t` has $(length(n2t)) entries and `lag_cat` $(size(lag_cat, 2)) columns; both index the observations"
-    E = Tuple{Int,typeof(view(lag_cat, :, 1))}
+    E = Tuple{Int,typeof(view(lag_cat, :, 1)),Int}
     return SeasonalControls{typeof(lag_cat),E}(collect(Int, n2t), lag_cat)
 end
 
@@ -44,7 +46,7 @@ SeasonalControls(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool};
 
 Base.size(c::SeasonalControls) = (length(c.n2t),)
 Base.@propagate_inbounds Base.getindex(c::SeasonalControls, n::Integer) =
-    (c.n2t[n], view(c.lag_cat, :, n))
+    (c.n2t[n], view(c.lag_cat, :, n), Int(n))
 
 # ## The three accessors
 #
@@ -160,43 +162,12 @@ end
 # with an exponential kernel of range `R[k, t]`, so one observation's likelihood is a
 # `D`-dimensional orthant probability, estimated by quasi-Monte Carlo. Two consequences.
 #
-# First, the control carries the observation index as well — see [`SpatialControls`](@ref) —
-# because the fitter substitutes a batched, threaded evaluation of the same quantity and needs
-# to map a control back to its row. The accessors below ignore it.
+# First, the emission is evaluated in a batched, threaded sweep rather than one control at a
+# time — see [`CachedEmissions`](@ref), which is what the observation index in the control is
+# for. The accessors below ignore that index.
 #
 # Second, the QMC budget lives on the model (`hmm.QMC_m`), since these signatures have nowhere
 # to put a keyword.
-
-"""
-    SpatialControls(n2t, lag_cat)
-    SpatialControls(Y, Y_past; n2t)
-
-The control sequence of the spatial model: `(n2t[n], lag_cat[:, n], n)` at step `n`.
-
-The same pair as [`SeasonalControls`](@ref) plus the observation index. That index is what lets
-the fitter swap in a precomputed `N × K` matrix of emission loglikelihoods — the spatial
-likelihood threads over observations, and `HiddenMarkovModels`' forward pass is sequential, so
-evaluating it one control at a time costs an order of magnitude (measured 8–10× at `D = 10..20`,
-`N = 300`).
-"""
-struct SpatialControls{L<:AbstractMatrix{<:Integer},E} <: AbstractVector{E}
-    n2t::Vector{Int}
-    lag_cat::L
-end
-
-function SpatialControls(n2t::AbstractVector{<:Integer}, lag_cat::AbstractMatrix{<:Integer})
-    @argcheck length(n2t) == size(lag_cat, 2) "`n2t` has $(length(n2t)) entries and `lag_cat` $(size(lag_cat, 2)) columns; both index the observations"
-    E = Tuple{Int,typeof(view(lag_cat, :, 1)),Int}
-    return SpatialControls{typeof(lag_cat),E}(collect(Int, n2t), lag_cat)
-end
-
-SpatialControls(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool};
-    n2t=n_to_t(size(Y, 2), 0)::AbstractVector{<:Integer}) =
-    SpatialControls(n2t, conditional_to(Y, Y_past))
-
-Base.size(c::SpatialControls) = (length(c.n2t),)
-Base.@propagate_inbounds Base.getindex(c::SpatialControls, n::Integer) =
-    (c.n2t[n], view(c.lag_cat, :, n), Int(n))
 
 HMMs.initialization(hmm::ARPeriodicHMMSpatial) = hmm.a
 
@@ -262,7 +233,7 @@ end
 # wrong draws, say so.
 @noinline function Base.rand(::AbstractRNG,
     ::Union{ARPeriodicHMM,sARPeriodicHMM,ARPeriodicHMMSpatial},
-    ::Union{SeasonalControls,SpatialControls})
+    ::SeasonalControls)
     throw(ArgumentError("""
     an autoregressive periodic HMM cannot be simulated from a fixed control sequence: the
     memory categories in `SeasonalControls` are a function of the observations, which do not
@@ -272,4 +243,53 @@ end
 
     which encodes each observation's memory as it goes. `SeasonalControls` is for inference,
     where the observations are given."""))
+end
+
+# ## Batched emissions
+#
+# Every model here computes its emission loglikelihoods for all `N` observations at once —
+# `loglikelihoods!` fills an `N × K` matrix, and for the spatial model it does so in parallel.
+# `HiddenMarkovModels`' recursions are necessarily sequential and ask for one control at a
+# time, which for the spatial emission costs an order of magnitude (measured 8–10× at
+# `D = 10..20`, `N = 300`, 28 threads; caching the `D × D` kernel recovers none of it, because
+# `mvnormcdf` dominates). This type is how both are had at once.
+
+"""
+    CachedEmissions(model, LL)
+
+An `AbstractHMM` that answers `initialization` and `transition_matrix` from `model` but reads
+its emission loglikelihoods out of `LL`, an `N × K` matrix filled beforehand.
+
+It is what lets the batched — and for the spatial model threaded — `loglikelihoods!` evaluate
+the emission in one sweep while the forward–backward recursions, the transition marginals and
+the multi-sequence bookkeeping still come from `HiddenMarkovModels`. The observation index in
+[`SeasonalControls`](@ref) is the only way `obs_logdensities!` can find its row, which is why
+the control carries one.
+
+The cache can go stale, so keep it local: fill it, use it, and let it go. The fitter and
+[`viterbi`](@ref) both create one inside a single call and never let it escape.
+"""
+struct CachedEmissions{M,L<:AbstractMatrix} <: HMMs.AbstractHMM
+    model::M
+    LL::L
+end
+
+HMMs.initialization(c::CachedEmissions) = HMMs.initialization(c.model)
+HMMs.transition_matrix(c::CachedEmissions, ctl::Tuple) = HMMs.transition_matrix(c.model, ctl)
+HMMs.obs_distributions(c::CachedEmissions, ctl::Tuple) = HMMs.obs_distributions(c.model, ctl)
+
+function HMMs.obs_logdensities!(logb::AbstractVector, c::CachedEmissions, obs, ctl::Tuple;
+    error_if_not_finite::Bool=true)
+    logb .= view(c.LL, ctl[3], :)
+    return nothing
+end
+
+# The body shared by the three `viterbi(hmm, Y, Y_past)` methods: each builds `LL` its own way
+# — in one threaded sweep, for the spatial model — and the decoding itself is
+# `HiddenMarkovModels.viterbi`, reading the emissions back out of `LL`.
+function _viterbi_cached(hmm::HMMs.AbstractHMM, Y::AbstractMatrix, LL::AbstractMatrix,
+    lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer})
+    controls = SeasonalControls(n2t, lag_cat)
+    q, _ = HMMs.viterbi(CachedEmissions(hmm, LL), eachcol(Y), controls; seq_ends=(size(LL, 1),))
+    return q
 end
