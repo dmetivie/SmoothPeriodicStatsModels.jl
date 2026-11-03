@@ -26,11 +26,16 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 # `PeriodicHiddenMarkovModels.AbstractPeriodicHMM`; see `src/hmm_interface.jl`. The difference
 # from its sibling is that `B[k, t, j]` is a *vector* indexed by site `j`'s own memory
 # category, each site carrying its own autoregressive order.
-struct sARPeriodicHMM{F,T} <: HMMs.AbstractHMM
+struct sARPeriodicHMM{F,T,BB<:Array{<:AbstractVector{<:Distribution{F}},3}} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
-    B::Array{<:AbstractVector{<:Distribution{F}},3}
-    sARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
+    # a parameter for the same reason as `ARPeriodicHMM.B`: an abstractly typed field read
+    # once per observation is a dynamic dispatch per observation
+    B::BB
+    function sARPeriodicHMM{F,T}(a, A, B) where {F,T}
+        B = convert(Array, B)
+        return assert_hmm(a, A, B) && new{F,T,typeof(B)}(a, A, B)
+    end
 end
 
 sARPeriodicHMM(a::AbstractVector{T}, A::AbstractArray{T,3}, B::AbstractArray{<:AbstractVector{<:Distribution{F}},3}) where {F,T} =

@@ -21,10 +21,10 @@ a vector of coefficient vectors, one per memory category of site `j`, and the si
 in order — a ragged shape that no flat container holds. Everything else, including the
 `(model, history)` return, is the same.
 """
-struct SmoothsARPeriodicHMM{A,B,C} <: HMMs.AbstractHMM
+struct SmoothsARPeriodicHMM{A,B,S<:sARPeriodicHMM,C} <: HMMs.AbstractHMM
     θᴬ::A
     θᴮ::B
-    stored::sARPeriodicHMM
+    stored::S    # concrete: every accessor reads it, once per observation
     nT::Int
     cfg::C
 end

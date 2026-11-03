@@ -10,5 +10,5 @@ decoded path is only as stable as that estimate: `QMC_m` is the per-site budget 
 """
 function viterbi(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust=false, n2t=n_to_t(size(Y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=30)
     LL = loglikelihoods(hmm, Y, Y_past; n2t=n2t, robust=robust, QMC_m=QMC_m)
-    return _viterbi_cached(hmm, Y, LL, conditional_to(Y, Y_past), n2t)
+    return viterbi(hmm.a, hmm.A, LL; n2t=n2t)
 end

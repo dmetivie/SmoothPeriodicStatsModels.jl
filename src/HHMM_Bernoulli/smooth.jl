@@ -31,9 +31,9 @@ The `cfg` field is what the M-step needs beyond the parameters — the solver se
 observation index sets, which depend on the data and are therefore attached by `fit_mle` rather
 than by the constructor.
 """
-struct SmoothARPeriodicHMM{P<:AbstractVector,C} <: HMMs.AbstractHMM
+struct SmoothARPeriodicHMM{P<:AbstractVector,S<:ARPeriodicHMM,C} <: HMMs.AbstractHMM
     ps::P
-    stored::ARPeriodicHMM
+    stored::S    # concrete: every accessor reads it, once per observation
     nT::Int
     cfg::C
 end

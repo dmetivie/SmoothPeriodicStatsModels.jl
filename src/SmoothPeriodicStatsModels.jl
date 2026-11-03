@@ -119,6 +119,9 @@ export OptimMLE
 include("AR/AR1.jl")
 
 # ## HMM problem
+# The decoding kernel the three models share, on loose `a`, `A` and `LL`
+include("viterbi.jl")
+
 include("HHMM_Bernoulli/periodichmm.jl")
 include("HHMM_Bernoulli/likelihoods.jl")
 include("HHMM_Bernoulli/viterbi.jl")

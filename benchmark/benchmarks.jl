@@ -35,10 +35,10 @@ const ar1_fit =
 # Asked of the signature rather than of a version marker: the marker that was used here (`V3`)
 # tracked `fit_mle_AR1`, which v4 removed, so v4 took the slurp branch and died with a
 # `MethodError` — and a marker can drift from the signature again, while this cannot.
-const ipopt_quiet =
-    any(m -> :solve_kwargs in Base.kwarg_decl(m),
-        methods(SPSM.fit_mle, (SPSM.OptimMLE, AbstractArray))) ?
-    (; solve_kwargs=(print_level=0,)) : (; print_level=0)
+const takes_solve_kwargs = any(m -> :solve_kwargs in Base.kwarg_decl(m),
+    methods(SPSM.fit_mle, (SPSM.OptimMLE, AbstractArray)))
+solver_options(; kw...) = takes_solve_kwargs ? (; solve_kwargs=(; kw...)) : (; kw...)
+const ipopt_quiet = solver_options(print_level=0)
 
 # Observations became sites-first: `D × N` instead of `N × D`, and `D × order` instead of
 # `order × D` for the initial condition. This came *after* the v3 release, so neither `V3` nor
@@ -275,6 +275,13 @@ let
 end
 
 # ── Seasonal mixture: direct maximization of the likelihood ──────────────────
+# Newton's iterations are pinned, as the EM fits' are. Left to converge, NewtonTrustRegion
+# reaches the optimum in ~12 iterations and then its stopping test either fires or does not,
+# on last-bit rounding: when it does not, it runs on to `maxiters = 1000` at the same optimum,
+# 70× the time. Which problem size flips differs by machine and environment (master's T=100 on
+# one, the branch's T=50 on another), so that entry was timing a coin toss. Eight iterations
+# is short of convergence everywhere, so every sample does the same work.
+const newton_pinned = solver_options(maxiters=8)
 SUITE["mixture"]["OptimMLE"] = BenchmarkGroup()
 
 let
@@ -294,7 +301,7 @@ let
             evals = 1
         )
         SUITE["mixture"]["OptimMLE"]["NewtonTrustRegion T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y),
+            fit_mle(OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y; $newton_pinned...),
             evals = 1
         )
     end

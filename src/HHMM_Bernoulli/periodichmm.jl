@@ -22,11 +22,17 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 - `B::AbstractMatrix{<:Distribution{F}}`: Y distributions.
 - or `B::AbstractMatrix`: emission matrix.
 """
-struct ARPeriodicHMM{F,T} <: HMMs.AbstractHMM
+struct ARPeriodicHMM{F,T,BB<:Array{<:Distribution{F},4}} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
-    B::Array{<:Distribution{F},4}
-    ARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
+    # `B`'s concrete type is a parameter. Declared `Array{<:Distribution{F},4}`, the field is
+    # abstract, and `HiddenMarkovModels` reads it once per observation, so every read was a
+    # dynamic dispatch: 1.1 KB allocated per observation and 3x the forward-pass time.
+    B::BB
+    function ARPeriodicHMM{F,T}(a, A, B) where {F,T}
+        B = convert(Array, B)
+        return assert_hmm(a, A, B) && new{F,T,typeof(B)}(a, A, B)
+    end
 end
 
 ARPeriodicHMM(a::AbstractVector{T}, A::AbstractArray{T,3}, B::AbstractArray{<:Distribution{F},4}) where {F,T} =

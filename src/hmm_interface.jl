@@ -100,11 +100,10 @@ function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMM, obs
     return nothing
 end
 
-# The function barrier matters, and by a factor of eight. `ARPeriodicHMM.B` is declared
-# `Array{<:Distribution{F},4}`, whose element type is abstract, so reading `hmm.B[...]` inside
-# the method above would make every one of the `N·K·D` `logpdf` calls a dynamic dispatch —
-# measured at 38.8 ms against 5.12 ms for the same arithmetic here. Naming the element type as
-# a parameter of this method is what `loglikelihoods!` has always done for the same reason.
+# The inner loop, the same arithmetic as `loglikelihoods!`. This was once a function barrier
+# against `ARPeriodicHMM.B` being abstractly typed; it moved the dynamic dispatch out of the
+# `N·K·D` `logpdf` calls but still paid one per observation. `B`'s type is a parameter of the
+# model now, so the whole path is static.
 function _obs_logdensities!(logb::AbstractVector{T}, B::AbstractArray{F,4}, obs,
     t::Integer, h) where {T,F<:UnivariateDistribution}
     K, D = size(B, 1), size(B, 3)
@@ -141,8 +140,7 @@ function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::sARPeriodicHMM, ob
     return nothing
 end
 
-# Same function barrier, same reason as `_obs_logdensities!` above: `B`'s element type is
-# abstract on the model, concrete here.
+# The inner loop, as `_obs_logdensities!` above.
 function _obs_logdensities_sites!(logb::AbstractVector{T}, B::AbstractArray{V,3}, obs,
     t::Integer, h) where {T,V<:AbstractVector{<:UnivariateDistribution}}
     K, D = size(B, 1), size(B, 3)
@@ -266,8 +264,8 @@ the multi-sequence bookkeeping still come from `HiddenMarkovModels`. The observa
 [`SeasonalControls`](@ref) is the only way `obs_logdensities!` can find its row, which is why
 the control carries one.
 
-The cache can go stale, so keep it local: fill it, use it, and let it go. The fitter and
-[`viterbi`](@ref) both create one inside a single call and never let it escape.
+The cache can go stale, so keep it local: fill it, use it, and let it go. The spatial fitter
+creates one inside a single call and never lets it escape.
 """
 struct CachedEmissions{M,L<:AbstractMatrix} <: HMMs.AbstractHMM
     model::M
@@ -282,14 +280,4 @@ function HMMs.obs_logdensities!(logb::AbstractVector, c::CachedEmissions, obs, c
     error_if_not_finite::Bool=true)
     logb .= view(c.LL, ctl[3], :)
     return nothing
-end
-
-# The body shared by the three `viterbi(hmm, Y, Y_past)` methods: each builds `LL` its own way
-# — in one threaded sweep, for the spatial model — and the decoding itself is
-# `HiddenMarkovModels.viterbi`, reading the emissions back out of `LL`.
-function _viterbi_cached(hmm::HMMs.AbstractHMM, Y::AbstractMatrix, LL::AbstractMatrix,
-    lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer})
-    controls = SeasonalControls(n2t, lag_cat)
-    q, _ = HMMs.viterbi(CachedEmissions(hmm, LL), eachcol(Y), controls; seq_ends=(size(LL, 1),))
-    return q
 end

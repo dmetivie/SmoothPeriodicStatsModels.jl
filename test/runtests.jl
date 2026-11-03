@@ -763,10 +763,8 @@ end
     γ_hmms, _ = HMMs.forward_backward(hmm, obs, controls; seq_ends=(N,))
     @test permutedims(γ_hmms) ≈ γ
 
-    # `viterbi` here decodes through `CachedEmissions`, so this compares the batched
-    # `loglikelihoods` against the pointwise `obs_distributions` path end to end; the decoder
-    # itself is HiddenMarkovModels' on both sides. That it recovers a known path, and
-    # maximizes the complete loglikelihood, is asserted separately further down.
+    # two independent decoders: this package's kernel on the batched `LL`, and the library's
+    # on the per-observation accessors
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)
 
