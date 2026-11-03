@@ -12,8 +12,7 @@ Currently, the station Rain Occurrences are only dependent on the hidden states 
 TODO: possibility to add stations with a conditional dependence to pre-existing stations (useful for close stations).
 """
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), silence=nothing, warm_start=nothing)
-    _warn_legacy_solver_kwargs(silence, warm_start)
+    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @assert K ≥ length(unique(z)) "The provided `K` is smaller than the number of states in the provided sequence `z`"
     @assert T ≥ length(unique(n2t)) "The provided `T` is smaller than the number of days in the provided sequence `n2t`"
 
@@ -38,8 +37,7 @@ function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z
 end
 
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), silence=nothing, warm_start=nothing)
-    _warn_legacy_solver_kwargs(silence, warm_start)
+    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     D, N = size(Y)
     Y_past = falses(D, 0)
     order = size(Y_past, 2)

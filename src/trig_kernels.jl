@@ -37,17 +37,17 @@ log1pexp_sum(x) = log1pexp(logsumexp(x))
 Negative of the seasonal Bernoulli loglikelihood maximized by the emission M-step.
 
 `γ[t, 1]` and `γ[t, 2]` are the posterior weights of a failure and of a success at period index
-`t`, and the success probability is `p(t) = 1 / (1 + exp(P(t)))` with `P = basis * θ` — the sign
-convention of [`Trig2ARPeriodicHMM`](@ref). The objective is then
+`t`, and the success probability is `p(t) = logistic(P(t))` with `P = basis * θ` — the
+convention of [`αₜ`](@ref) and [`Trig2ARPeriodicHMM`](@ref). The objective is then
 `-Σₜ γ[t,1] log(1 - p(t)) + γ[t,2] log p(t)`.
 """
 function bernoulli_logit_nll(θ, (γ, basis))
     P = basis * θ
     nll = zero(eltype(P))
     for t in eachindex(P)
-        # log(1 - p) = -log1pexp(-P) and log(p) = -log1pexp(P); `log1pexp` does not overflow
+        # log(1 - p) = -log1pexp(P) and log(p) = -log1pexp(-P); `log1pexp` does not overflow
         # for large |P|, where the `log1p(exp(·))` of the JuMP model did
-        nll += γ[t, 1] * log1pexp(-P[t]) + γ[t, 2] * log1pexp(P[t])
+        nll += γ[t, 1] * log1pexp(P[t]) + γ[t, 2] * log1pexp(-P[t])
     end
     return nll
 end

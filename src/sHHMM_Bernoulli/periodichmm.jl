@@ -22,11 +22,20 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 #     # sARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
 # end
 
-struct sARPeriodicHMM{F,T} <: AbstractPeriodicHMM{F}
+# Like `ARPeriodicHMM`, this subtypes `HMMs.AbstractHMM` rather than
+# `PeriodicHiddenMarkovModels.AbstractPeriodicHMM`; see `src/hmm_interface.jl`. The difference
+# from its sibling is that `B[k, t, j]` is a *vector* indexed by site `j`'s own memory
+# category, each site carrying its own autoregressive order.
+struct sARPeriodicHMM{F,T,BB<:Array{<:AbstractVector{<:Distribution{F}},3}} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
-    B::Array{<:AbstractVector{<:Distribution{F}},3}
-    sARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
+    # a parameter for the same reason as `ARPeriodicHMM.B`: an abstractly typed field read
+    # once per observation is a dynamic dispatch per observation
+    B::BB
+    function sARPeriodicHMM{F,T}(a, A, B) where {F,T}
+        B = convert(Array, B)
+        return assert_hmm(a, A, B) && new{F,T,typeof(B)}(a, A, B)
+    end
 end
 
 sARPeriodicHMM(a::AbstractVector{T}, A::AbstractArray{T,3}, B::AbstractArray{<:AbstractVector{<:Distribution{F}},3}) where {F,T} =
@@ -90,6 +99,33 @@ function rand(
 end
 
 rand(hmm::sARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
+
+"""
+    rand([rng, ]hmm::sARPeriodicHMM, n2t; z_ini, y_ini, seq = false)
+    rand([rng, ]hmm::sARPeriodicHMM, N::Integer; kwargs...)
+
+Draw a state path and the observations along it; `seq = true` returns `(z, y)`. As for
+[`ARPeriodicHMM`](@ref), the path uses the transition matrix of the period each step *leaves*,
+and this cannot go through `HiddenMarkovModels`' own `rand`, whose controls are fixed before
+the first draw.
+"""
+function rand(rng::AbstractRNG, hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+rand(hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...) =
+    rand(GLOBAL_RNG, hmm, n2t; kwargs...)
+rand(rng::AbstractRNG, hmm::sARPeriodicHMM, N::Integer; kwargs...) =
+    rand(rng, hmm, n_to_t(N, size(hmm, 3)); kwargs...)
+rand(hmm::sARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwargs...)
 
 """
     size(hmm, [dim]) -> Int | Tuple

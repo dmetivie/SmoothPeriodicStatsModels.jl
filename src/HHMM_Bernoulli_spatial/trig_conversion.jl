@@ -1,4 +1,4 @@
-function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, T::Integer, h::AbstractMatrix)
+function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:AbstractFloat,3}, Bernoulli_θ::AbstractArray{<:AbstractFloat,4}, Range_θ::AbstractArray{<:AbstractFloat,2}, T::Integer, h::AbstractMatrix; QMC_m::Integer=30)
     K, D, size_order = size(Bernoulli_θ)
     @assert K == size(trans_θ, 1)
 
@@ -22,13 +22,13 @@ function Trig2ARPeriodicHMMSpatial(a::AbstractVector, trans_θ::AbstractArray{<:
     # A is a K*K* T matrix of transition.
 
     #make emission parameters
-    p = [1 / (1 + exp(polynomial_trigo(t / T, Bernoulli_θ[k, s, h, :]))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
+    p = [logistic(polynomial_trigo(t / T, Bernoulli_θ[k, s, h, :])) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
     # p is a K (states)* T(period) *  D (stations) * m+1 (memory) vector.
     range = [exp(polynomial_trigo(t / T, Range_θ[k, :])) for k = 1:K, t = 1:T]
     # range is a K (states)* T(period)  * m+1 (memory) vector.
     # return (A, p, range)
 
-    model = ARPeriodicHMMSpatial(a, A, range, p, h)
+    model = ARPeriodicHMMSpatial(a, A, range, p, h, Int(QMC_m))
     return model
 end
 

@@ -11,19 +11,34 @@ BLAS.set_num_threads(1)
 
 const SPSM = SmoothPeriodicStatsModels
 
-# ── Running against both v2 and v3 ───────────────────────────────────────────
+# ── Running against v2, v3 and v4 ────────────────────────────────────────────
 # AirspeedVelocity benchmarks two revisions with a *single* script, so this file has to speak
-# the API of the branch *and* of whatever is on master. Three things differ; everything else is
-# common (`silence`/`warm_start` are still accepted, with a deprecation warning).
+# the API of the branch *and* of whatever is on master. A few things differ; everything else is
+# common. (`silence`/`warm_start` are not passed at all: v3 ignores them, v4 removed them.)
 #
-# Delete this block, and the uses below, once both features below are on the default branch.
+# Delete this block, and the uses below, once the features are on the default branch.
 const V3 = isdefined(SPSM, :fit_mle_AR1)
 
-# v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
-const ar1_fit = V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
+# v4 put the seasonal parametrization in `ParamSpec`s, and then made the model carry its own
+# coefficients: `fit_mle(SmoothAR1(d, T), y)` in place of `fit_mle_AR1(y, d, T)`. Nothing here
+# reads a fit's return value, so only the entry points have to be told apart.
+const V4 = isdefined(SPSM, :ar1_spec)
+const V4R = isdefined(SPSM, :SmoothAR1)
+const V4M = isdefined(SPSM, :SmoothSeasonalMixture)
 
-# v3 funnels solver options through `solve_kwargs` instead of a `kwargs...` slurp.
-const ipopt_quiet = V3 ? (; solve_kwargs=(print_level=0,)) : (; print_level=0)
+# v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
+const ar1_fit =
+    V4R ? (y, d, T) -> SPSM.fit_mle(SPSM.SmoothAR1(d, T), y) :
+    V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
+
+# v2 and v3 slurped solver options into `kwargs...`; v4 funnels them through `solve_kwargs`.
+# Asked of the signature rather than of a version marker: the marker that was used here (`V3`)
+# tracked `fit_mle_AR1`, which v4 removed, so v4 took the slurp branch and died with a
+# `MethodError` — and a marker can drift from the signature again, while this cannot.
+const takes_solve_kwargs = any(m -> :solve_kwargs in Base.kwarg_decl(m),
+    methods(SPSM.fit_mle, (SPSM.OptimMLE, AbstractArray)))
+solver_options(; kw...) = takes_solve_kwargs ? (; solve_kwargs=(; kw...)) : (; kw...)
+const ipopt_quiet = solver_options(print_level=0)
 
 # Observations became sites-first: `D × N` instead of `N × D`, and `D × order` instead of
 # `order × D` for the initial condition. This came *after* the v3 release, so neither `V3` nor
@@ -84,9 +99,9 @@ let
     for T in [100, 10_000]
         ts = collect(1:T)
         SUITE["utilities"]["polynomial_trigo_scalar"][T] =
-            @benchmarkable [SPSM.polynomial_trigo(t, $β, $T) for t = 1:$T]
+            @benchmarkable [SPSM.polynomial_trigo(t / $T, $β) for t = 1:$T]
         SUITE["utilities"]["polynomial_trigo_vector"][T] =
-            @benchmarkable SPSM.polynomial_trigo($ts, $β, $T)
+            @benchmarkable SPSM.polynomial_trigo($ts ./ $T, $β)
     end
 
     # `conditional_to` turns the raw observations into the memory category of every (n, site)
@@ -172,13 +187,21 @@ let
         y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
 
         θᴬ0, θᴮ0 = flat_guess(θᴬ, θᴮ)
-        hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
 
-        SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] = @benchmarkable(
-            fit_mle($hmm0, $θᴬ0, $θᴮ0, $y, $y_ini;
-                n2t=$n2t, maxiter=$maxiter, tol=0.0, robust=true, silence=true),
-            evals = 1
-        )
+        # v4 moved Baum-Welch onto HiddenMarkovModels.jl: the loop and the forward/backward
+        # passes are that library's, and this package supplies only the M-step. The two were
+        # measured equivalent (coefficients to 1.2e-8) before the old loop was removed, so this
+        # entry is comparable across the break — it is the same estimator, driven differently.
+        hmm_fit = if isdefined(SPSM, :SmoothARPeriodicHMM)
+            m0 = SPSM.SmoothARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+            () -> fit_mle(m0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+        else
+            hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
+            () -> fit_mle(hmm0, θᴬ0, θᴮ0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+        end
+
+        SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] =
+            @benchmarkable($hmm_fit(), evals = 1)
     end
 end
 
@@ -234,19 +257,31 @@ let
         rng = StableRNG(1)
         y = [rand(rng, mixture_exp2(t / T, θtrue)) for t in n2t]
 
-        mix0 = [mixture_exp2(t / T, θ0) for t = 1:T]
-        θ_α0 = permutedims(θ0[:, 3])
-        θ_Y0 = [θ0[:, 1], θ0[:, 2]]
+        # v4 made the mixture a model carrying its own coefficients, so the five loose
+        # arguments collapse to one. Both arms start from exactly the same `θ0`.
+        mix_fit = if V4M
+            m0 = SPSM.SmoothSeasonalMixture(Exponential, 2, 1, T; init=[θ0[:, 1], θ0[:, 2]])
+            SPSM.parameters(m0).α[:, 1] .= θ0[:, 3]
+            () -> fit_mle(m0, y; n2t=n2t, maxiter=maxiter, tol=0.0, robust=false)
+        else
+            mix0 = [mixture_exp2(t / T, θ0) for t = 1:T]
+            θ_α0 = permutedims(θ0[:, 3])
+            θ_Y0 = [θ0[:, 1], θ0[:, 2]]
+            () -> fit_mle(mix0, θ_α0, θ_Y0, y, n2t; maxiter=maxiter, tol=0.0, robust=false)
+        end
 
-        SUITE["mixture"]["fit_mle_EM"]["T=$T N=$N"] = @benchmarkable(
-            fit_mle($mix0, $θ_α0, $θ_Y0, $y, $n2t;
-                maxiter=$maxiter, tol=0.0, robust=false, silence=true, warm_start=true),
-            evals = 1
-        )
+        SUITE["mixture"]["fit_mle_EM"]["T=$T N=$N"] = @benchmarkable($mix_fit(), evals = 1)
     end
 end
 
 # ── Seasonal mixture: direct maximization of the likelihood ──────────────────
+# Newton's iterations are pinned, as the EM fits' are. Left to converge, NewtonTrustRegion
+# reaches the optimum in ~12 iterations and then its stopping test either fires or does not,
+# on last-bit rounding: when it does not, it runs on to `maxiters = 1000` at the same optimum,
+# 70× the time. Which problem size flips differs by machine and environment (master's T=100 on
+# one, the branch's T=50 on another), so that entry was timing a coin toss. Eight iterations
+# is short of convergence everywhere, so every sample does the same work.
+const newton_pinned = solver_options(maxiters=8)
 SUITE["mixture"]["OptimMLE"] = BenchmarkGroup()
 
 let
@@ -266,7 +301,7 @@ let
             evals = 1
         )
         SUITE["mixture"]["OptimMLE"]["NewtonTrustRegion T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y),
+            fit_mle(OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y; $newton_pinned...),
             evals = 1
         )
     end
@@ -279,9 +314,9 @@ SUITE["ar1"]["fit_mle"] = BenchmarkGroup()
 
 let
     T, d = 20, 1
-    μ = [μₜ(t, [0.5, 0.3, -0.2], T) for t = 1:T]
-    ρ = [ρₜ(t, [0.4, 0.2, 0.1], T) for t = 1:T]
-    σ = [σₜ(t, [-0.5, 0.1, 0.2], T) for t = 1:T]
+    μ = [μₜ(t / T, [0.5, 0.3, -0.2]) for t = 1:T]
+    ρ = [ρₜ(t / T, [0.4, 0.2, 0.1]) for t = 1:T]
+    σ = [σₜ(t / T, [-0.5, 0.1, 0.2]) for t = 1:T]
     AR = AR1(μ, ρ, σ)
 
     for N in [10_000, 100_000]

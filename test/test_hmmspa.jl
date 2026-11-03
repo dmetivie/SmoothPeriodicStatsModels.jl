@@ -2,6 +2,8 @@ using SmoothPeriodicStatsModels
 using Distributions
 using Optimization, OptimizationOptimJL, LineSearches
 using ForwardDiff
+import HiddenMarkovModels as HMMs
+const SPSM = SmoothPeriodicStatsModels
 import Random
 
 begin
@@ -110,8 +112,10 @@ end
     a = fill(1 / K, K)
     n2t = n_to_t(N, T)
 
-    model = Trig2ARPeriodicHMMSpatial(a, trans_θ, Bernoulli_θ, Range_θ, T, distance)
+    model = Trig2ARPeriodicHMMSpatial(a, trans_θ, Bernoulli_θ, Range_θ, T, distance; QMC_m=10)
     @test size(model) == (K, D, T, size_order)
+    @test model isa HMMs.AbstractHMM
+    @test model.QMC_m == 10
 
     # rand
     Y_past = rand(Bool, D, autoregressive_order)
@@ -119,21 +123,65 @@ end
 
     @test size(Y) == (D, N)
 
-    # initial guess close to truth (cheating) for fast convergence in test
-    thetaA = copy(trans_θ)
-    thetaB = copy(Bernoulli_θ)
-    thetaR = copy(Range_θ)
+    # --- the HiddenMarkovModels.jl interface
+    #
+    # The deterministic halves are asserted exactly; the emission cannot be, because it is a
+    # randomized quasi-Monte-Carlo estimate of a `D`-dimensional orthant probability. It is
+    # compared against the error `mvnormcdf` itself reports rather than a tolerance pulled from
+    # the air.
+    lag_cat = SPSM.conditional_to(Y, Y_past)
+    controls = SeasonalControls(n2t, lag_cat)
+    @test length(controls) == N
+    @test controls[7] == (n2t[7], lag_cat[:, 7], 7)
+    @test HMMs.initialization(model) == model.a
+    @test HMMs.transition_matrix(model, controls[5]) == model.A[:, :, n2t[4]]
+    @test_throws ArgumentError rand(model, controls)
 
-    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / K, K), thetaA, thetaB, thetaR, T, distance)
+    let n = 11, k = 1, t = n2t[n], obs = view(Y, :, n)
+        d = HMMs.obs_distributions(model, controls[n])[k]
+        val, err = pdf(d, obs; m=length(d) * 400, return_error=true)
+        LL1 = zeros(N, K)
+        SPSM.loglikelihoods!(LL1, model, Y, lag_cat; n2t=n2t, QMC_m=400)
+        # both estimate the same integral; agreement is bounded by the QMC error, not by `eps`
+        @test abs(exp(LL1[n, k]) - val) < 20 * max(err, 1e-12)
+    end
 
+    # `complete_loglikelihood` could never run before: `D, N = size(y)` was the wrong way round
+    # and `logpdf(::SpatialBernoulli, …)` did not exist.
+    @test isfinite(complete_loglikelihood(model, Y, Y_past, z; n2t=n2t, QMC_m=10))
+
+    # --- fitting, from a guess at the truth (cheating) so the test stays short
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
+    m0 = SmoothARPeriodicHMMSpatial(fill(1 / K, K), trans_θ, Bernoulli_θ, Range_θ, T,
+        distance; QMC_m=10)
+    ps0 = copy(parameters(m0))
 
-    history, _, _, _ = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past;
-        solver, n2t=n2t, maxiter=10, tol=1e-4, maxiters_R=20, display=:none, tdist=1.1, QMC_m=10)
+    m, history = fit_mle(m0, Y, Y_past; solver, n2t=n2t, maxiter=10, tol=1e-4,
+        maxiters_R=20, display=:none, tdist=1.1)
 
-    logtots = history["logtots"]
+    logtots = history.logtots
     println("logtots: ", logtots)
     @test length(logtots) > 0
     # loglikelihood should generally increase; allow small decreases (tolerance 1% of |logtot|)
+    # — the emission is a QMC estimate, so the path is genuinely noisy
     @test all(diff(logtots) .>= -1e-2 * abs(logtots[1]))
+
+    # the guess is not modified in place
+    @test parameters(m0) == ps0
+
+    # `fit_mle` returns the *best* iterate here, not the last, because of that noise
+    @test 1 <= history.best_iteration <= length(logtots)
+    @test logtots[history.best_iteration] == maximum(logtots)
+    @test parameters(m) == history.ps_iters[history.best_iteration+1]
+
+    # the twin, the curves and the accessors all follow from the fitted coefficients
+    twin = ARPeriodicHMMSpatial(m)
+    @test twin isa ARPeriodicHMMSpatial
+    @test size(twin) == (K, D, T, size_order)
+    @test SPSM.assert_hmm(twin.a, twin.A, Bernoulli.(twin.B))
+    @test size(curve(m, :R)) == (K, T)
+    @test all(>(0), curve(m, :R))          # the log link keeps the range positive
+    @test curve(m, :R) == twin.R
+    @test_throws ArgumentError curve(m, :nosuch)
+    @test length(viterbi(m, Y, Y_past; n2t=n2t)) == N
 end

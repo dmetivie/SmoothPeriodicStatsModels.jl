@@ -46,17 +46,20 @@ How a batch of independent problems — one per hidden state, per site, … — 
 default_ensemble() = EnsembleSerial()
 
 """
-    solve_unconstrained(objective, u0, p; solver, adtype, solve_kwargs) -> minimizer
+    solve_unconstrained(objective, u0, p; solver, adtype, solve_kwargs, return_sol) -> minimizer
 
 Minimize `objective(u, p)` from the starting point `u0`, and return the minimizer. An
 unsuccessful solver return code warns instead of throwing.
+
+`return_sol = true` returns the whole solution instead, which is what the fits that report a
+return code in their [`SeasonalFit`](@ref) need.
 """
 function solve_unconstrained(objective, u0, p;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;), return_sol=false)
     prob = OptimizationProblem(OptimizationFunction(objective, adtype), u0, p)
     sol = solve(prob, solver; solve_kwargs...)
     successful_retcode(sol.retcode) || @warn "solver returned $(sol.retcode)"
-    return sol.u
+    return return_sol ? sol : sol.u
 end
 
 """

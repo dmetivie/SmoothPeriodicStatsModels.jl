@@ -21,8 +21,8 @@ function Trig2ARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:AbstractFl
             A[k, l, t] /= normalization_polynomial[k, t]
         end
     end
-    #TODO use μ, α, θ functions
-    p = [1 / (1 + exp(polynomial_trigo(t / T, θᴮ[k, s, h, :]))) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
+    # `αₜ`'s link, inlined: calling `αₜ` would copy `θ[:]` once per (k, t, s, h)
+    p = [logistic(polynomial_trigo(t / T, θᴮ[k, s, h, :])) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]
 
     return ARPeriodicHMM(a, A, Bernoulli.(p))
 end
@@ -55,8 +55,8 @@ end
     bernoulli_residual(p, (B, T)) -> Vector
 
 Residual of the inverse-logit trig fit of a seasonal success probability: entry `t` is
-`1 / (1 + exp(P(t/T))) - B[t]`. Note the sign — there is no minus in the exponent, matching the
-convention of [`Trig2ARPeriodicHMM`](@ref).
+`logistic(P(t/T)) - B[t]`, the convention of [`αₜ`](@ref) and
+[`Trig2ARPeriodicHMM`](@ref).
 """
-bernoulli_residual(p, (B, T)) = [1 / (1 + exp(polynomial_trigo(t / T, p))) for t = 1:T] .- B
+bernoulli_residual(p, (B, T)) = [logistic(polynomial_trigo(t / T, p)) for t = 1:T] .- B
 

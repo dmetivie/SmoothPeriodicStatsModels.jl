@@ -57,3 +57,18 @@ function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; m=len
     hy = mvnormcdf(zerosvec, d.ΣU, a, b; m=m)
     return return_error ? hy : hy[1]
 end
+
+# Log of `pdf`. Defined because `Distributions`' generic fallback for a multivariate
+# distribution goes through `_logpdf`, which this type did not provide — without it
+# `logpdf(::SpatialBernoulli, y)` is a `MethodError`, which is why
+# `complete_loglikelihood(::ARPeriodicHMMSpatial, …)` could never have run.
+#
+# The orthant probability is a quasi-Monte-Carlo estimate, so taking the log afterwards is the
+# best available: there is no log-domain version of the integral.
+function Distributions._logpdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; kwargs...)
+    return log(pdf(d, y; kwargs...))
+end
+
+function Distributions.logpdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; kwargs...)
+    return Distributions._logpdf(d, y; kwargs...)
+end
