@@ -31,8 +31,14 @@ const ar1_fit =
     V4R ? (y, d, T) -> SPSM.fit_mle(SPSM.SmoothAR1(d, T), y) :
     V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
 
-# v3 funnels solver options through `solve_kwargs` instead of a `kwargs...` slurp.
-const ipopt_quiet = V3 ? (; solve_kwargs=(print_level=0,)) : (; print_level=0)
+# v2 and v3 slurped solver options into `kwargs...`; v4 funnels them through `solve_kwargs`.
+# Asked of the signature rather than of a version marker: the marker that was used here (`V3`)
+# tracked `fit_mle_AR1`, which v4 removed, so v4 took the slurp branch and died with a
+# `MethodError` — and a marker can drift from the signature again, while this cannot.
+const ipopt_quiet =
+    any(m -> :solve_kwargs in Base.kwarg_decl(m),
+        methods(SPSM.fit_mle, (SPSM.OptimMLE, AbstractArray))) ?
+    (; solve_kwargs=(print_level=0,)) : (; print_level=0)
 
 # Observations became sites-first: `D × N` instead of `N × D`, and `D × order` instead of
 # `order × D` for the initial condition. This came *after* the v3 release, so neither `V3` nor
