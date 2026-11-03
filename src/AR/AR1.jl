@@ -247,24 +247,35 @@ predecessor; restrict it to fit one hidden state at a time.
 """
 function ar1_sufficient_statistics(y::AbstractVector, n2t::AbstractVector{<:Integer}, T::Integer, ns=2:length(y))
     @argcheck length(n2t) >= length(y) "`n2t` gives the period index of every observation, so it needs $(length(y)) entries, not $(length(n2t))"
-    # Without this the mismatch surfaces as a `BoundsError` on the accumulators below, which
-    # says nothing about the cause. The usual cause is a period that does not match the index:
-    # day-of-year values against a `T` smaller than 366.
-    @argcheck all(t -> 1 <= t <= T, n2t) "every entry of `n2t` must lie in 1:$T, and they run over $(extrema(n2t))"
+    # Without this a mismatch surfaces as a `BoundsError` on the accumulators, which says nothing
+    # about the cause. The usual causes are a period that does not match the index (day-of-year
+    # values against a `T` smaller than 366) and a 0-based index. The loop checks each entry it
+    # reads, rather than a pass of its own over `n2t`; `n2t[1]`, which it skips, is checked here,
+    # being the entry that gives a 0-based index away on a series no longer than one period.
+    isempty(n2t) || 1 <= first(n2t) <= T || _period_index_error(n2t, T)
     N = zeros(Int, T)
     ∑y², ∑y₋², ∑yy₋, ∑y, ∑y₋ = (zeros(T) for _ = 1:5)
     for n in ns
         n == 1 && continue # the first observation has no predecessor
         t = n2t[n]
-        N[t] += 1
-        ∑y²[t] += y[n]^2
-        ∑y₋²[t] += y[n-1]^2
-        ∑yy₋[t] += y[n] * y[n-1]
-        ∑y[t] += y[n]
-        ∑y₋[t] += y[n-1]
+        1 <= t <= T || _period_index_error(n2t, T)
+        yₙ, yₙ₋₁ = y[n], y[n-1]
+        @inbounds begin # `t` is checked just above and every accumulator has length `T`
+            N[t] += 1
+            ∑y²[t] += yₙ^2
+            ∑y₋²[t] += yₙ₋₁^2
+            ∑yy₋[t] += yₙ * yₙ₋₁
+            ∑y[t] += yₙ
+            ∑y₋[t] += yₙ₋₁
+        end
     end
     return (; N, ∑y², ∑y₋², ∑yy₋, ∑y, ∑y₋)
 end
+
+# Out of line, and a `throw` the compiler can see never returns: with a helper that might return,
+# such as one ending in `@argcheck`, the loop above runs 70% slower.
+@noinline _period_index_error(n2t, T) = throw(ArgumentError(
+    "every entry of `n2t` must lie in 1:$T, and they run over $(extrema(n2t))"))
 
 """
     ar1_nll(θ, (stats, design)) -> Number

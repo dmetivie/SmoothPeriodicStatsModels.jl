@@ -30,7 +30,7 @@ using SmoothPeriodicStatsModels: SeasonalSample, SeasonalWeights, SeasonalFamily
 # Read-only: the models and the pure pieces the objectives are built from.
 using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpatial, AbstractMLE,
     OptimMLE, Trig2ARPeriodicHMM, Trig2ARPeriodicHMMSpatial,
-    PeriodicDesign, SmoothAR1, SeasonalFit, FitHistory, seasonal_params, ncolumns, column,
+    PeriodicDesign, SmoothAR1, SeasonalFit, FitHistory, seasonal_params, _params_like, ncolumns, column,
     SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial,
     SeasonalControls, CachedEmissions, degrees, _refresh!,
     TimeVaryingFamily, DistConstructor, PeriodicNLL, distributions, ParamSpec, TrigBasis,

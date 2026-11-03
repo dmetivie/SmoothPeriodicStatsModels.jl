@@ -59,6 +59,22 @@ seasonal_params(spec::ParamSpec, θ::AbstractMatrix) =
     ComponentArray(NamedTuple{paramnames(spec)}(
         ntuple(j -> collect(view(θ, blockrange(spec, j), :)), length(paramnames(spec)))))
 
+# `seasonal_params(spec, θ)`, in a copy of `ps`'s container when that already has the layout it
+# would build -- one vector block per parameter, named and placed as `spec` says -- so that the
+# `ComponentArray`'s type is not computed from values at run time again. Any other `ps` (a plain
+# vector, the blocks in another order, one column per state) goes through `seasonal_params`.
+_params_like(spec::ParamSpec, ps::AbstractVector, θ::AbstractVector) =
+    _has_spec_layout(spec, ps) ? copyto!(similar(ps, Float64), θ) : seasonal_params(spec, θ)
+
+_has_spec_layout(::ParamSpec, ::AbstractVector) = false
+function _has_spec_layout(spec::ParamSpec, ps::ComponentArray)
+    (propertynames(ps) == paramnames(spec) && length(ps) == ncoef(spec)) || return false
+    # `ntuple` over `Val`, so that each name is a constant and `getproperty` is inferred
+    names = paramnames(spec)
+    return all(ntuple(j -> _block_at(getproperty(ps, names[j]), blockrange(spec, j)), Val(length(names))))
+end
+_block_at(block, range) = block isa SubArray && parentindices(block) == (range,)
+
 """
     ncolumns(spec, ps) -> Int
 

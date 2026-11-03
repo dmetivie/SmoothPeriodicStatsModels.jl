@@ -681,6 +681,20 @@ end
     # overshoots gets a large objective rather than a `NaN` gradient.
     y = rand(MersenneTwister(3), AR1(fill(0.0, T), fill(0.3, T), fill(1.0, T)), 2_000; y₁=0.0)
     stats = SPSM.ar1_sufficient_statistics(y, n_to_t(length(y), T), T)
+    # a period index that does not match the period is reported as such, not as a `BoundsError`,
+    # and a 0-based one is caught even on a series no longer than a period, where only its first
+    # entry, which has no predecessor, is out of range
+    @test_throws ArgumentError SPSM.ar1_sufficient_statistics(y, n_to_t(length(y), 2T), T)
+    @test_throws ArgumentError SPSM.ar1_sufficient_statistics(y[1:T], collect(0:T-1), T)
+
+    # a fit hands back the spec's layout: the start's container when it already has it, the
+    # spec's otherwise -- for a plain vector, the blocks in another order, or one column per state
+    θ = collect(1.0:9.0)
+    @test SPSM._params_like(spec, seasonal_params(spec), θ) == seasonal_params(spec, θ)
+    @test typeof(SPSM._params_like(spec, seasonal_params(spec), θ)) == typeof(seasonal_params(spec, θ))
+    @test SPSM._params_like(spec, zeros(9), θ).σ == 7:9
+    @test SPSM._params_like(spec, ComponentArray(ρ=zeros(3), μ=zeros(3), σ=zeros(3)), θ).ρ == 4:6
+    @test SPSM._params_like(spec, seasonal_params(spec, 1), θ).μ == 1:3
     design = SPSM.PeriodicDesign(spec, 1:T)
     huge = [zeros(3); 800.0; zeros(5)]              # ρ's intercept, far past the overflow
     @test isfinite(SPSM.ar1_nll(huge, (stats, design)))

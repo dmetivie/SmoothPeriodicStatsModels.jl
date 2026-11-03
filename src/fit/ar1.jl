@@ -31,9 +31,14 @@ function fit_mle(m::SmoothAR1, y::AbstractVector;
 
     sol = solve_unconstrained(ar1_nll, collect(float.(parameters(m))), (stats, design);
         solver, adtype, solve_kwargs, return_sol=true)
+    return _ar1_fitted(m, sol, sum(stats.N))
+end
 
-    N = sum(stats.N)
-    fitted = SmoothAR1(m.spec, m.nT, seasonal_params(m.spec, sol.u))
+# A function barrier. `solve`'s return type is not inferred, so in `fit_mle` itself every use of
+# `sol` would be a dynamic dispatch, and `FitHistory`'s type -- which holds the whole solution's --
+# would be built at run time on every fit.
+function _ar1_fitted(m::SmoothAR1, sol, N::Integer)
+    fitted = SmoothAR1(m.spec, m.nT, _params_like(m.spec, parameters(m), sol.u))
     history = FitHistory(;
         converged=successful_retcode(sol.retcode),
         iterations=sol.stats.iterations,
