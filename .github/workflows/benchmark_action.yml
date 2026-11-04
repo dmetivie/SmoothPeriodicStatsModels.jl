@@ -1,7 +1,7 @@
 name: Benchmark this PR
 on:
   pull_request_target:
-    branches: [ master ]  # change to your default branch
+    branches: [ main ]  # change to your default branch
 permissions:
   pull-requests: write    # needed to post comments
 

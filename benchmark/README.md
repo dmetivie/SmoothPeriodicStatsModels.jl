@@ -13,7 +13,7 @@ of an iteration.
 
 `.github/workflows/benchmark_action.yml` runs
 [AirspeedVelocity.jl](https://github.com/MilesCranmer/AirspeedVelocity.jl) on every PR against
-`master` and posts the comparison as a comment.
+`main` and posts the comparison as a comment.
 
 ## Locally
 
@@ -21,7 +21,7 @@ Compare two revisions (`benchpkg` comes from AirspeedVelocity.jl):
 
 ```bash
 julia -e 'using Pkg; Pkg.add("AirspeedVelocity")'   # provides the `benchpkg` script
-benchpkg SmoothPeriodicStatsModels --rev=master,HEAD --bench-on=HEAD
+benchpkg SmoothPeriodicStatsModels --rev=main,HEAD --bench-on=HEAD
 ```
 
 Or just run the suite in this environment:

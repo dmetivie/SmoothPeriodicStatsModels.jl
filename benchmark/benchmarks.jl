@@ -13,7 +13,7 @@ const SPSM = SmoothPeriodicStatsModels
 
 # ── Running against v2, v3 and v4 ────────────────────────────────────────────
 # AirspeedVelocity benchmarks two revisions with a *single* script, so this file has to speak
-# the API of the branch *and* of whatever is on master. A few things differ; everything else is
+# the API of the branch *and* of whatever is on main. A few things differ; everything else is
 # common. (`silence`/`warm_start` are not passed at all: v3 ignores them, v4 removed them.)
 #
 # Delete this block, and the uses below, once the features are on the default branch.

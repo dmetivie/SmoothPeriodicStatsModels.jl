@@ -1,6 +1,12 @@
 # SmoothPeriodicStatsModels
 
-[![Build Status](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/CI.yml/badge.svg?branch=master)](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/CI.yml?query=branch%3Amaster)
+[![Build Status](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/CI.yml?query=branch%3Amain)
+[![Stable Documentation](https://img.shields.io/badge/docs-stable-blue.svg)](https://dmetivie.github.io/SmoothPeriodicStatsModels.jl/stable)
+[![Development documentation](https://img.shields.io/badge/docs-dev-blue.svg)](https://dmetivie.github.io/SmoothPeriodicStatsModels.jl/dev)
+[![Docs workflow Status](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/Docs.yml/badge.svg?branch=main)](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/actions/workflows/Docs.yml?query=branch%3Amain)
+[![DOI](https://zenodo.org/badge/DOI/FIXME)](https://doi.org/FIXME)
+[![All Contributors](https://img.shields.io/github/all-contributors/dmetivie/SmoothPeriodicStatsModels.jl?labelColor=5e1ec7&color=c0ffee&style=flat-square)](#contributors)
+[![BestieTemplate](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/JuliaBesties/BestieTemplate.jl/main/docs/src/assets/badge.json)](https://github.com/JuliaBesties/BestieTemplate.jl)
 
 This package is primarily built to be an extension of the [StochasticWeatherGenerators](https://github.com/dmetivie/StochasticWeatherGenerators.jl) package. See the [tutorial](https://dmetivie.github.io/StochasticWeatherGenerators.jl/dev/examples/tuto_paper/) for an example of usage.
 
@@ -54,14 +60,15 @@ hmm = Trig2ARPeriodicHMM([1/3, 1/6, 1/2], trans_θ, Bernoulli_θ, T)
 ### Simulations
 
 Multivariate observations are `dimension × sample`, the convention of `Distributions.jl`: `y[j, n]`
-is site `j` at time `n`, and the initial condition `y_past[j, m]` is site `j` at `m` steps before
-the first observation. The same holds for `Y`, `Y_past` and `lag_cat` everywhere in the package.
+is site `j` at time `n`. The initial condition `y_past` holds the `order` observations before
+`y`, in time order, so that `[y_past y]` is the series. The same holds for `Y`, `Y_past` and
+`lag_cat` everywhere in the package, and `rand` takes the same `Y_past` as the fits.
 
 ```julia
 z_ini = 1
 y_past = rand(Bool, D, autoregressive_order)
 n2t = SmoothPeriodicStatsModels.n_to_t(N,T)
-z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
+z, y = rand(hmm, n2t; Y_past=y_past, z_ini=z_ini, seq=true)
 ```
 
 ### Fit
@@ -419,3 +426,20 @@ end
 **Emission distributions:**
 ![Emission distribution](img/nu_test_1.svg)
 ![Emission distribution](img/nu_test_2.svg)
+
+## How to Cite
+
+If you use SmoothPeriodicStatsModels.jl in your work, please cite using the reference given in [CITATION.cff](https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/blob/main/CITATION.cff).
+
+---
+
+### Contributors
+
+<!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
+<!-- prettier-ignore-start -->
+<!-- markdownlint-disable -->
+
+<!-- markdownlint-restore -->
+<!-- prettier-ignore-end -->
+
+<!-- ALL-CONTRIBUTORS-LIST:END -->
