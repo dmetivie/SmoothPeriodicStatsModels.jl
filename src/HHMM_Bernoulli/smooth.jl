@@ -1,47 +1,54 @@
 # # The periodic Bernoulli HMM with its coefficients attached
 #
 # `ARPeriodicHMM` stores the *evaluated* arrays `A[k, l, t]` and `B[k, t, j, h]`. What generates
-# them is a pair of trigonometric polynomials — `θᴬ` through a multinomial logit, `θᴮ` through a
-# logistic — and until v4 those travelled loose beside the model, which is why fitting one
-# returned six values.
+# them is a pair of basis expansions over the period index — `θᴬ` through a multinomial logit,
+# `θᴮ` through a logistic — and until v4 those travelled loose beside the model, which is why
+# fitting one returned six values.
 #
 # `SmoothARPeriodicHMM` is the pair: the coefficients `ps` and the evaluation they generate,
 # held together. It is the `HiddenMarkovModels.AbstractHMM` the Baum-Welch loop iterates on, and
 # the evaluated twin is one field away.
 
 """
-    SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)
-    SmoothARPeriodicHMM(hmm::ARPeriodicHMM, θᴬ, θᴮ)
+    SmoothARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)
 
-A periodic autoregressive Bernoulli HMM carrying the coefficients that generate it.
+A periodic autoregressive Bernoulli HMM given by its coefficients, with the layout and the bases
+of the coefficient method of [`ARPeriodicHMM`](@ref): trigonometric polynomials by default, any
+TimeVaryingParameters basis otherwise. It is a `HiddenMarkovModels.AbstractHMM` whose control
+at step `n` is `(n2t[n], memory categories, n)`, see [`SeasonalControls`](@ref).
 
 ```julia
 m  = SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)
 ps = parameters(m)              # ComponentArray(A = θᴬ, B = θᴮ)
-ps.B[k, j, h, :]                # one emission's trigonometric coefficients
+ps.B[k, j, h, :]                # one emission's coefficients
 
-m, history = fit_mle(m, Y, Y_past; n2t)    # same type in, same type out
-ARPeriodicHMM(m)                # the evaluated twin, to simulate from
+m, history = fit_mle(m, Y, Y_past; n2t)
+ARPeriodicHMM(m)                # the evaluated model
+rand(m, n2t; Y_past, seq = true) # simulate
+viterbi(m, Y, Y_past; n2t)      # decode
+
+m = SmoothARPeriodicHMM(a, θᴬ, θᴮ, T; basis_B = CyclicBSplineBasis(T, 8))  # splines for B
 ```
 
-`A(t)` is the transition matrix of the step *leaving* period `t`, this package's convention;
-[`SeasonalControls`](@ref) explains how that meets `HiddenMarkovModels`'.
-
-The `cfg` field is what the M-step needs beyond the parameters — the solver settings and the
-observation index sets, which depend on the data and are therefore attached by `fit_mle` rather
-than by the constructor.
+`rand`, `viterbi`, `loglikelihoods`, `complete_loglikelihood` and `size` act as on
+`ARPeriodicHMM(m)`. The bases are the fields `basis_A` and `basis_B`.
 """
-struct SmoothARPeriodicHMM{P<:AbstractVector,S<:ARPeriodicHMM,C} <: HMMs.AbstractHMM
+struct SmoothARPeriodicHMM{P<:AbstractVector,S<:ARPeriodicHMM,BA,BB,C} <: HMMs.AbstractHMM
     ps::P
     stored::S    # concrete: every accessor reads it, once per observation
     nT::Int
+    basis_A::BA
+    basis_B::BB
     cfg::C
 end
 
 function SmoothARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
-    θᴮ::AbstractArray{<:Real,4}, T::Integer; cfg=nothing)
+    θᴮ::AbstractArray{<:Real,4}, T::Integer;
+    basis_A=TrigBasis(T, _trig_order(size(θᴬ, 3), "θᴬ")),
+    basis_B=TrigBasis(T, _trig_order(size(θᴮ, 4), "θᴮ")), cfg=nothing)
     ps = ComponentArray(A=collect(float.(θᴬ)), B=collect(float.(θᴮ)))
-    return SmoothARPeriodicHMM(ps, Trig2ARPeriodicHMM(a, ps.A, ps.B, T), Int(T), cfg)
+    stored = ARPeriodicHMM(a, ps.A, ps.B, T; basis_A, basis_B)
+    return SmoothARPeriodicHMM(ps, stored, Int(T), basis_A, basis_B, cfg)
 end
 
 parameters(m::SmoothARPeriodicHMM) = m.ps
@@ -49,19 +56,17 @@ parameters(m::SmoothARPeriodicHMM) = m.ps
 """
     ARPeriodicHMM(m::SmoothARPeriodicHMM) -> ARPeriodicHMM
 
-The evaluated twin: the `A` and `B` arrays the coefficients generate. This is what `rand`,
-`viterbi` and the plots take — `SmoothARPeriodicHMM` carries the coefficients, this carries the
-numbers they produce.
+The `ARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
 ARPeriodicHMM(m::SmoothARPeriodicHMM) = m.stored
 
 """
-    degrees(m::SmoothARPeriodicHMM) -> (dA, dB)
+    degrees(m) -> Tuple
 
-The trigonometric degrees of the transition and emission coefficients.
+The degrees of the trigonometric bases of a smooth HMM: `(dA, dB)`, and `(dA, dB, dR)` for the
+spatial model. Throws for a basis that is not a `TrigBasis`.
 """
-degrees(m::SmoothARPeriodicHMM) =
-    ((size(m.ps.A, 3) - 1) ÷ 2, (size(m.ps.B, 4) - 1) ÷ 2)
+degrees(m::SmoothARPeriodicHMM) = (_trig_degree(m.basis_A), _trig_degree(m.basis_B))
 
 size(m::SmoothARPeriodicHMM, dim=:) = size(m.stored, dim)
 
@@ -78,31 +83,27 @@ HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothARPeriodicHMM, obs, c::Tup
 # and every accessor reads `stored`.
 function _refresh!(m::SmoothARPeriodicHMM)
     K, T = size(m.stored.A, 1), m.nT
-    if K > 1
-        A = m.stored.A
-        for k = 1:K, l = 1:K-1, t = 1:T
-            A[k, l, t] = exp(polynomial_trigo(t / T, view(m.ps.A, k, l, :)))
-        end
-        for k = 1:K, t = 1:T
-            A[k, K, t] = 1
-        end
-        for k = 1:K, t = 1:T
-            s = sum(view(A, k, :, t))
-            for l = 1:K
-                A[k, l, t] /= s
-            end
-        end
-    end
+    _transitions!(m.stored.A, m.ps.A, design_matrix(m.basis_A, 1:T))
+    X = design_matrix(m.basis_B, 1:T)
     D, size_order = size(m.ps.B, 2), size(m.ps.B, 3)
     for k = 1:K, t = 1:T, j = 1:D, h = 1:size_order
-        m.stored.B[k, t, j, h] = Bernoulli(logistic(polynomial_trigo(t / T, view(m.ps.B, k, j, h, :))))
+        m.stored.B[k, t, j, h] = Bernoulli(logistic(_linear_predictor(X, t, view(m.ps.B, k, j, h, :))))
     end
     return m
 end
 
-rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, args...; kwargs...) =
-    rand(rng, m.stored, args...; kwargs...)
-rand(m::SmoothARPeriodicHMM, args...; kwargs...) = rand(GLOBAL_RNG, m.stored, args...; kwargs...)
+# One method per signature: a single `args...` method would be ambiguous with the `rand` methods
+# of `Random` and of `HiddenMarkovModels`.
+const _IndexVector = AbstractVector{<:Integer}
+rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, N::Integer; kwargs...) = rand(rng, m.stored, N; kwargs...)
+rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, n2t::_IndexVector; kwargs...) =
+    rand(rng, m.stored, n2t; kwargs...)
+rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
+    rand(rng, m.stored, z, n2t; kwargs...)
+rand(m::SmoothARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
+rand(m::SmoothARPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
+rand(m::SmoothARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
+    rand(GLOBAL_RNG, m, z, n2t; kwargs...)
 
 loglikelihoods(m::SmoothARPeriodicHMM, args...; kwargs...) = loglikelihoods(m.stored, args...; kwargs...)
 viterbi(m::SmoothARPeriodicHMM, args...; kwargs...) = viterbi(m.stored, args...; kwargs...)
@@ -111,10 +112,9 @@ complete_loglikelihood(m::SmoothARPeriodicHMM, args...; kwargs...) =
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothARPeriodicHMM)
     K, D, T, size_order = size(m.stored)
-    dA, dB = degrees(m)
     println(io, "SmoothARPeriodicHMM: ", K, " states, ", D, " sites, period ", T,
         ", memory ", Int(log2(size_order)))
-    println(io, "  transitions  degree ", dA, ", ", length(m.ps.A), " coefficients")
-    print(io, "  emissions    degree ", dB, ", ", length(m.ps.B), " coefficients")
+    println(io, "  transitions  ", m.basis_A, ", ", length(m.ps.A), " coefficients")
+    print(io, "  emissions    ", m.basis_B, ", ", length(m.ps.B), " coefficients")
     return
 end

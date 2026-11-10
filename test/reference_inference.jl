@@ -6,9 +6,10 @@
 #
 # They are what makes the interface testsets a real check rather than a tautology: they index
 # `A[:, :, n2t[n-1]]` directly, in this package's own convention — `A(t)` governs the step
-# *leaving* period `t` — while the library is handed `transition_matrix(hmm, (t, h))`, which
-# shifts by `mod1(t - 1, T)` because HiddenMarkovModels indexes by the step a control *arrives*
-# at. Agreement between the two is the evidence that the shift in the accessor is the right one.
+# *leaving* period `t` — while the library is handed `transition_matrix(hmm, control)` for the
+# control the step *arrives* at, which therefore carries the previous period index. Agreement
+# between the two, including where `n2t` skips an index, is the evidence that the accessor reads
+# the right matrix.
 
 function ref_vec_maximum(v::AbstractVector)
     m = v[1]

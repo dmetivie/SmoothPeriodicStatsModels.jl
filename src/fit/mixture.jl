@@ -11,16 +11,12 @@
 Fit a seasonal mixture by EM: both the mixing weights and the component parameters vary with
 the period index `t = n2t[n]`, each through its own basis expansion.
 
-Starts from `parameters(m)` and returns a mixture of the same shape together with a
-[`FitHistory`](@ref). `mixtures(m)` is the evaluated twin to simulate from,
-`mixture_weights(m)` the weights over one period, `parameters(m).Y` the component coefficients.
+Starts from `parameters(m)` and returns the fitted mixture and a [`FitHistory`](@ref).
 
-`ExpectationMaximization`'s own keywords work here: `maxiter`, `tol`, `rtol`, `robust`,
-`display`, `method = StochasticEM(rng)`, and a positional vector `w` of per-observation
-weights.
-
-The component M-step is [`update_dist`](@ref), which is generic in the family: a mixture of any
-distribution with a [`seasonal_family`](@ref) declaration fits with no further code.
+Keywords: `maxiter = 100`, `tol = 1e-3`, `rtol`, `robust`, `display` (`:none`, `:iter` or
+`:final`), `method` (`ClassicEM()` or `StochasticEM(rng)`), and the solver settings `solver`,
+`adtype`, `solve_kwargs` of the M-step. `w` gives each observation a weight. Any family with a
+[`seasonal_family`](@ref) declaration can be fitted.
 """
 function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
@@ -51,9 +47,8 @@ end
 """
     fit(SeasonalFit, m::SmoothSeasonalMixture, y, args...; n2t, kwargs...) -> SeasonalFit
 
-Fit a seasonal mixture and keep the diagnostics. The same estimator and the same keywords as
-[`fit_mle`](@ref), so `f.model` and `f.history` are what that would have returned; `bic(f)` is
-then what chooses between a two- and a three-component mixture, or between two degrees.
+Fit a seasonal mixture with [`fit_mle`](@ref), same keywords, and return a
+[`SeasonalFit`](@ref), whose `bic` compares numbers of components or degrees.
 """
 function StatsAPI.fit(::Type{SeasonalFit}, m::SmoothSeasonalMixture, y::AbstractVector, args...;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, kwargs...)
@@ -106,9 +101,7 @@ end
     M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, ::ClassicEM)
 
 M-step of the seasonal mixture: refit the weights' multinomial-logit coefficients, then each
-component's own coefficients, from the posteriors `γ`.
-
-`γ` may alias the log-likelihood matrix the E-step wrote, so it is only ever read here.
+component's coefficients, from the `N × K` posteriors `γ`.
 """
 function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, ::ClassicEM)
     K, T = size(α.α)
@@ -129,8 +122,7 @@ end
 """
     M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
 
-Same M-step with per-observation weights `w`, folded into the posteriors `γ`, which is scratch
-here.
+The same M-step with per-observation weights `w`; `γ` is overwritten.
 """
 function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, γ, w, ::ClassicEM)
     γ .*= w
@@ -140,8 +132,8 @@ end
 """
     M_step!(α::SeasonalWeights, dists, y::SeasonalSample, cat, ::StochasticEM)
 
-Stochastic-EM M-step: `cat[k]` holds the observations the S-step assigned to component `k`, so the
-posteriors are the hard assignment, and the seasonal refits are then the `ClassicEM` ones.
+Stochastic-EM M-step: `cat[k]` holds the observations assigned to component `k`, used as
+posteriors of 0 and 1 in the `ClassicEM` M-step. A trailing `w` adds per-observation weights.
 """
 function M_step!(α::SeasonalWeights, dists, y::SeasonalSample, cat::AbstractVector{<:AbstractVector{<:Integer}}, ::StochasticEM)
     γ = zeros(length(y), size(α.α, 1))
@@ -162,31 +154,23 @@ end
 """
     update_dist(fam, design, θ, γ, observations, n_in_t; solver, adtype, solve_kwargs)
 
-M-step for one seasonal mixture component: refit the coefficients `θ` of the family `fam`
-against the posterior weights `γ`, and return the refitted distributions together with the
-coefficients.
+M-step for one seasonal mixture component: refit the coefficients `θ` of the family `fam` to the
+observations weighted by their posteriors `γ`, and return `(distributions, θ)`, the component's
+`nT` distributions and its coefficients. `design` is the family's bases over the period and
+`n_in_t[t]` lists the observations at period index `t`.
 
-The generic method maximizes the weighted loglikelihood directly, so **it needs nothing but a
-[`seasonal_family`](@ref) declaration** — one basis and one link per parameter. A fit of a
-seasonal `Gamma`, `Weibull` or `LogNormal` mixture is then no extra code at all. Each iteration
-costs one matrix-vector product per parameter and `nT` distribution constructions, not `N` of
-them.
-
-A method of your own replaces that, and is worth writing when the family's loglikelihood
-collapses onto per-period sufficient statistics — the observations then stop being touched
-inside the solver loop. The `Exponential` method below is the example; `γ[n]` is the posterior
-weight of observation `n` and `n_in_t[t]` the observations sharing period index `t`.
+The generic method maximizes the weighted loglikelihood, so any family with a
+[`seasonal_family`](@ref) declaration works. A method for a specific family can replace it, for
+example to use sufficient statistics, as the `Exponential` method does:
 
 ```julia
-function SPSM.update_dist(fam::TimeVaryingFamily{SPSM.DistConstructor{Rayleigh}},
+function SmoothPeriodicStatsModels.update_dist(
+        fam::TimeVaryingFamily{SmoothPeriodicStatsModels.DistConstructor{Rayleigh}},
         design::PeriodicDesign, θ, γ, obs, n_in_t; kwargs...)
-    # ... a solve against Σ γ and Σ γ y², then
+    # ... a solve against Σ γ and Σ γ y² per period index, then
     return distributions(fam, design, θ), θ
 end
 ```
-
-Only `fam` and `design` are annotated here, so that specializing on the family alone is enough
-and cannot be ambiguous with this method.
 """
 function update_dist(fam::TimeVaryingFamily, design::PeriodicDesign, θ, γ, observations, n_in_t;
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
@@ -217,10 +201,9 @@ const SeasonalExponential = TimeVaryingFamily{DistConstructor{Exponential},
 """
     update_dist(fam::SeasonalExponential, design, θ, γ, observations, n_in_t; kwargs...)
 
-M-step for a seasonal `Exponential` component, through its sufficient statistics: the summed
-posterior weight and the posterior-weighted sum of the observations per period index. The
-objective is then `O(nT)` per solver iteration however long the series is, where the generic
-method above is `O(N)`.
+M-step for a seasonal `Exponential` component with a `LogLink` scale, through its sufficient
+statistics per period index: the summed posterior weight and the posterior-weighted sum of the
+observations.
 """
 function update_dist(fam::SeasonalExponential, design::PeriodicDesign, θ, γ, observations, n_in_t;
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
@@ -241,10 +224,11 @@ function update_dist(fam::SeasonalExponential, design::PeriodicDesign, θ, γ, o
     return distributions(fam, design, θ), θ
 end
 
-# Uppdate γ
 """
-    s_γα!(s_ξ, ξ, n_in_t)
-Give an aggregated weight to each category `k` for each "day" `t` which is the sum of the weight `ξ`
+    s_γα!(s, γ, n_in_t)
+
+Aggregate the posteriors per period index: `s[t, k] = Σ γ[n, k]` over the observations
+`n ∈ n_in_t[t]`.
 """
 function s_γα!(s_ξ, ξ, n_in_t)
     T, K = size(s_ξ, 1), size(s_ξ, 2)
@@ -255,7 +239,6 @@ function s_γα!(s_ξ, ξ, n_in_t)
     end
 end
 
-# Uppdate α
 """
     update_α!(α, θ, s_γ, basis; solver, adtype, solve_kwargs)
 

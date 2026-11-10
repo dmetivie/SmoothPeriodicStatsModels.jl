@@ -15,8 +15,7 @@
 """
     default_solver()
 
-Algorithm used when a fitting function is called without a `solver`. `LBFGS` is a reasonable
-default here because every problem in the package is smooth and unconstrained.
+Algorithm used when a fitting function is called without a `solver`: `LBFGS()`.
 """
 default_solver() = LBFGS()
 
@@ -30,10 +29,7 @@ default_nlls_solver() = SimpleGaussNewton()
 """
     default_adtype()
 
-Automatic differentiation backend used to build every `OptimizationFunction`.
-
-Note that `AutoForwardDiff` needs `ForwardDiff` to be loaded: it is a dependency of this package
-precisely so that choosing it here cannot fail at run time.
+Automatic differentiation backend used to build every `OptimizationFunction`: `AutoForwardDiff()`.
 """
 default_adtype() = AutoForwardDiff()
 
@@ -48,11 +44,9 @@ default_ensemble() = EnsembleSerial()
 """
     solve_unconstrained(objective, u0, p; solver, adtype, solve_kwargs, return_sol) -> minimizer
 
-Minimize `objective(u, p)` from the starting point `u0`, and return the minimizer. An
-unsuccessful solver return code warns instead of throwing.
-
-`return_sol = true` returns the whole solution instead, which is what the fits that report a
-return code in their [`SeasonalFit`](@ref) need.
+Minimize `objective(u, p)` from the starting point `u0` and return the minimizer, or the whole
+solution with `return_sol = true`. An unsuccessful solver return code warns instead of
+throwing.
 """
 function solve_unconstrained(objective, u0, p;
     solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;), return_sol=false)

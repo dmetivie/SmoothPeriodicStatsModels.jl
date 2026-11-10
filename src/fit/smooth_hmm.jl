@@ -6,19 +6,110 @@
 # marginals, the convergence test and the multi-sequence bookkeeping all come from there.
 
 """
+    fit_mle(m, Ys, Y_pasts; n2t, kwargs...) -> (m, history)
+
+Fit a smooth periodic HMM ([`SmoothARPeriodicHMM`](@ref), [`SmoothsARPeriodicHMM`](@ref) or
+[`SmoothARPeriodicHMMSpatial`](@ref)) to several independent sequences: `Ys[i]` is the `D × Nᵢ`
+sequence `i`, `Y_pasts[i]` its initial observations and `n2t[i]` its period indices, by default
+`n_to_t(Nᵢ, T)`. Every sequence starts from the initial distribution, which is fitted to the
+first step of all of them. Same keywords and return as the single-sequence fit.
+"""
+function fit_mle(m::_SmoothHMM, Ys::AbstractVector{<:AbstractMatrix{<:Bool}},
+    Y_pasts::AbstractVector; n2t=[n_to_t(size(Y, 2), m.nT) for Y in Ys], kwargs...)
+    return _fit_mle(m, _sequences(Ys, Y_pasts, n2t)...; kwargs...)
+end
+
+# The Baum-Welch loop of the two Bernoulli models; the spatial one has its own, below.
+_snapshot(m::SmoothARPeriodicHMM) = _plain(m.ps)
+_snapshot(m::SmoothsARPeriodicHMM) = (A=copy(m.θᴬ), B=deepcopy(m.θᴮ))
+
+# The fitted model without its fitting context, which holds the index sets of the data it was
+# fitted to and is no part of the model.
+_detach(m::SmoothARPeriodicHMM) =
+    SmoothARPeriodicHMM(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, nothing)
+_detach(m::SmoothsARPeriodicHMM) =
+    SmoothsARPeriodicHMM(m.θᴬ, m.θᴮ, m.stored, m.nT, m.basis_A, m.basis_B, nothing)
+_detach(m::SmoothARPeriodicHMMSpatial) =
+    SmoothARPeriodicHMMSpatial(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, m.basis_R, nothing)
+
+function _baum_welch!(fitted, Y, lag_cat, n2t, seq_ends; maxiter, tol, display, robust, ps_iters)
+    controls = SeasonalControls(n2t, lag_cat)
+    obs = [view(Y, :, n) for n in axes(Y, 2)]
+
+    # `baum_welch!` rather than `baum_welch`: the latter `deepcopy`s the guess, which would
+    # duplicate the observation index sets the context holds.
+    storage = HMMs.initialize_forward_backward(fitted, obs, controls; seq_ends)
+    logtots = Float64[]
+    trajectory = ps_iters ? [_snapshot(fitted)] : nothing
+
+    # The E-step is run once up front and then once after every M-step, so that `logtots[k]` is
+    # the loglikelihood the parameters *after* `k` M-steps attain — which makes
+    # `logtots[end] == loglikelihood(fitted, …)`, the invariant the seasonal mixture's history
+    # also has. `HiddenMarkovModels`' own loop pushes before fitting instead, so its last entry
+    # describes the previous parameters; the number of forward passes is the same either way.
+    HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends)
+    logtot = sum(storage.logL)
+    (display == :iter) && println("Iteration 0: logtot = $logtot")
+    for it = 1:maxiter
+        StatsAPI.fit!(fitted, storage, obs, controls; seq_ends)
+        robust && (fitted.stored.A .+= eps())
+        ps_iters && push!(trajectory, _snapshot(fitted))
+
+        HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends)
+        push!(logtots, sum(storage.logL))
+        (display == :iter) && println("Iteration $it: logtot = $(round(logtots[end], digits=6))")
+
+        if abs(logtots[end] - logtot) < tol
+            (display in [:iter, :final]) &&
+                println("EM converged in $it iterations, logtot = $(logtots[end])")
+            return _detach(fitted), FitHistory(; converged=true, iterations=it, logtots, ps_iters=trajectory)
+        end
+        logtot = logtots[end]
+    end
+    (display in [:iter, :final]) &&
+        println("EM has not converged after $maxiter iterations, logtot = $(isempty(logtots) ? NaN : logtots[end])")
+    return _detach(fitted), FitHistory(; converged=false, iterations=maxiter, logtots, ps_iters=trajectory)
+end
+
+# The initial distribution: each sequence contributes its first state marginal.
+function _update_initialization!(m, γ, seq_ends)
+    init = m.stored.a
+    fill!(init, 0)
+    for k in eachindex(seq_ends)
+        t1, _ = HMMs.seq_limits(seq_ends, k)
+        init .+= view(γ, :, t1)
+    end
+    init ./= sum(init)
+    return m
+end
+
+# `ξ[n]` is the marginal of the step `n -> n+1`, which `forward_backward!` builds with
+# `transition_matrix(hmm, control_seq[n + 1])`. That control carries `n2t[n]`, the period the
+# step leaves, and the accessor reads `A(n2t[n])`, so the grouping is by `n2t[n]` — the grouping
+# this package has always used, whatever the next period index is. (A model indexed by the
+# period a step *arrives* at would group by `n2t[n + 1]` instead; that mismatch is the
+# off-by-one that was fixed in PeriodicHiddenMarkovModels 0.3.2.) The last step of each
+# sequence has no successor and its `ξ` is zero.
+function _transition_counts(ξ, n_in_t, K, T)
+    s_ξ = zeros(T, K, K)
+    for t = 1:T, n in n_in_t[t]
+        @views s_ξ[t, :, :] .+= ξ[n]
+    end
+    return s_ξ
+end
+
+"""
     SmoothHMMContext(n_in_t, n_all, basis_A, basis_B, solver, adtype, ensemble, solve_kwargs)
 
-Everything the M-step needs that is neither a parameter nor supplied by the Baum-Welch loop:
-the observation index sets, which depend on the data, and the solver settings.
-
-Built once by [`fit_mle`](@ref) and carried in the model's `cfg` field, because
-`StatsAPI.fit!`'s signature is fixed by `HiddenMarkovModels` and has nowhere else to put them.
+What the M-step of a smooth periodic HMM needs besides the posteriors: the observation index
+sets of the data, the design matrices of the bases, and the solver settings. [`fit_mle`](@ref)
+builds it and stores it in the model's `cfg` field.
 """
-struct SmoothHMMContext{I,A,AD,E,S}
+struct SmoothHMMContext{I,A,XB,AD,E,S}
     n_in_t::Vector{Vector{Int}}
     n_all::I
     basis_A::A       # `nothing` when K == 1: a one-state chain has no transition to fit
-    basis_B::Matrix{Float64}
+    basis_B::XB
     solver::S
     adtype::AD
     ensemble::E
@@ -29,7 +120,6 @@ function SmoothHMMContext(m::SmoothARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer};
     solver, adtype, ensemble, solve_kwargs)
     K, D, T, size_order = size(m.stored)
-    dA, dB = degrees(m)
     rain_cat = 2 # dry or wet
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
@@ -38,21 +128,16 @@ function SmoothHMMContext(m::SmoothARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     n_all = [n_per_category(tup..., n_in_t, n_occurence_history)
              for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
 
-    return SmoothHMMContext(n_in_t, n_all, K ≥ 2 ? trig_basis(T, dA) : nothing,
-        trig_basis(T, dB), solver, adtype, ensemble, solve_kwargs)
+    return SmoothHMMContext(n_in_t, n_all, K ≥ 2 ? design_matrix(m.basis_A, 1:T) : nothing,
+        design_matrix(m.basis_B, 1:T), solver, adtype, ensemble, solve_kwargs)
 end
 
 """
     fit!(m::SmoothARPeriodicHMM, fb_storage, obs_seq, control_seq; seq_ends)
 
-One M-step: refit the initial distribution, the transition coefficients and the emission
-coefficients from the posteriors `HiddenMarkovModels` has just computed, then re-evaluate the
-model's `A` and `B` from them.
-
-The posteriors arrive in that library's layout — `γ` is `states × time` and `ξ[n]` is the
-`K × K` marginal of the step `n -> n+1` — so the two aggregations below transpose and regroup
-before handing them to the kernels, which are unchanged from the hand-rolled loop this
-replaces.
+One M-step, as `HiddenMarkovModels.baum_welch` calls it: refit the initial distribution, the
+transition coefficients and the emission coefficients from the posteriors in `fb_storage`, then
+re-evaluate the model's `A` and `B`.
 """
 function StatsAPI.fit!(m::SmoothARPeriodicHMM, fb_storage::HMMs.ForwardBackwardStorage,
     obs_seq::AbstractVector, control_seq::AbstractVector; seq_ends)
@@ -63,36 +148,9 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMM, fb_storage::HMMs.ForwardBackwardS
     K, T = size(m.stored.A, 1), m.nT
     D, size_order = size(m.ps.B, 2), size(m.ps.B, 3)
 
-    # ## The initial distribution
-    #
-    # One sequence contributes its first state marginal; several contribute one each.
-    init = m.stored.a
-    fill!(init, 0)
-    for k in eachindex(seq_ends)
-        t1, _ = HMMs.seq_limits(seq_ends, k)
-        init .+= view(γ, :, t1)
-    end
-    init ./= sum(init)
+    _update_initialization!(m, γ, seq_ends)
+    cfg.basis_A !== nothing && _update_transitions!(m, _transition_counts(ξ, cfg.n_in_t, K, T), cfg)
 
-    # ## The transitions
-    #
-    # `ξ[n]` is the marginal of the step `n -> n+1`, which `forward_backward!` builds with
-    # `transition_matrix(hmm, control_seq[n + 1])`. Our accessor reads that as `A(n2t[n])`, so
-    # `ξ[n]` belongs to the period the step *leaves* and the grouping is by `n2t[n]` — the
-    # grouping this package has always used. (A model that did not shift its accessor would
-    # have to group by `n2t[n + 1]` instead; that mismatch is the off-by-one that was fixed in
-    # PeriodicHiddenMarkovModels 0.3.2.)
-    if cfg.basis_A !== nothing
-        s_ξ = zeros(T, K, K)
-        for t = 1:T, n in cfg.n_in_t[t]
-            n == length(ξ) && continue    # the last step has no successor; `ξ[end]` is zero
-            @views s_ξ[t, :, :] .+= ξ[n]
-        end
-        _update_transitions!(m, s_ξ, cfg)
-    end
-
-    # ## The emissions
-    #
     # `γₛ!` wants `γ[n, k]`; the storage is `γ[k, n]`. A transpose is a lazy view, so this is
     # a relabelling rather than a copy.
     γₛ = zeros(K, D, size_order, T, 2)
@@ -102,10 +160,10 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMM, fb_storage::HMMs.ForwardBackwardS
     return _refresh!(m)
 end
 
-# The transition M-step: one independent multinomial-logit problem per state. Shared by both
-# Bernoulli models — the transition parametrization is the same whether or not the sites differ
-# in memory order; only where `θᴬ` lives differs, which `_theta_A` answers.
-function _update_transitions!(m::Union{SmoothARPeriodicHMM,SmoothsARPeriodicHMM,SmoothARPeriodicHMMSpatial}, s_ξ, cfg)
+# The transition M-step: one independent multinomial-logit problem per state. Shared by the
+# three models — the transition parametrization is the same whatever the emission; only where
+# `θᴬ` lives differs, which `_theta_A` answers.
+function _update_transitions!(m::_SmoothHMM, s_ξ, cfg)
     K = size(m.stored.A, 1)
     θᴬ = _theta_A(m)
     transition_data(k) = (view(s_ξ, :, k, :), cfg.basis_A, K)
@@ -146,78 +204,30 @@ end
 
 Fit a smooth periodic autoregressive HMM by Baum-Welch, starting from `m`.
 
-`Y` is `D × N` (sites first, the `Distributions.jl` convention) and `Y_past` the `D × order`
-initial condition. Returns a model of the same shape and a [`FitHistory`](@ref);
-`ARPeriodicHMM(m)` is the evaluated twin to simulate from, `parameters(m).B` the emission
-coefficients.
+`Y` is `D × N` and `Y_past` the `D × order` initial observations, those before `Y` in time
+order, so that `[Y_past Y]` is the series; `rand(m, n2t; Y_past)` draws a `Y` that follows it.
+Returns the fitted model and a [`FitHistory`](@ref). For several independent sequences, pass
+vectors of them.
 
-The loop is `HiddenMarkovModels.baum_welch!`; this package supplies only the M-step. Its
-keywords are accepted here: `maxiter` (`max_iterations`), `tol` (`atol`), and the solver
-settings every fit in this package takes — pass `ensemble = EnsembleThreads()` to run the
-independent emission problems in parallel. `ps_iters = true` keeps the coefficient trajectory
-in `history.ps_iters`, which is what `θ_iters` used to return beside the model.
+Keywords: `maxiter`, `tol` (absolute change of the loglikelihood), the solver settings `solver`,
+`adtype`, `ensemble` and `solve_kwargs` of the M-step (`ensemble = EnsembleThreads()` solves
+the emission problems in parallel), and `ps_iters = true` to keep the coefficients of every
+iteration in `history.ps_iters`.
 """
 function fit_mle(m::SmoothARPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
-    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
+    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+end
+
+function _fit_mle(m::SmoothARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
     maxiter=100, tol=1e-3, display=:none, robust=false, ps_iters=false,
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(),
     solve_kwargs=(;))
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
-
-    N = size(Y, 2)
-    lag_cat = conditional_to(Y, Y_past)
-    controls = SeasonalControls(n2t, lag_cat)
-    obs = [view(Y, :, n) for n = 1:N]
-
     cfg = SmoothHMMContext(m, Y, lag_cat, n2t; solver, adtype, ensemble, solve_kwargs)
-    fitted = SmoothARPeriodicHMM(copy(m.ps), copy(m.stored), m.nT, cfg)
-
-    # `baum_welch!` rather than `baum_welch`: the latter `deepcopy`s the guess, which would
-    # duplicate the observation index sets the context holds.
-    storage = HMMs.initialize_forward_backward(fitted, obs, controls; seq_ends=(N,))
-    logtots = Float64[]
-    trajectory = ps_iters ? [copy(fitted.ps)] : nothing
-
-    # The E-step is run once up front and then once after every M-step, so that `logtots[k]` is
-    # the loglikelihood the parameters *after* `k` M-steps attain — which makes
-    # `logtots[end] == loglikelihood(fitted, …)`, the invariant the seasonal mixture's history
-    # also has. `HiddenMarkovModels`' own loop pushes before fitting instead, so its last entry
-    # describes the previous parameters; the number of forward passes is the same either way.
-    HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends=(N,))
-    logtot = sum(storage.logL)
-    (display == :iter) && println("Iteration 0: logtot = $logtot")
-    for it = 1:maxiter
-        StatsAPI.fit!(fitted, storage, obs, controls; seq_ends=(N,))
-        robust && (fitted.stored.A .+= eps())
-        ps_iters && push!(trajectory, copy(fitted.ps))
-
-        HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends=(N,))
-        push!(logtots, sum(storage.logL))
-        (display == :iter) && println("Iteration $it: logtot = $(round(logtots[end], digits=6))")
-
-        if abs(logtots[end] - logtot) < tol
-            (display in [:iter, :final]) &&
-                println("EM converged in $it iterations, logtot = $(logtots[end])")
-            return fitted, FitHistory(; converged=true, iterations=it, logtots, ps_iters=trajectory)
-        end
-        logtot = logtots[end]
-    end
-    (display in [:iter, :final]) &&
-        println("EM has not converged after $maxiter iterations, logtot = $(isempty(logtots) ? NaN : logtots[end])")
-    return fitted, FitHistory(; converged=false, iterations=maxiter, logtots, ps_iters=trajectory)
-end
-
-"""
-    loglikelihood(m::SmoothARPeriodicHMM, Y, Y_past; n2t) -> Float64
-
-The marginal loglikelihood of `Y` under `m`, from `HiddenMarkovModels`' forward pass.
-"""
-function StatsAPI.loglikelihood(m::SmoothARPeriodicHMM, Y::AbstractArray{<:Bool},
-    Y_past::AbstractArray{<:Bool}; n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer})
-    N = size(Y, 2)
-    controls = SeasonalControls(n2t, conditional_to(Y, Y_past))
-    return HMMs.logdensityof(m, [view(Y, :, n) for n = 1:N], controls; seq_ends=(N,))
+    fitted = SmoothARPeriodicHMM(copy(m.ps), copy(m.stored), m.nT, m.basis_A, m.basis_B, cfg)
+    return _baum_welch!(fitted, Y, lag_cat, n2t, seq_ends; maxiter, tol, display, robust, ps_iters)
 end
 
 # # The site-dependent variant
@@ -227,11 +237,17 @@ end
 # the emission bookkeeping differs, because each site has its own memory order and its own
 # number of coefficient blocks.
 
-struct SmoothsHMMContext{I,A,AD,E,S}
+"""
+    SmoothsHMMContext
+
+What the M-step of a `SmoothsARPeriodicHMM` needs besides the posteriors, as
+[`SmoothHMMContext`](@ref) for the dense model.
+"""
+struct SmoothsHMMContext{I,A,XB,AD,E,S}
     n_in_t::Vector{Vector{Int}}
     n_all::I
     basis_A::A
-    basis_B::Matrix{Float64}
+    basis_B::XB
     γₛ::Vector{Array{Float64,4}}
     solver::S
     adtype::AD
@@ -243,8 +259,6 @@ function SmoothsHMMContext(m::SmoothsARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer};
     solver, adtype, ensemble, solve_kwargs)
     K, D, T, size_orders = size(m.stored)
-    dA = (size(m.θᴬ, 3) - 1) ÷ 2
-    dB = (length(m.θᴮ[1, 1][1]) - 1) ÷ 2
     rain_cat = 2
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
@@ -253,17 +267,15 @@ function SmoothsHMMContext(m::SmoothsARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     n_all = [[n_per_category(tup..., n_in_t, n_occurence_history[j])
               for tup in Iterators.product(1:size_orders[j], 1:T, 1:rain_cat)] for j = 1:D]
 
-    return SmoothsHMMContext(n_in_t, n_all, K ≥ 2 ? trig_basis(T, dA) : nothing,
-        trig_basis(T, dB), [zeros(K, size_orders[j], T, rain_cat) for j = 1:D],
+    return SmoothsHMMContext(n_in_t, n_all, K ≥ 2 ? design_matrix(m.basis_A, 1:T) : nothing,
+        design_matrix(m.basis_B, 1:T), [zeros(K, size_orders[j], T, rain_cat) for j = 1:D],
         solver, adtype, ensemble, solve_kwargs)
 end
 
 """
     fit!(m::SmoothsARPeriodicHMM, fb_storage, obs_seq, control_seq; seq_ends)
 
-One M-step of the site-dependent model. Identical in structure to the dense one: the
-transition aggregation groups `ξ[n]` by the period the step *leaves*, and the emission
-aggregation transposes `γ` into the `(observation, state)` layout the kernels read.
+One M-step of the site-dependent model, as for `SmoothARPeriodicHMM`.
 """
 function StatsAPI.fit!(m::SmoothsARPeriodicHMM, fb_storage::HMMs.ForwardBackwardStorage,
     obs_seq::AbstractVector, control_seq::AbstractVector; seq_ends)
@@ -273,22 +285,8 @@ function StatsAPI.fit!(m::SmoothsARPeriodicHMM, fb_storage::HMMs.ForwardBackward
     (; γ, ξ) = fb_storage
     K, T = size(m.stored.A, 1), m.nT
 
-    init = m.stored.a
-    fill!(init, 0)
-    for k in eachindex(seq_ends)
-        t1, _ = HMMs.seq_limits(seq_ends, k)
-        init .+= view(γ, :, t1)
-    end
-    init ./= sum(init)
-
-    if cfg.basis_A !== nothing
-        s_ξ = zeros(T, K, K)
-        for t = 1:T, n in cfg.n_in_t[t]
-            n == length(ξ) && continue
-            @views s_ξ[t, :, :] .+= ξ[n]
-        end
-        _update_transitions!(m, s_ξ, cfg)
-    end
+    _update_initialization!(m, γ, seq_ends)
+    cfg.basis_A !== nothing && _update_transitions!(m, _transition_counts(ξ, cfg.n_in_t, K, T), cfg)
 
     γₛ!(cfg.γₛ, transpose(γ), cfg.n_all)
     _update_emissions_sites!(m, cfg)
@@ -296,8 +294,6 @@ function StatsAPI.fit!(m::SmoothsARPeriodicHMM, fb_storage::HMMs.ForwardBackward
     return _refresh!(m)
 end
 
-# `_update_transitions!` is shared with the dense model through the `θᴬ` accessor below, since
-# the transition parametrization is the same in both.
 _theta_A(m::SmoothARPeriodicHMM) = m.ps.A
 _theta_A(m::SmoothsARPeriodicHMM) = m.θᴬ
 
@@ -324,64 +320,25 @@ end
     fit_mle(m::SmoothsARPeriodicHMM, Y, Y_past; n2t, kwargs...) -> (m, history)
 
 Fit a site-dependent periodic autoregressive HMM by Baum-Welch. `Y_past[j]` is site `j`'s own
-initial condition, of length equal to its order. Same keywords and same `(model, history)`
+initial condition, its values before `Y[j, :]` in time order, as many as its order. Same
+keywords and same `(model, history)`
 return as the dense [`fit_mle`](@ref).
 """
 function fit_mle(m::SmoothsARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector;
-    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
+    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+end
+
+function _fit_mle(m::SmoothsARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
     maxiter=100, tol=1e-3, display=:none, robust=false, ps_iters=false,
     solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(),
     solve_kwargs=(;))
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
-    @argcheck 2 .^ length.(Y_past) == size(m.stored, 4) "the initial condition's orders $(length.(Y_past)) do not match the model's $(Int.(log2.(size(m.stored, 4))))"
-
-    N = size(Y, 2)
-    lag_cat = conditional_to(Y, Y_past)
-    controls = SeasonalControls(n2t, lag_cat)
-    obs = [view(Y, :, n) for n = 1:N]
-
     cfg = SmoothsHMMContext(m, Y, lag_cat, n2t; solver, adtype, ensemble, solve_kwargs)
-    fitted = SmoothsARPeriodicHMM(copy(m.θᴬ), deepcopy(m.θᴮ), copy(m.stored), m.nT, cfg)
-
-    storage = HMMs.initialize_forward_backward(fitted, obs, controls; seq_ends=(N,))
-    logtots = Float64[]
-    trajectory = ps_iters ? [(A=copy(fitted.θᴬ), B=deepcopy(fitted.θᴮ))] : nothing
-
-    HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends=(N,))
-    logtot = sum(storage.logL)
-    (display == :iter) && println("Iteration 0: logtot = $logtot")
-    for it = 1:maxiter
-        StatsAPI.fit!(fitted, storage, obs, controls; seq_ends=(N,))
-        robust && (fitted.stored.A .+= eps())
-        ps_iters && push!(trajectory, (A=copy(fitted.θᴬ), B=deepcopy(fitted.θᴮ)))
-
-        HMMs.forward_backward!(storage, fitted, obs, controls; seq_ends=(N,))
-        push!(logtots, sum(storage.logL))
-        (display == :iter) && println("Iteration $it: logtot = $(round(logtots[end], digits=6))")
-
-        if abs(logtots[end] - logtot) < tol
-            (display in [:iter, :final]) &&
-                println("EM converged in $it iterations, logtot = $(logtots[end])")
-            return fitted, FitHistory(; converged=true, iterations=it, logtots, ps_iters=trajectory)
-        end
-        logtot = logtots[end]
-    end
-    (display in [:iter, :final]) &&
-        println("EM has not converged after $maxiter iterations, logtot = $(isempty(logtots) ? NaN : logtots[end])")
-    return fitted, FitHistory(; converged=false, iterations=maxiter, logtots, ps_iters=trajectory)
-end
-
-"""
-    loglikelihood(m::SmoothsARPeriodicHMM, Y, Y_past; n2t) -> Float64
-
-The marginal loglikelihood of `Y` under `m`, from `HiddenMarkovModels`' forward pass.
-"""
-function StatsAPI.loglikelihood(m::SmoothsARPeriodicHMM, Y::AbstractMatrix{<:Bool},
-    Y_past::AbstractVector; n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer})
-    N = size(Y, 2)
-    controls = SeasonalControls(n2t, conditional_to(Y, Y_past))
-    return HMMs.logdensityof(m, [view(Y, :, n) for n = 1:N], controls; seq_ends=(N,))
+    fitted = SmoothsARPeriodicHMM(copy(m.θᴬ), deepcopy(m.θᴮ), copy(m.stored), m.nT,
+        m.basis_A, m.basis_B, cfg)
+    return _baum_welch!(fitted, Y, lag_cat, n2t, seq_ends; maxiter, tol, display, robust, ps_iters)
 end
 
 # # The spatial variant
@@ -399,12 +356,20 @@ end
 # disagree and the loglikelihood path is noisy. That is why `fit_mle` returns the best iterate
 # rather than the last.
 
-struct SpatialHMMContext{I,A,AD,E,S,W,X,YY}
+"""
+    SpatialHMMContext
+
+What the M-step of a `SmoothARPeriodicHMMSpatial` needs besides the posteriors: that of
+[`SmoothHMMContext`](@ref), plus the pairs of sites, their weights and the joint-outcome category
+of every pair and observation used by the range M-step.
+"""
+struct SpatialHMMContext{I,A,XB,XR,AD,E,S,W,X,YY}
     n_in_t::Vector{Vector{Int}}
     n_all::I
     Y::YY                   # the D x N observations; `update_R!` needs the matrix, not the views
     basis_A::A
-    basis_B::Matrix{Float64}
+    basis_B::XB
+    basis_R::XR
     situation_idx::X        # N x D x D, the pair-situation of every observation
     wp::W                   # D x D pair weights of the composite likelihood
     QMC_E::Int
@@ -419,7 +384,6 @@ function SpatialHMMContext(m::SmoothARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bo
     lag_cat::AbstractMatrix{<:Integer}, n2t::AbstractVector{<:Integer};
     wp, QMC_E, maxiters_R, solver, adtype, ensemble, solve_kwargs)
     K, D, T, size_order = size(m.stored)
-    dA, dB, _ = degrees(m)
     rain_cat = 2
 
     n_in_t = [findall(n2t .== t) for t = 1:T]
@@ -438,17 +402,16 @@ function SpatialHMMContext(m::SmoothARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bo
             (size_order - lag_cat[i, n]) * size_order * 4 + (size_order - lag_cat[j, n]) * 4 + cur
     end
 
-    return SpatialHMMContext(n_in_t, n_all, Y, K >= 2 ? trig_basis(T, dA) : nothing,
-        trig_basis(T, dB), situation_idx, wp, Int(QMC_E), Int(maxiters_R),
-        solver, adtype, ensemble, solve_kwargs)
+    return SpatialHMMContext(n_in_t, n_all, Y, K >= 2 ? design_matrix(m.basis_A, 1:T) : nothing,
+        design_matrix(m.basis_B, 1:T), design_matrix(m.basis_R, 1:T), situation_idx, wp,
+        Int(QMC_E), Int(maxiters_R), solver, adtype, ensemble, solve_kwargs)
 end
 
 """
     fit!(m::SmoothARPeriodicHMMSpatial, fb_storage, obs_seq, control_seq; seq_ends)
 
-One M-step: the shared transition and emission refits, then the spatial range through
-[`update_R!`](@ref), which maximises a *composite* (pairwise) likelihood rather than the full
-one — deterministic and `ForwardDiff`-differentiable, where the full emission is neither.
+One M-step of the spatial model: the transition and emission refits, then the spatial range
+through [`update_R!`](@ref), which maximizes a pairwise composite likelihood.
 """
 function StatsAPI.fit!(m::SmoothARPeriodicHMMSpatial, fb_storage::HMMs.ForwardBackwardStorage,
     obs_seq::AbstractVector, control_seq::AbstractVector; seq_ends)
@@ -459,22 +422,8 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMMSpatial, fb_storage::HMMs.ForwardBa
     K, T = size(m.stored.A, 1), m.nT
     D, size_order = size(m.ps.B, 2), size(m.ps.B, 3)
 
-    init = m.stored.a
-    fill!(init, 0)
-    for k in eachindex(seq_ends)
-        t1, _ = HMMs.seq_limits(seq_ends, k)
-        init .+= view(γ, :, t1)
-    end
-    init ./= sum(init)
-
-    if cfg.basis_A !== nothing
-        s_ξ = zeros(T, K, K)
-        for t = 1:T, n in cfg.n_in_t[t]
-            n == length(ξ) && continue
-            @views s_ξ[t, :, :] .+= ξ[n]
-        end
-        _update_transitions!(m, s_ξ, cfg)
-    end
+    _update_initialization!(m, γ, seq_ends)
+    cfg.basis_A !== nothing && _update_transitions!(m, _transition_counts(ξ, cfg.n_in_t, K, T), cfg)
 
     γₛ = zeros(K, D, size_order, T, 2)
     γₛ!(γₛ, transpose(γ), cfg.n_all)
@@ -484,7 +433,7 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMMSpatial, fb_storage::HMMs.ForwardBa
     # into the stored arrays before it runs.
     _refresh!(m)
     update_R!(m.stored, m.ps.R, permutedims(γ), cfg.wp, cfg.Y, cfg.situation_idx;
-        n2t=_controls_n2t(control_seq), solver=cfg.solver, adtype=cfg.adtype,
+        n2t=_controls_n2t(control_seq), basis=cfg.basis_R, solver=cfg.solver, adtype=cfg.adtype,
         maxiters=cfg.maxiters_R, solve_kwargs=cfg.solve_kwargs)
     return m
 end
@@ -497,19 +446,21 @@ _controls_n2t(c::SeasonalControls) = c.n2t
 
 Fit a spatial periodic HMM by Baum-Welch, starting from `m`.
 
-**Returns the best iterate, not the last.** The emission likelihood is a randomized
-quasi-Monte-Carlo estimate, so the loglikelihood path is noisy and the final step is not
-reliably the best one; `history.best_iteration` says which was taken, and `history.logtots` and
-`history.ps_iters` hold the whole path. Every other `fit_mle` in this package returns its last
-iterate, because every other likelihood here is deterministic.
+Returns the iterate with the highest loglikelihood, not the last one: the emission likelihood is
+a quasi-Monte-Carlo estimate, so the loglikelihood path is noisy. `history.best_iteration` says
+which iterate was returned; `history.logtots` and `history.ps_iters` hold the whole path.
 
-Keywords beyond the usual solver ones: `QMC_E` multiplies the model's `QMC_m` for the E-step
-only, `maxiters_R` caps the inner solve of the range M-step, and `tdist`/`wp` choose which pairs
-of sites enter the composite likelihood that M-step maximises.
+Keywords beyond those of the other HMM fits: `QMC_E` multiplies the model's `QMC_m` for the
+E-step, `maxiters_R` caps the solver iterations of the range M-step, and `tdist`/`wp` choose the
+pairs of sites in its composite likelihood.
 """
 function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
     Y_past::AbstractArray{<:Bool};
-    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer},
+    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
+    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+end
+
+function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
     maxiter=100, tol=1e-3, display=:none, robust=false, ps_iters=true,
     tdist=1, wp=1.0 .* (m.stored.h .< maximum(m.stored.h) * tdist),
     QMC_E=1, maxiters_R=10,
@@ -519,26 +470,26 @@ function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
     @argcheck maxiter >= 0
 
     N = size(Y, 2)
-    lag_cat = conditional_to(Y, Y_past)
     controls = SeasonalControls(n2t, lag_cat)
     obs = [view(Y, :, n) for n = 1:N]
 
     cfg = SpatialHMMContext(m, Y, lag_cat, n2t; wp, QMC_E, maxiters_R,
         solver, adtype, ensemble, solve_kwargs)
-    fitted = SmoothARPeriodicHMMSpatial(copy(m.ps), deepcopy(m.stored), m.nT, cfg)
+    fitted = SmoothARPeriodicHMMSpatial(copy(m.ps), deepcopy(m.stored), m.nT,
+        m.basis_A, m.basis_B, m.basis_R, cfg)
 
     K = size(fitted.stored.A, 1)
     cached = CachedEmissions(fitted, zeros(N, K))
-    storage = HMMs.initialize_forward_backward(cached, obs, controls; seq_ends=(N,))
+    storage = HMMs.initialize_forward_backward(cached, obs, controls; seq_ends)
     logtots = Float64[]
-    trajectory = ps_iters ? [copy(fitted.ps)] : nothing
+    trajectory = ps_iters ? [_plain(fitted.ps)] : nothing
 
     # The threaded batch evaluation, which is the whole reason `CachedEmissions` exists.
     function estep!()
         loglikelihoods!(cached.LL, fitted.stored, Y, lag_cat; n2t=n2t,
             QMC_m=fitted.stored.QMC_m * cfg.QMC_E)
         robust && replace!(cached.LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
-        HMMs.forward_backward!(storage, cached, obs, controls; seq_ends=(N,))
+        HMMs.forward_backward!(storage, cached, obs, controls; seq_ends)
         return sum(storage.logL)
     end
 
@@ -550,9 +501,9 @@ function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
 
     for it = 1:maxiter
         ps_before = copy(fitted.ps)
-        StatsAPI.fit!(fitted, storage, obs, controls; seq_ends=(N,))
+        StatsAPI.fit!(fitted, storage, obs, controls; seq_ends)
         robust && (fitted.stored.A .+= eps())
-        ps_iters && push!(trajectory, copy(fitted.ps))
+        ps_iters && push!(trajectory, _plain(fitted.ps))
 
         logtotp = estep!()
         push!(logtots, logtotp)
@@ -585,22 +536,25 @@ function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
     _refresh!(fitted)
     (display in [:iter, :final]) && !converged &&
         println("EM has not converged after $it_done iterations, logtot = $best_logtot")
-    return fitted, FitHistory(; converged, iterations=it_done, logtots, ps_iters=trajectory)
+    return _detach(fitted), FitHistory(; converged, iterations=it_done, logtots, ps_iters=trajectory)
 end
 
-"""
-    loglikelihood(m::SmoothARPeriodicHMMSpatial, Y, Y_past; n2t) -> Float64
+# # Model selection
 
-The marginal loglikelihood of `Y` under `m`. Stochastic: the emission is a quasi-Monte-Carlo
-estimate, so repeated calls differ. Raise the model's `QMC_m` to tighten it.
 """
-function StatsAPI.loglikelihood(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
-    Y_past::AbstractArray{<:Bool}; n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer})
-    N, K = size(Y, 2), size(m.stored.A, 1)
-    lag_cat = conditional_to(Y, Y_past)
-    controls = SeasonalControls(n2t, lag_cat)
-    obs = [view(Y, :, n) for n = 1:N]
-    cached = CachedEmissions(m, zeros(N, K))
-    loglikelihoods!(cached.LL, m.stored, Y, lag_cat; n2t=n2t)
-    return HMMs.logdensityof(cached, obs, controls; seq_ends=(N,))
+    fit(SeasonalFit, m, Y, Y_past; n2t, kwargs...) -> SeasonalFit
+    fit(SeasonalFit, m, Ys, Y_pasts; n2t, kwargs...) -> SeasonalFit
+
+Fit a smooth periodic HMM with [`fit_mle`](@ref), same keywords, and return a
+[`SeasonalFit`](@ref), whose `bic` compares numbers of states, degrees or memory orders. `nobs`
+is the number of observed steps, summed over the sequences.
+"""
+function StatsAPI.fit(::Type{SeasonalFit}, m::_SmoothHMM, Y, Y_past; kwargs...)
+    fitted, history = fit_mle(m, Y, Y_past; kwargs...)
+    # the spatial fit returns its best iterate, not its last
+    ll = isempty(history.logtots) ? -Inf : history.logtots[history.best_iteration]
+    return SeasonalFit(fitted, history, _nsteps(Y), ll)
 end
+
+_nsteps(Y::AbstractMatrix) = size(Y, 2)
+_nsteps(Ys::AbstractVector{<:AbstractMatrix}) = sum(Y -> size(Y, 2), Ys)

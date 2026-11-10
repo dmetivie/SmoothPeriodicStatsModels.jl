@@ -22,7 +22,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMa
 
     for t = 1:T
         n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle.(t .+ Yₜ_extanted, T)]...)) # extend dataset
-        hist[t] = fit_mle_B_slice!(rng, @view(α[:, t]), hmm.B[:, t, :], Y[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
+        hist[t] = fit_mle_B_slice!(rng, @view(α[:, t]), @view(hmm.B[:, t, :]), Y[:, n_in_t_extanded], lag_cat[:, n_in_t_extanded]; kwargs...)
     end
 
     LL = zeros(N, K)
@@ -137,7 +137,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
             for j = 1:D
                 for m = 1:size_order[j]
                     if sum(γ[idx_j[j][m], k]) > 0
-                        B[k, j][m] = fit_mle(Bernoulli, Y[idx_j[j][m], j], γ[idx_j[j][m], k])
+                        B[k, j][m] = fit_mle(Bernoulli, Y[j, idx_j[j][m]], γ[idx_j[j][m], k])
                     else
                         B[k, j][m] = Bernoulli(1 / 2)
                     end

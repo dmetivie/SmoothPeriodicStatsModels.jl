@@ -1,0 +1,325 @@
+```@meta
+EditURL = "../../../examples/tuto_hmm.jl"
+```
+
+````@example 3-tuto_hmm
+using Markdown#hide
+````
+
+# [Periodic hidden Markov model](@id TutoHMM)
+
+``D`` binary series driven by ``K`` hidden regimes. At step ``n``, the regime ``z_n`` follows a
+Markov chain whose transition probabilities depend on the position ``t_n \in 1{:}T`` in a cycle.
+Given the regime, the series are independent, and series ``j`` is a success with a probability
+that depends on the regime, on ``t_n``, and on its own previous value (memory of order 1):
+
+```math
+\mathbb{P}(z_{n+1} = l \mid z_n = k) = A_{kl}(t_n), \qquad
+\mathbb{P}(y_{j,n} = 1 \mid z_n = k,\ y_{j,n-1} = y) = p_{kjy}(t_n).
+```
+
+Both ``A`` and ``p`` are trigonometric polynomials of ``t``, through a softmax and a logistic.
+
+As a toy example, take the on/off status of four devices over a cycle of 50 steps, in an *active*
+and a *quiet* regime. Later sections find a starting point from the data, give each series its
+own memory, and, [last](@ref TutoHMMSpatial), let the series be correlated in space.
+
+````@example 3-tuto_hmm
+using SmoothPeriodicStatsModels
+using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff # loads the fitting routines
+import HiddenMarkovModels as HMMs
+using Distributions, Random, Statistics
+using LinearAlgebra: norm
+using CairoMakie
+````
+
+## A model with known coefficients
+
+`SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)` takes the initial distribution `a` and the coefficients of
+degree `d`:
+
+- `θᴬ[k, l, :]`, `K × (K-1) × (2d+1)`: the transition from `k` to `l`, state `K` being the
+  reference of the softmax. With two states, `A[k, 1](t) = logistic(P(t))`.
+- `θᴮ[k, j, h, :]`, `K × D × 2^order × (2d+1)`: the success probability of series `j` in state
+  `k`, given its memory category `h` (`h = 1` after a 0, `h = 2` after a 1).
+
+````@example 3-tuto_hmm
+K, D, T, order, d = 2, 4, 50, 1, 1
+
+θᴬ = zeros(K, K - 1, 2d + 1)
+θᴬ[1, 1, :] = [2.5, 1.0, 0.0]    # active → active: likely, more so early in the cycle
+θᴬ[2, 1, :] = [-2.5, 0.0, 1.0]   # quiet → active: rare
+
+θᴮ = zeros(K, D, 2^order, 2d + 1)
+for j in 1:D
+    θᴮ[1, j, 1, :] = [0.2j, 0.8, 0.0]      # active, after a 0
+    θᴮ[1, j, 2, :] = [1.0 + 0.2j, 0.8, 0.0] # active, after a 1
+    θᴮ[2, j, 1, :] = [-2.0, 0.0, 0.5]      # quiet, after a 0
+    θᴮ[2, j, 2, :] = [-0.5, 0.0, 0.5]      # quiet, after a 1
+end
+
+truth = SmoothARPeriodicHMM([0.5, 0.5], θᴬ, θᴮ, T)
+````
+
+## Simulate
+
+`rand(m, n2t; Y_past, z_ini, seq = true)` returns the state path `z` and the `D × N` observations
+`Y`. `Y_past` is the initial condition, the `order` observations before `Y` (zeros by default),
+and it is also what likelihoods and fits take with `Y`.
+
+````@example 3-tuto_hmm
+Random.seed!(3)
+N = 10_000
+n2t = n_to_t(N, T)
+Y_past = zeros(Bool, D, order)
+z, Y = rand(truth, n2t; Y_past, z_ini=1, seq=true)
+
+fig = Figure(size=(900, 220))
+ax = Axis(fig[1, 1], xlabel="step", yticks=(1:D+1, [string.("device ", 1:D); "active regime"]))
+heatmap!(ax, 1:300, 1:D+1, permutedims([Y[:, 1:300]; permutedims(z[1:300] .== 1)]),
+    colormap=[:white, :black])
+fig
+````
+
+## Fit
+
+`fit_mle(m, Y, Y_past; n2t)` runs the Baum–Welch algorithm from the coefficients of `m`. Here
+the start knows which state is the active one but nothing of the cycle: all harmonics are zero.
+
+````@example 3-tuto_hmm
+θᴬ₀ = zeros(K, K - 1, 2d + 1)
+θᴬ₀[:, 1, 1] = [1.0, -1.0]
+θᴮ₀ = zeros(K, D, 2^order, 2d + 1)
+θᴮ₀[1, :, :, 1] .= 0.5
+θᴮ₀[2, :, :, 1] .= -1.0
+m0 = SmoothARPeriodicHMM([0.5, 0.5], θᴬ₀, θᴮ₀, T)
+
+m, history = fit_mle(m0, Y, Y_past; n2t, maxiter=200)
+history
+````
+
+`parameters(m).A` and `parameters(m).B` are the fitted coefficients, in the layout of `θᴬ` and
+`θᴮ` above. The transitions, against the truth:
+
+````@example 3-tuto_hmm
+(fit=round.(parameters(m).A[:, 1, :]; digits=2), truth=θᴬ[:, 1, :])
+````
+
+`ARPeriodicHMM(m)` evaluates them: the transition matrices `A[:, :, t]` and the emission laws
+`B[k, t, j, h]` over the cycle.
+
+````@example 3-tuto_hmm
+function plot_probabilities(models, labels)
+    fig = Figure(size=(900, 280))
+    ax1 = Axis(fig[1, 1], title="transition probabilities", xlabel="t")
+    ax2 = Axis(fig[1, 2], title="device 1, after a 0", xlabel="t")
+    for (m, label, style) in zip(models, labels, (:solid, :dash))
+        hmm = ARPeriodicHMM(m)
+        lines!(ax1, 1:T, hmm.A[1, 1, :]; label="active → active, " * label, linestyle=style)
+        lines!(ax1, 1:T, hmm.A[2, 1, :]; label="quiet → active, " * label, linestyle=style)
+        lines!(ax2, 1:T, [succprob(hmm.B[1, t, 1, 1]) for t in 1:T]; label="active, " * label, linestyle=style)
+        lines!(ax2, 1:T, [succprob(hmm.B[2, t, 1, 1]) for t in 1:T]; label="quiet, " * label, linestyle=style)
+    end
+    Legend(fig[2, 1], ax1, orientation=:horizontal, nbanks=2)
+    Legend(fig[2, 2], ax2, orientation=:horizontal, nbanks=2)
+    return fig
+end
+
+plot_probabilities([truth, m], ["truth", "fit"])
+````
+
+## Decode
+
+`viterbi(m, Y, Y_past; n2t)` is the most likely state path.
+
+````@example 3-tuto_hmm
+ẑ = viterbi(m, Y, Y_past; n2t)
+mean(ẑ .== z)
+````
+
+## [A starting point from the data](@id TutoHMMStart)
+
+The fit above started from a guess that knew which state was the active one. Without such
+knowledge, the slice method builds a start from the data. At each position `t` it fits a
+mixture of `K` product-Bernoulli laws to the observations at the positions `t - 2` to `t + 2`,
+ignoring the dynamics, and takes the transition probabilities from the most likely state of each
+observation. The states are sorted at each `t`, state 1 being the one where device 1 is most
+often on. [`fit_θ`](@ref) then fits smooth coefficients to those `T` estimates.
+
+````@example 3-tuto_hmm
+hmm_slice = fit_mle_all_slices(randARPeriodicHMM(K, T, D, order), Y, Y_past; n2t, Yₜ_extanted=-2:2)
+θᴬ_slice, θᴮ_slice = fit_θ(hmm_slice, d)
+m_slice = SmoothARPeriodicHMM(hmm_slice.a, θᴬ_slice, θᴮ_slice, T)
+````
+
+The dots are the estimates at each position, the lines the smooth start, and the dashed lines
+the truth:
+
+````@example 3-tuto_hmm
+begin
+    fig = Figure(size=(700, 260))
+    ax = Axis(fig[1, 1], title="device 1, after a 0", xlabel="t", limits=(nothing, (0, 1)))
+    for (k, color) in zip(1:K, (:firebrick, :steelblue))
+        scatter!(ax, 1:T, succprob.(hmm_slice.B[k, :, 1, 1]); color, markersize=6)
+        lines!(ax, 1:T, succprob.(ARPeriodicHMM(m_slice).B[k, :, 1, 1]); color)
+        lines!(ax, 1:T, succprob.(ARPeriodicHMM(truth).B[k, :, 1, 1]); color, linestyle=:dash)
+    end
+    fig
+end
+````
+
+Baum–Welch from that start:
+
+````@example 3-tuto_hmm
+m2, history2 = fit_mle(m_slice, Y, Y_past; n2t, maxiter=200)
+(from_guess=loglikelihood(history), from_slices=loglikelihood(history2))
+````
+
+The two starts reach the same maximum.
+
+## Each series its own memory
+
+In `SmoothsARPeriodicHMM` each series has its own memory order. The emission coefficients
+`θᴮ[k, j]` are a vector of `2^order_j` coefficient vectors, one per memory category of series
+`j`, and the initial condition `Y_past[j]` holds the `order_j` previous values of series `j`.
+Here device 1 has no memory, devices 2 and 3 remember one step, and device 4 two:
+
+````@example 3-tuto_hmm
+orders = [0, 1, 1, 2]
+θᴮs = [[θᴮ[k, j, 1, :] .+ (h - 1) / 2 for h in 1:2^orders[j]] for k in 1:K, j in 1:D]
+ms = SmoothsARPeriodicHMM([0.5, 0.5], θᴬ, θᴮs, T)
+Y_past_s = [zeros(Bool, o) for o in orders]
+Ys = rand(ms, n2t; Y_past=Y_past_s, z_ini=1)
+loglikelihood(ms, Ys, Y_past_s; n2t)
+````
+
+`fit_mle`, `viterbi` and `fit(SeasonalFit, …)` take the same arguments, so the BIC can compare
+memory orders.
+
+## With HiddenMarkovModels.jl
+
+The smooth HMMs are `HiddenMarkovModels.AbstractHMM`s whose control at step `n` holds the
+position in the cycle and the memory categories. `SeasonalControls(Y, Y_past; n2t)` builds that
+control sequence, and the functions of `HiddenMarkovModels` then apply, for example the
+posterior probabilities of the states. The [guide](@ref hmms-guide) explains the control and
+which functions apply.
+
+````@example 3-tuto_hmm
+obs = [Y[:, n] for n in 1:N]
+controls = SeasonalControls(Y, Y_past; n2t)
+γ, logL = HMMs.forward_backward(m, obs, controls)
+````
+
+````@example 3-tuto_hmm
+begin
+    fig = Figure(size=(900, 220))
+    ax = Axis(fig[1, 1], xlabel="step", ylabel="P(active)")
+    lines!(ax, 1:300, γ[1, 1:300], label="posterior")
+    lines!(ax, 1:300, z[1:300] .== 1, label="true regime", linestyle=:dash)
+    Legend(fig[1, 2], ax)
+    fig
+end
+````
+
+`logL` is the loglikelihood, the same as `loglikelihood(m, Y, Y_past; n2t)`.
+
+````@example 3-tuto_hmm
+only(logL), loglikelihood(m, Y, Y_past; n2t)
+````
+
+## [Spatially correlated series](@id TutoHMMSpatial)
+
+In `SmoothARPeriodicHMM` the series are independent given the regime.
+`SmoothARPeriodicHMMSpatial` correlates them: given the regime ``k``, the vector ``y_n`` is a
+[`SpatialBernoulli`](@ref SmoothPeriodicStatsModels.SpatialBernoulli), the thresholded version of a latent Gaussian vector whose correlation
+between series ``i`` and ``j`` is ``\exp(-h_{ij}/R_k(t_n))``. Here ``h_{ij}`` is the distance
+between them and the range ``R_k(t)`` is a third trigonometric polynomial, through an
+exponential. The marginal success probabilities are as before.
+
+Take eight sensors scattered on a 100 × 100 field, observed over a cycle of 20 steps. In the
+active regime the range is long, so sensors switch on together over large areas; in the quiet
+regime it is short.
+
+````@example 3-tuto_hmm
+Random.seed!(4)
+Dₛ, Tₛ = 8, 20
+positions = 100 .* rand(2, Dₛ)
+distance = [norm(positions[:, i] - positions[:, j]) for i in 1:Dₛ, j in 1:Dₛ]
+
+θᴬₛ = zeros(K, K - 1, 2d + 1)
+θᴬₛ[1, 1, :] = [2.0, 0.5, 0.0]
+θᴬₛ[2, 1, :] = [-2.0, 0.0, 0.5]
+θᴮₛ = zeros(K, Dₛ, 1, 2d + 1)       # no memory: one category
+θᴮₛ[1, :, 1, :] .= [1.0 0.5 0.0]
+θᴮₛ[2, :, 1, :] .= [-1.5 0.0 0.3]
+θᴿ = zeros(K, 2d + 1)               # log of the range of each regime
+θᴿ[1, :] = [log(80.0), 0.6, 0.0]
+θᴿ[2, :] = [log(20.0), 0.0, 0.4]
+
+truth_s = SmoothARPeriodicHMMSpatial([0.5, 0.5], θᴬₛ, θᴮₛ, θᴿ, Tₛ, distance; QMC_m=30)
+````
+
+The likelihood of one observation is a `D`-dimensional Gaussian orthant probability, estimated
+by quasi-Monte Carlo with `D * QMC_m` points: raising `QMC_m` makes it more accurate and slower.
+Simulation works as before.
+
+````@example 3-tuto_hmm
+Nₛ = 2_000
+n2tₛ = n_to_t(Nₛ, Tₛ)
+Yₛ_past = zeros(Bool, Dₛ, 0)
+zₛ, Yₛ = rand(truth_s, n2tₛ; Y_past=Yₛ_past, z_ini=1, seq=true)
+````
+
+The fit is the same call. Because the likelihood is a random estimate, the loglikelihood path is
+noisy: `fit_mle` returns the iterate with the highest loglikelihood, `history.best_iteration`,
+rather than the last, and usually runs to `maxiter`. The range is updated by maximizing a
+pairwise likelihood, whose solver iterations `maxiters_R` caps.
+
+````@example 3-tuto_hmm
+θᴬ₀ₛ = zeros(K, K - 1, 2d + 1)
+θᴬ₀ₛ[:, 1, 1] = [1.0, -1.0]
+θᴮ₀ₛ = zeros(K, Dₛ, 1, 2d + 1)
+θᴮ₀ₛ[1, :, 1, 1] .= 0.5
+θᴮ₀ₛ[2, :, 1, 1] .= -1.0
+θᴿ₀ = fill(0.0, K, 2d + 1)
+θᴿ₀[:, 1] .= log(40.0)
+m0_s = SmoothARPeriodicHMMSpatial([0.5, 0.5], θᴬ₀ₛ, θᴮ₀ₛ, θᴿ₀, Tₛ, distance; QMC_m=30)
+
+m_s, history_s = fit_mle(m0_s, Yₛ, Yₛ_past; n2t=n2tₛ, maxiter=15, maxiters_R=50)
+history_s.best_iteration
+````
+
+`parameters(m_s).R` holds the coefficients of the ranges, and `curve(m, :R)` is the `K × T`
+matrix of ranges.
+
+````@example 3-tuto_hmm
+begin
+    fig = Figure(size=(900, 300))
+    ax1 = Axis(fig[1, 1], title="sensors", aspect=DataAspect(), limits=(0, 100, 0, 100))
+    scatter!(ax1, positions[1, :], positions[2, :], color=:black)
+    text!(ax1, positions[1, :], positions[2, :], text=string.(1:Dₛ), offset=(5, 5))
+    ax2 = Axis(fig[1, 2], title="range", xlabel="t", yscale=log10)
+    for (m, label, style) in zip((truth_s, m_s), ("truth", "fit"), (:solid, :dash))
+        R = curve(m, :R)
+        lines!(ax2, 1:Tₛ, R[1, :]; label="active, " * label, linestyle=style)
+        lines!(ax2, 1:Tₛ, R[2, :]; label="quiet, " * label, linestyle=style)
+    end
+    Legend(fig[1, 3], ax2)
+    fig
+end
+````
+
+The short ranges are recovered well. A range much longer than the distances between sensors
+makes them all strongly correlated, and the data say less about its exact value.
+
+`viterbi` and `ARPeriodicHMMSpatial(m)` work as for the model without space:
+
+````@example 3-tuto_hmm
+ẑₛ = viterbi(m_s, Yₛ, Yₛ_past; n2t=n2tₛ)
+mean(ẑₛ .== zₛ)
+````
+
+---
+
+*This page was generated using [Literate.jl](https://github.com/fredrikekre/Literate.jl).*
+

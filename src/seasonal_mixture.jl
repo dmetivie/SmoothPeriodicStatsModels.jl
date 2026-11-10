@@ -38,14 +38,13 @@ Base.getindex(s::SeasonalSample, n) = s.y[n]
 """
     SeasonalWeights(α, θ, basis, cfg)
 
-The seasonal mixing weights of a mixture, in the shape `ExpectationMaximization` expects a weight
-vector to have.
+The seasonal mixing weights of a mixture, as the weight vector the EM algorithm of
+`ExpectationMaximization` works on.
 
 `α` is `K × T`: `α[k, t]` is the weight of component `k` at period index `t`. `θ` holds the
 `(K-1) × (2d+1)` multinomial-logit coefficients that generate it, with component `K` as the
-reference, and `basis` is the `T × (2d+1)` design matrix from [`trig_basis`](@ref).
-
-`cfg` holds what the M-step needs: the solver settings and the components' own bases.
+reference, and `basis` is the `T × (2d+1)` design matrix from [`trig_basis`](@ref). `cfg` holds
+the M-step settings.
 
 Indexing it returns the time-averaged weight of a component.
 """
@@ -69,15 +68,12 @@ Base.getindex(a::SeasonalWeights, k::Integer) = sum(view(a.α, k, :)) / size(a.�
 """
     SeasonalFamily(dists, θ, fam, design)
 
-One component of a seasonal mixture: the `T` distributions it takes over a period, the
-coefficients `θ` that generate them, and the parametrization those two are read through —
-`fam` the [`seasonal_family`](@ref) and `design` its bases evaluated over the period.
+One component of a seasonal mixture during an EM fit: the `T` distributions it takes over a
+period, the coefficients `θ` that generate them, its [`seasonal_family`](@ref) `fam`, and
+`design`, that family's bases evaluated over the period.
 
-`dists` and `θ` are what the M-step rewrites in place; `fam` and `design` are what it rewrites
-them *with*, and are the two arguments [`update_dist`](@ref) dispatches on.
-
-It implements no part of the `Distribution` interface itself: `logpdf`, `rand` and `params` are
-called on `dists[t]`.
+It does not implement the `Distribution` interface itself: `logpdf`, `rand` and `params` apply to
+each `dists[t]`.
 """
 struct SeasonalFamily{D<:Distribution,T<:Real,F,G} <: Distribution{Univariate,Continuous}
     dists::Vector{D}
@@ -115,17 +111,15 @@ end
 How the parameters of the distribution `D` vary with the period index: one basis and one link
 per parameter, in the order `D`'s constructor takes them.
 
-This is the whole declaration a family needs in order to be a mixture component — the generic
-[`update_dist`](@ref) then maximizes the weighted loglikelihood of `D` directly, with no
-hand-derived sufficient statistics. Declaring a new family is one line:
+`Exponential`, `Rayleigh`, `Gamma`, `Weibull`, `Normal` and `LogNormal` are declared. Any other
+family becomes usable as a mixture component with one method:
 
 ```julia
 SmoothPeriodicStatsModels.seasonal_family(::Type{Pareto}, basis) =
     TimeVaryingFamily(Pareto, ParamSpec(α = basis => LogLink(), θ = basis => LogLink()))
 ```
 
-A method for the parametrized type (`Rayleigh{Float64}`) is not needed: the lookup strips the
-type parameters first.
+The method is declared on the type without parameters (`Rayleigh`, not `Rayleigh{Float64}`).
 """
 function seasonal_family end
 
@@ -161,10 +155,9 @@ seasonal_family(::Type{LogNormal}, basis) =
 """
     mixture_weight_spec(T, d) -> ParamSpec
 
-The parametrization of the mixing weights: one trigonometric polynomial of degree `d` per free
-component. The link is the identity because weights are not mapped one at a time — the `K`
-polynomials become probabilities together, through a softmax with the last component as the
-reference, which is what [`αₜ`](@ref) spells for `K = 2`.
+The parametrization of the mixing weights over a period of `T`: one trigonometric polynomial of
+degree `d` per component but the last. The polynomials become weights together, through a
+softmax with the last component as the reference ([`αₜ`](@ref) for `K = 2`).
 """
 mixture_weight_spec(T::Integer, d::Integer) = ParamSpec(α=TrigBasis(T, d) => IdentityLink())
 
@@ -174,38 +167,37 @@ mixture_weight_spec(T::Integer, d::Integer) = ParamSpec(α=TrigBasis(T, d) => Id
     SmoothSeasonalMixture(families, spec_α, nT; init)
     SmoothSeasonalMixture(families, spec_α, nT, ps)
 
-A mixture whose weights *and* component parameters are smooth functions of the period index:
-the structure (one [`seasonal_family`](@ref) per component, the weights' parametrization, the
-period) held apart from the coefficients `ps`, as [`SmoothAR1`](@ref) holds them apart.
+A mixture whose weights and component parameters are smooth functions of the period index.
+It holds one [`seasonal_family`](@ref) per component, the weights' parametrization `spec_α`, the
+period `nT`, and the coefficients `ps`.
+
+- `SmoothSeasonalMixture(D, K, d, T; init, dα = d)`: `K` components of family `D`, each parameter a
+  trigonometric polynomial of degree `d`, the weights of degree `dα`.
+- `SmoothSeasonalMixture(pairs, T; init, dα = 1)`: one `distribution => degree` pair per
+  component, so components may differ in family and degree.
+- `SmoothSeasonalMixture(families, spec_α, nT; init)` and `(families, spec_α, nT, ps)`: any
+  `TimeVaryingFamily` per component and any weight parametrization.
+
+`init` gives each component its starting parameter: a number, a coefficient vector, or a
+`NamedTuple` for a family with several parameters. The `K` starting components must differ.
 
 ```julia
 m  = SmoothSeasonalMixture(Exponential, 2, 1, 366; init = [1.0, 5.0])
 ps = parameters(m)                     # ComponentArray(α = …, Y = …)
-ps.α                                   # (2dα+1) × (K-1), the free categories' coefficients
-component_coefs(m, 2)                  # component 2's own coefficients, a writable view
+ps.α                                   # (2dα+1) × (K-1) weight coefficients
+component_coefs(m, 2)                  # component 2's coefficients, a writable view
 
-m, history = fit_mle(m, y; n2t)        # same type in, same type out
-m(196)                                 # the `MixtureModel` at one period index
+m, history = fit_mle(m, y; n2t)
+m(196)                                 # the `MixtureModel` at period index 196
 curve(m, :θ)                           # K × T, each component's scale over the period
 mixture_weights(m)                     # K × T, the mixing weights
+
+m2 = SmoothSeasonalMixture([Exponential => 0, Gamma => 2], 366;
+                           init = [2.0, (α = 3.0, θ = 1.0)])
 ```
 
-`init` gives each component its starting parameter — a number, a coefficient vector, or a
-`NamedTuple` for a family with several parameters — and the `K` entries must differ: identical
-components give identical posteriors, and EM cannot move off that point.
-
-**The components need not match.** Each carries its own family *and* its own basis, so a
-mixture of two different laws, or of one seasonal law and one nearly constant one, is a list
-of `distribution => degree` pairs:
-
-```julia
-m = SmoothSeasonalMixture([Exponential => 0, Gamma => 2], 366;
-                          init = [2.0, (α = 3.0, θ = 1.0)])
-```
-
-Because the components may differ in how many coefficients they take, `ps.Y` holds them end to
-end rather than one per column; [`component_coefs`](@ref) is the way in, and it is a view, so
-writing through it sets the model's coefficients.
+`ps.Y` holds the components' coefficients end to end; [`component_coefs`](@ref) returns one
+component's block.
 """
 struct SmoothSeasonalMixture{F<:Tuple,A<:ParamSpec,P<:AbstractVector}
     components::F
@@ -259,10 +251,8 @@ Distributions.ncomponents(m::SmoothSeasonalMixture) = length(m.components)
     component_coefs(m::SmoothSeasonalMixture, k) -> SubArray
 
 Component `k`'s coefficients: a view into `parameters(m).Y`, so writing through it sets them.
-
-Components may each take a different number of coefficients — different families, different
-degrees — so `ps.Y` lays them end to end and this is what addresses one of them. For a mixture
-whose components do match, `reshape(ps.Y, :, ncomponents(m))` is the matrix view.
+When all components share family and degree, `reshape(parameters(m).Y, :, ncomponents(m))`
+gives them as columns.
 """
 component_coefs(m::SmoothSeasonalMixture, k::Integer) = view(m.ps.Y, component_range(m, k))
 
@@ -282,10 +272,7 @@ end
     mixture_weights(m::SmoothSeasonalMixture, times = 1:m.nT) -> Matrix
 
 The mixing weights, `K × length(times)`: `α[k, t]` is the weight of component `k` at `times[t]`.
-
-The `K-1` free polynomials go through a softmax against a reference polynomial fixed to zero, so
-the columns sum to one by construction. The row maximum is subtracted first, which the plain
-`exp` of [`update_α!`](@ref) gets away with only because its coefficients come from a solve.
+Each column sums to one.
 """
 function mixture_weights(m::SmoothSeasonalMixture, times=1:m.nT)
     K = ncomponents(m)
@@ -309,12 +296,9 @@ end
 """
     curve(m::SmoothSeasonalMixture, name::Symbol, times = 1:m.nT) -> Matrix
 
-One parameter of the *components* over `times`, `K × length(times)` with one row per component:
-`:θ` for `Exponential`, `:μ` and `:σ` for `Normal`, links applied.
-
-The mixing weights are [`mixture_weights`](@ref) and not a name here, deliberately. `α` is this
-package's name for a weight and also `Gamma`'s name for its shape, so a `curve(m, :α)` that
-answered with the weights would silently shadow the shape of a `Gamma` mixture.
+One parameter of the components over `times`, `K × length(times)` with one row per component:
+`:θ` for `Exponential`, `:μ` and `:σ` for `Normal`, links applied. Every component must have
+that parameter. The mixing weights are [`mixture_weights`](@ref).
 """
 function TimeVaryingParameters.curve(m::SmoothSeasonalMixture, name::Symbol, times=1:m.nT)
     missing_in = [k for (k, f) in enumerate(m.components) if !(name in paramnames(f.spec))]
@@ -346,9 +330,7 @@ end
 """
     mixtures(m::SmoothSeasonalMixture) -> Vector{MixtureModel}
 
-The evaluated twin: the `MixtureModel` at each of the `nT` period indices. This is what `rand`
-draws from — `SmoothSeasonalMixture` carries the coefficients, this carries the numbers they
-generate.
+The `MixtureModel` at each of the `nT` period indices.
 """
 function mixtures(m::SmoothSeasonalMixture)
     K, dists, α = ncomponents(m), components(m), mixture_weights(m)
@@ -368,7 +350,7 @@ The mixture at one period index.
     loglikelihood(m::SmoothSeasonalMixture, y; n2t) -> Float64
 
 The loglikelihood of `y` under `m`, each observation scored against the mixture at its own
-period index. Unlike the AR(1) this conditions on nothing, so `nobs` is `length(y)`.
+period index `n2t[n]`.
 """
 function StatsAPI.loglikelihood(m::SmoothSeasonalMixture, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
@@ -376,10 +358,18 @@ function StatsAPI.loglikelihood(m::SmoothSeasonalMixture, y::AbstractVector;
     return sum(logpdf(mix[t], y[n]) for (n, t) in enumerate(n2t))
 end
 
+"""
+    rand([rng, ]m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) -> Vector
+    rand([rng, ]m::SmoothSeasonalMixture, N::Integer) -> Vector
+
+Independent draws, the `n`-th from the mixture at period index `n2t[n]`. With `N`, the period
+indices are `n_to_t(N, m.nT)`.
+"""
 rand(rng::AbstractRNG, m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) =
     (mix = mixtures(m); [rand(rng, mix[t]) for t in n2t])
 rand(rng::AbstractRNG, m::SmoothSeasonalMixture, N::Integer) = rand(rng, m, n_to_t(N, m.nT))
-rand(m::SmoothSeasonalMixture, args...) = rand(GLOBAL_RNG, m, args...)
+rand(m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) = rand(GLOBAL_RNG, m, n2t)
+rand(m::SmoothSeasonalMixture, N::Integer) = rand(GLOBAL_RNG, m, N)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothSeasonalMixture)
     laws = unique(string(f.dist) for f in m.components)

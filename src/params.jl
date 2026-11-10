@@ -20,22 +20,31 @@ function parameters end
 """
     nparams(model) -> Int
 
-The number of free coefficients — `length(parameters(model))`. The name and the meaning are
-`HMMBase`'s. Note `TimeVaryingParameters.nparams(spec)` counts a spec's *named parameters*
-instead, which is why that one is not exported.
+The number of free coefficients, `length(parameters(model))`.
 """
 nparams(model) = length(parameters(model))
 
 """
     seasonal_params(spec::ParamSpec, dims::Integer...) -> ComponentArray
     seasonal_params(spec::ParamSpec, θ::AbstractVector) -> ComponentArray
+    seasonal_params(spec::ParamSpec, θ::AbstractVector, K::Integer) -> ComponentArray
+    seasonal_params(spec::ParamSpec, θ::AbstractMatrix) -> ComponentArray
 
 A coefficient container laid out by `spec`: one block per named parameter, in the spec's order,
 so that `ps.σ` and `coefs(spec, ps, :σ)` are the same memory.
 
-Zeros by default. Trailing `dims` widen every block — `seasonal_params(spec, K)` gives one
-*column* of coefficients per hidden state. Passing a flat `θ` copies it into the layout, which
-is how a v3 coefficient vector is carried over.
+- `seasonal_params(spec)` is all zeros. Trailing `dims` widen every block:
+  `seasonal_params(spec, K)` gives one column of coefficients per hidden state.
+- `seasonal_params(spec, θ)` copies a flat coefficient vector into the layout.
+- `seasonal_params(spec, θ, K)` repeats `θ` in each of `K` columns.
+- `seasonal_params(spec, θ::AbstractMatrix)` takes one column of `θ` per state.
+
+```julia
+spec = ParamSpec(μ = TrigBasis(365, 1) => IdentityLink(), σ = TrigBasis(365, 2) => LogLink())
+ps = seasonal_params(spec, collect(1.0:8.0))
+ps.μ == [1, 2, 3]
+ps.σ == [4, 5, 6, 7, 8]
+```
 """
 function seasonal_params(spec::ParamSpec, dims::Integer...)
     names = paramnames(spec)
@@ -78,12 +87,8 @@ _block_at(block, range) = block isa SubArray && parentindices(block) == (range,)
 """
     ncolumns(spec, ps) -> Int
 
-How many independent fits `ps` holds: 1 for a single model, `K` when every block carries one
-column per hidden state.
-
-A `ComponentArray` is an `AbstractVector` whatever the shape of its blocks — `ps.μ` may be a
-matrix while `ps` is still flat — so the number of columns has to be counted against the spec
-rather than read off `typeof(ps)`.
+How many columns of coefficients `ps` holds: 1 for a single model, `K` when every block carries
+one column per hidden state.
 """
 function ncolumns(spec::ParamSpec, ps::AbstractVector)
     n, nc = length(ps), ncoef(spec)
@@ -94,10 +99,8 @@ end
 """
     column(spec, ps, k) -> Vector
 
-Hidden state `k`'s coefficients, flat and in the spec's order.
-
-Not a reshape: a `ComponentArray` lays its blocks out one after another, so the flat order is
-`[vec(μ); vec(ρ); vec(σ)]` and state `k` is a stride through each block, not a contiguous slice.
+Hidden state `k`'s coefficients, as one flat vector in the spec's order, from a `ps` that holds
+one column per state.
 """
 column(spec::ParamSpec, ps::AbstractVector, k::Integer) =
     reduce(vcat, (collect(float.(view(getproperty(ps, nm), :, k))) for nm in paramnames(spec)))
@@ -105,13 +108,8 @@ column(spec::ParamSpec, ps::AbstractVector, k::Integer) =
 """
     seasonal_curve(spec, ps, name::Symbol, times) -> Vector | Matrix
 
-One parameter of `ps` over `times`, links applied: a vector, or a `K × length(times)` matrix
+One parameter of `ps` over `times`, link applied: a vector, or a `K × length(times)` matrix
 when `ps` holds one column of coefficients per hidden state.
-
-`TimeVaryingParameters.curve` cannot be used directly here. It addresses a flat vector through
-the spec's offsets, which describe *one* column, whereas a `ComponentArray` with `K` columns is
-still flat but laid out `[vec(μ); vec(ρ); …]` — so `coefs(spec, ps, :ρ)` would read across the
-wrong block. The named access `ps.ρ` is what knows the real shape.
 """
 function seasonal_curve(spec::ParamSpec, ps::AbstractVector, name::Symbol, times)
     j = blockindex(spec, name)
@@ -129,21 +127,20 @@ _link_curve(link, B::AbstractMatrix, β::AbstractMatrix) = apply_link.(Ref(link)
 """
     FitHistory(; converged, iterations, logtots, solution, ps_iters)
 
-How a fit went — the second half of every `fit_mle` return in this package.
+How a fit went: the second value every `fit_mle` in this package returns.
 
 - `converged`   whether the procedure reported success
 - `iterations`  how many steps it took
 - `logtots`     the loglikelihood after each of them; a one-element vector for a single solve
 - `solution`    what the solver returned: a `SciMLBase` solution, a vector of them when the fit
-                solved several independent problems, or `nothing`
-- `ps_iters`    the parameter trajectory when it was asked for, otherwise `nothing`
+                solved several independent problems, or `nothing` for the EM fits, which solve
+                inside every iteration and keep none of those solves
+- `ps_iters`    the coefficients before the first iteration and after each one, as `NamedTuple`s
+                of arrays, when asked for; otherwise `nothing`
 
-`history.retcode`, `history.objective` and `history.stats` reach into `solution`, collecting over
-the problems when there were several — which `history.solution.retcode` could not do, since
-`solution` is then a vector.
-
-This is `HMMBase.EMHistory`'s shape, widened to cover the one-shot solves too, so that a fit in
-this package reports the same way whether it ran EM or a single optimisation.
+When there is a `solution`, `history.retcode`, `history.objective` and `history.stats` read the
+solver's report, as a vector when there were several problems. `history.best_iteration` is the
+iterate with the highest loglikelihood, and `loglikelihood(history)` the last one.
 """
 struct FitHistory{S,P}
     converged::Bool
@@ -172,8 +169,11 @@ StatsAPI.loglikelihood(h::FitHistory) = isempty(h.logtots) ? -Inf : last(h.logto
     return getfield(h, name)
 end
 
-Base.propertynames(::FitHistory) =
-    (fieldnames(FitHistory)..., :retcode, :objective, :stats, :best_iteration)
+Base.propertynames(h::FitHistory) = (:converged, :iterations, :logtots, _solver_properties(h)...,
+    :ps_iters, :best_iteration)
+
+_solver_properties(::FitHistory) = (:solution, :retcode, :objective, :stats)
+_solver_properties(::FitHistory{Nothing}) = ()
 
 # A `SciMLBase` solution is itself an `AbstractVector` -- it indexes into the minimizer -- so the
 # many-solutions method has to name its element type rather than take any vector.
@@ -181,9 +181,22 @@ _solution_property(sol::AbstractSciMLSolution, name::Symbol) = getproperty(sol, 
 _solution_property(sols::AbstractVector{<:AbstractSciMLSolution}, name::Symbol) =
     [getproperty(sol, name) for sol in sols]
 
+@noinline _solution_property(::Nothing, name::Symbol) = throw(ArgumentError(
+    "`$name` is a solver property, and this fit keeps no solver solution: an EM fit solves inside every iteration"))
 @noinline _solution_property(solution, name::Symbol) = throw(ArgumentError(
     "`$name` is a solver property, and this fit reports a $(typeof(solution)); see `.solution`"))
 
+# A plain copy of a `ComponentArray`, for `ps_iters`: its blocks as `Array`s. A `ComponentArray`
+# carries its layout in its type, which JLD cannot write, and its blocks are views, which JLD
+# writes but cannot read back.
+_plain(ps::ComponentArray) = map(copy, NamedTuple(ps))
+
+"""
+    converged(history::FitHistory) -> Bool
+    converged(f::SeasonalFit) -> Bool
+
+Whether the fit reported convergence.
+"""
 converged(h::FitHistory) = h.converged
 
 function Base.show(io::IO, ::MIME"text/plain", h::FitHistory)

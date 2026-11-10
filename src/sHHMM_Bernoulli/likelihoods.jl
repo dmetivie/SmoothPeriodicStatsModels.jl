@@ -2,10 +2,10 @@ function likelihoods!(L::AbstractMatrix, hmm::sARPeriodicHMM, Y::AbstractMatrix,
     N, K, D = size(Y, 2), size(hmm, 1), size(hmm, 2)
     @argcheck size(L) == (N, K)
 
-    for i in OneTo(K)
+    for k in OneTo(K)
         for n in OneTo(N)
             t = n2t[n] # periodic t
-            L[n, i] = pdf(product_distribution([hmm.B[k, t, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
+            L[n, k] = pdf(product_distribution([hmm.B[k, t, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
         end
     end
 end

@@ -61,21 +61,19 @@ end
 # 	return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n ∈ 1:(N-1)) + sum(logpdf(SpatialBernoulli(hmm.R[z[n], n2t[n]], hmm.B[CartesianIndex.(z[n], n2t[n], 1:D, lag_cat[n, :])], hmm.h), y[n, :]; m = D * QMC_m) for n ∈ 1:N)
 # end
 
-nb_param_HMMSpa(K, memory, d, D) = (2d + 1) * (K * 2^memory * D + K * (K - 1) + K)
+"""
+    nb_param_HMMSpa(K, memory, d, D) -> Int
+
+The number of trigonometric coefficients of a `K`-state spatial periodic HMM of degree `d` on
+`D` sites with memory `memory`: [`nb_param`](@ref) plus one range polynomial per state.
+"""
+nb_param_HMMSpa(K, memory, d, D) =(2d + 1) * (K * 2^memory * D + K * (K - 1) + K)
 
 """
-    complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y, y_past, z; n2t, QMC_m)
+    complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y, y_past, z; n2t, QMC_m = hmm.QMC_m)
 
-Loglikelihood of the observations *and* the state path `z`: the transition terms, indexed by
-the period each step leaves, plus one `D`-dimensional orthant probability per observation.
-
-Three things were wrong with this before and are worth recording, because none of them could
-have been caught by running it — it could not run at all. `D, N = size(y)` was written the
-other way round, so `D` and `N` were swapped relative to the `D × N` layout the rest of the
-file uses; `logpdf` was not defined for `SpatialBernoulli` at all (only `pdf` was), so the call
-was a `MethodError`; and the sums accumulated into `Threads.threadid()`-indexed slots, which
-has been unsound since Julia 1.8 because a task may migrate between threads mid-loop. The
-reductions below are per-chunk and need no thread identity.
+The loglikelihood of the observations `y` and the state path `z` jointly. Each emission term is
+a quasi-Monte-Carlo estimate with `D * QMC_m` points; the observations are split across threads.
 """
 function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
     D, N = size(y)
@@ -117,6 +115,16 @@ end
 
 # for pairwise likelihood : 
 
+"""
+    pairwise_loglikelihood(R, B, h, Y, wp, n_pair; n2t, eps = 1e-10, pairwise_indices2) -> Float64
+
+The weighted pairwise (composite) loglikelihood of the spatial Bernoulli emission of one hidden
+state, without memory. `R` (length `T`) is the range and `B` (`T × D`) the marginal success
+probabilities at each period index, `h` the `D × D` distances. For each pair `(i, j)` with
+weight `wp[i, j] > 0`, `n_pair[s, i, j, t]` counts the observations at period index `t` in each of
+the four joint outcomes `s` (`11`, `10`, `01`, `00`); the bivariate probabilities come from
+[`norm_cdf_2d_vfast`](@ref) and are floored at `eps`.
+"""
 function pairwise_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(R, 1))::AbstractVector{<:Integer}, eps=1e-10, pairwise_indices2=Tuple.(findall(wp .> 0))
 )
     D, N = size(Y)
@@ -160,7 +168,14 @@ function pairwise_loglikelihood(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractM
     return pairwise_sum
 end
 
-function pairwise_loglikelihood_memory(R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(R, 1))::AbstractVector{<:Integer}, eps=1e-10, pairwise_indices2=Tuple.(findall(wp .> 0)))
+"""
+    pairwise_loglikelihood_memory(R, B, h, Y, wp, n_pair; n2t, eps = 1e-10, pairwise_indices2) -> Float64
+
+[`pairwise_loglikelihood`](@ref) with memory: `B` is `T × D × 2^order`, and `n_pair` counts the
+joint outcomes of each pair separately for every pair of memory categories of the two sites,
+`4 * (2^order)^2` situations.
+"""
+function pairwise_loglikelihood_memory(R, B, h,Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(R, 1))::AbstractVector{<:Integer}, eps=1e-10, pairwise_indices2=Tuple.(findall(wp .> 0)))
     D, N = size(Y)
     T = size(R, 1)
     size_order = size(B, 3)  # B is (T, D, size_order)

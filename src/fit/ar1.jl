@@ -91,29 +91,10 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
 end
 
 """
-    loglikelihood(m::SmoothAR1, y; n2t) -> Float64
-
-The conditional loglikelihood of `y` under `m`, given its first observation.
-
-`ar1_nll` drops the `-N/2·log(2π)` that does not depend on the coefficients; this puts it back,
-so the number is comparable with anything else. `N` counts *transitions*: the first observation
-conditions the rest rather than contributing a term.
-"""
-function StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector;
-    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
-    stats = ar1_sufficient_statistics(y, n2t, m.nT)
-    design = PeriodicDesign(m.spec, 1:m.nT)
-    return _ar1_loglikelihood(ar1_nll(parameters(m), (stats, design)), sum(stats.N))
-end
-
-_ar1_loglikelihood(nll, N::Integer) = -nll - N * log(2π) / 2
-
-"""
     fit(SeasonalFit, m::SmoothAR1, y, args...; n2t, kwargs...) -> SeasonalFit
 
-Fit a periodic AR(1) and keep the diagnostics. The same estimator and the same keywords as
-[`fit_mle`](@ref), so `f.model` and `f.history` are what that would have returned; see
-[`SeasonalFit`](@ref) for what the extra tier buys.
+Fit a periodic AR(1) with [`fit_mle`](@ref), same keywords, and return a [`SeasonalFit`](@ref).
+`nobs` is the number of transitions.
 """
 function StatsAPI.fit(::Type{SeasonalFit}, m::SmoothAR1, y::AbstractVector, args...;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, kwargs...)

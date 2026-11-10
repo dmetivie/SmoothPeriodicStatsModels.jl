@@ -29,7 +29,7 @@ include("reference_inference.jl")
         0.5randn(rng, K, D, 2^order, 2deg + 1), T)
     n2t = n_to_t(N, T)
     y_past = rand(rng, Bool, D, order)
-    z, y = rand(MersenneTwister(2), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(2), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
 
     @test length(fit_θ(hmm, deg)) == 2
     @test length(fit_θ!(copy(hmm), deg)) == 2
@@ -361,6 +361,7 @@ end
     @test dof(fsel) == 9            # (2d+1) per component, plus (2dα+1) for the K-1 weights
     @test nobs(fsel) == N
     @test bic(fsel) ≈ -2loglikelihood(fsel) + log(N) * 9
+    @test :retcode ∉ propertynames(fsel)    # an EM fit keeps no solver report
 end
 
 
@@ -587,6 +588,7 @@ end
                  for n = 2:length(y))
     @test loglikelihood(m, y; n2t) ≈ direct
     @test loglikelihood(history) ≈ direct
+    @test which(loglikelihood, Tuple{typeof(m),typeof(y)}).module === SPSM   # needs no solver
 
     # the solver's own report, reachable as fields the way a SciML solution is
     @test successful_retcode(history.retcode)
@@ -604,6 +606,7 @@ end
     @test aic(f) ≈ -2loglikelihood(f) + 2dof(f)
     @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(nobs(f))
     @test coef(f, :ρ) == parameters(m).ρ
+    @test :retcode in propertynames(f)
     @test_throws ArgumentError iterate(f)       # it is not the `(model, history)` tuple
 
     # a degree too high is penalised, a degree too low fits worse
@@ -717,7 +720,7 @@ end
     for order in 0:3
         hmm_random = randARPeriodicHMM(K, T, D, order; ξ=ξ, ref_station=ref_station)
 
-        z, y = rand(hmm_random, N, seq=true, z_ini=1, y_ini=zeros(Int, D, order))
+        z, y = rand(hmm_random, N, seq=true, z_ini=1, Y_past=zeros(Int, D, order))
 
         y = rand(hmm_random, N)
     end
@@ -728,8 +731,8 @@ end
 # A periodic HMM is a controlled HMM whose control is the period index, so `ARPeriodicHMM`
 # subtypes `HiddenMarkovModels.AbstractHMM` and answers its three accessors. This is the guard
 # that the translation is lossless: this package's own inference and that library's must agree
-# on the same model and the same data, including the one-period shift between the two
-# conventions for what `A(t)` means.
+# on the same model and the same data, including the difference between the two conventions
+# for what `A(t)` means.
 @testset "ARPeriodicHMM: the HiddenMarkovModels.jl interface" begin
     K, D, T, order, deg, N = 3, 5, 11, 1, 1, 4_000
     rng = StableRNG(1)
@@ -738,7 +741,7 @@ end
     hmm = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
     n2t = n_to_t(N, T)
     y_past = rand(StableRNG(2), Bool, D, order)
-    z, y = rand(StableRNG(3), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(StableRNG(3), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
 
     @test hmm isa HMMs.AbstractHMM
     @test length(hmm) == K                      # HMMs reads this off `initialization`
@@ -748,14 +751,16 @@ end
     controls = SeasonalControls(y, y_past; n2t=n2t)
     @test length(controls) == N
     # the third element is the observation index, which `CachedEmissions` reads and the
-    # accessors ignore
-    @test controls[7] == (n2t[7], lag_cat[:, 7], 7)
+    # accessors ignore; the fourth the period index of the previous observation
+    @test controls[7] == (n2t[7], lag_cat[:, 7], 7, n2t[6])
+    @test controls[1][4] == n2t[1]
     @test SeasonalControls(n2t, lag_cat)[13] == controls[13]
     @test_throws ArgumentError SeasonalControls(n2t[1:10], lag_cat)
 
     # `A(t)` here is the matrix of the step *leaving* period `t`; HMMs asks for the one
-    # *arriving* at a control, hence `mod1(t - 1, T)`.
+    # *arriving* at a control, which therefore carries the period index before it
     @test HMMs.transition_matrix(hmm, controls[5]) == hmm.A[:, :, n2t[4]]
+    @test_throws ArgumentError HMMs.transition_matrix(hmm, (n2t[5], lag_cat[:, 5]))
 
     obs = [view(y, :, n) for n = 1:N]
     LL = zeros(N, K)
@@ -782,6 +787,19 @@ end
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)
 
+    # A period index may be skipped, as February 29 is in a non-leap year with `T = 366`, and
+    # the step across it still leaves the previous observation's period. Here index 3 never
+    # occurs, so every step from 2 to 4 uses `A[:, :, 2]`, as the reference passes do.
+    n2t_skip = filter(!=(3), repeat(1:T, N))[1:N]
+    controls_skip = SeasonalControls(n2t_skip, lag_cat)
+    LL_skip = zeros(N, K)
+    SPSM.loglikelihoods!(LL_skip, hmm, y, lag_cat; n2t=n2t_skip)
+    ref_forwardlog!(α, c, hmm.a, hmm.A, LL_skip; n2t=n2t_skip)
+    @test HMMs.logdensityof(hmm, obs, controls_skip; seq_ends=(N,)) ≈ sum(c)
+    @test loglikelihood(SmoothARPeriodicHMM(hmm.a, θᴬ, θᴮ, T), y, y_past; n2t=n2t_skip) ≈ sum(c)
+    @test HMMs.viterbi(hmm, obs, controls_skip; seq_ends=(N,))[1] ==
+          SPSM.viterbi(hmm, y, y_past; n2t=n2t_skip)
+
     # Simulation stays this package's: the memory categories in a control sequence are a
     # function of the observations, so they cannot be fixed before drawing them.
     @test_throws ArgumentError rand(hmm, controls)
@@ -800,7 +818,7 @@ end
     hmm = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
     n2t = n_to_t(N, T)
     y_past = [rand(rng, Bool, orders[j]) for j = 1:D]
-    z, y = rand(MersenneTwister(34), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(34), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
 
     @test hmm isa HMMs.AbstractHMM
     @test length(hmm) == K
@@ -910,6 +928,43 @@ end
     @test maximum(abs, succprob.(hmm_ip.B) - succprob.(hmm.B)) < 1e-6
     @test maximum(abs, θᴬ_ip - θᴬ_fit) < 1e-5
     @test maximum(abs, θᴮ_ip - θᴮ_fit) < 1e-5
+
+    # an integer is the degree of the trigonometric basis
+    @test fit_θ(hmm, deg) == fit_θ(hmm, TrigBasis(T, deg))
+end
+
+@testset "fit_θ on other bases" begin
+    K, D, T, order = 2, 3, 12, 1
+    rng = MersenneTwister(2024)
+    basis = CyclicBSplineBasis(T, 5)
+    nb = nbasis(basis)
+    θᴬ = 0.5randn(rng, K, K - 1, nb)
+    θᴮ = 0.5randn(rng, K, D, 2^order, nb)
+    hmm = ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T; basis_A=basis, basis_B=basis)
+
+    θᴬ_fit, θᴮ_fit = fit_θ(hmm, basis)
+    @test maximum(abs, θᴬ_fit - θᴬ) < 1e-5
+    @test maximum(abs, θᴮ_fit - θᴮ) < 1e-5
+    hmm_ip = copy(hmm)
+    @test all(fit_θ!(hmm_ip, basis) .≈ (θᴬ_fit, θᴮ_fit))
+    @test maximum(abs, hmm_ip.A - hmm.A) < 1e-6
+    @test maximum(abs, succprob.(hmm_ip.B) - succprob.(hmm.B)) < 1e-6
+
+    # four coefficients: not the 2d + 1 of a trigonometric basis, nor the five of this one
+    @test_throws ArgumentError fit_θᴮ!(zeros(4), rand(rng, T))
+    @test_throws ArgumentError fit_θᴮ!(zeros(4), rand(rng, T); basis)
+
+    # site-dependent memory: `fit_θ` returns the coefficients, `fit_θ!` also updates the model
+    θᴮs = [[0.5randn(rng, nb) for _ = 1:2^o] for k = 1:K, o in (0, 1, 2)]
+    shmm = sARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮs, T; basis_A=basis, basis_B=basis)
+    θᴬs_fit, θᴮs_fit = fit_θ(shmm, basis)
+    @test maximum(abs, θᴬs_fit - θᴬ) < 1e-5
+    @test maximum(maximum(abs, θᴮs_fit[k, j][h] - θᴮs[k, j][h]) for k = 1:K, j = 1:3 for h in eachindex(θᴮs[k, j])) < 1e-5
+    shmm_ip = copy(shmm)
+    fit_θ!(shmm_ip, basis)
+    @test maximum(abs, shmm_ip.A - shmm.A) < 1e-6
+    @test maximum(abs(succprob(shmm_ip.B[k, t, j][h]) - succprob(shmm.B[k, t, j][h]))
+                  for k = 1:K, t = 1:T, j = 1:3 for h in eachindex(shmm.B[k, t, j])) < 1e-6
 end
 
 @testset "ARPeriodicHMM: rand" begin
@@ -917,24 +972,48 @@ end
     rng = MersenneTwister(3)
     hmm = Trig2ARPeriodicHMM([0.4, 0.6], 0.5randn(rng, K, K - 1, 2deg + 1),
         0.5randn(rng, K, D, 2^order, 2deg + 1), T)
-    y_ini = rand(MersenneTwister(4), Bool, D, order)
+    y_past = rand(MersenneTwister(4), Bool, D, order)
     N = 50
     n2t = n_to_t(N, T)
 
-    z, y = rand(MersenneTwister(5), hmm, n2t; y_ini=y_ini, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(5), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
     @test y isa Matrix{Bool}
     @test size(y) == (D, N)
     @test size(z) == (N,)
     @test all(1 .≤ z .≤ K)
     @test z[1] == 1
-    @test y[:, 1:order] == y_ini
 
     # `seq=false` returns the observations of the very same draw
-    @test rand(MersenneTwister(5), hmm, n2t; y_ini=y_ini, z_ini=1) == y
+    @test rand(MersenneTwister(5), hmm, n2t; Y_past=y_past, z_ini=1) == y
     # Giving `N` or the season index map `n2t` is equivalent
-    @test rand(MersenneTwister(5), hmm, N; y_ini=y_ini, z_ini=1) == y
+    @test rand(MersenneTwister(5), hmm, N; Y_past=y_past, z_ini=1) == y
+    # the initial condition defaults to zeros
+    @test rand(MersenneTwister(5), hmm, n2t; z_ini=1) ==
+          rand(MersenneTwister(5), hmm, n2t; Y_past=zeros(Bool, D, order), z_ini=1)
 
-    @test_throws ArgumentError rand(MersenneTwister(5), hmm, n2t; y_ini=zeros(Bool, D, order + 1), z_ini=1)
+    @test_throws ArgumentError rand(MersenneTwister(5), hmm, n2t; Y_past=zeros(Bool, D, order + 1), z_ini=1)
+end
+
+@testset "rand and the fits read Y_past the same way" begin
+    # Each site copies its value of two steps before, so the draw is fixed by `Y_past`: in time
+    # order, `[Y_past y]` repeats the pattern of `Y_past`. Memory category `h` encodes the value
+    # one step before as its high bit and two steps before as its low bit.
+    D, T, order = 2, 3, 2
+    copy2 = [isodd(h - 1) ? 1.0 : 0.0 for h = 1:2^order]
+    hmm = ARPeriodicHMM([1.0], ones(1, 1, T), Bernoulli.([copy2[h] for k = 1:1, t = 1:T, j = 1:D, h = 1:2^order]))
+    y_past = Bool[1 0; 0 1]
+    y = rand(MersenneTwister(1), hmm, 7; Y_past=y_past)
+    @test y == repeat(y_past, 1, 4)[:, 1:7]
+    # and the likelihood, which reads `Y_past` with `conditional_to`, gives it probability one
+    @test all(iszero, loglikelihoods(hmm, y, y_past; n2t=n_to_t(7, T)))
+
+    # the same with site-dependent memory: site 1 copies the step before, site 2 two steps before
+    copy1 = [0.0, 1.0]
+    shmm = sARPeriodicHMM([1.0], ones(1, 1, T), [Bernoulli.(j == 1 ? copy1 : copy2) for k = 1:1, t = 1:T, j = 1:D])
+    y_pasts = [Bool[1], Bool[0, 1]]
+    ys = rand(MersenneTwister(1), shmm, 7; Y_past=y_pasts)
+    @test ys == [fill(true, 1, 7); Bool[0 1 0 1 0 1 0]]
+    @test all(iszero, loglikelihoods(shmm, ys, y_pasts; n2t=n_to_t(7, T)))
 end
 
 @testset "ARPeriodicHMM: rand follows the emission probabilities" begin
@@ -946,7 +1025,7 @@ end
     N = 300_000
     n2t = n_to_t(N, T)
     y_past = zeros(Bool, D, order)
-    y = rand(MersenneTwister(42), hmm, n2t; y_ini=y_past, z_ini=1)
+    y = rand(MersenneTwister(42), hmm, n2t; Y_past=y_past, z_ini=1)
     lag_cat = SPSM.conditional_to(y, y_past)
 
     for t = 1:T, j = 1:D, h = 1:2^order
@@ -964,7 +1043,7 @@ end
 
     N = 200_000
     n2t = n_to_t(N, T)
-    z, _ = rand(MersenneTwister(7), hmm, n2t; y_ini=zeros(Bool, 1, 0), z_ini=1, seq=true)
+    z, _ = rand(MersenneTwister(7), hmm, n2t; Y_past=zeros(Bool, 1, 0), z_ini=1, seq=true)
 
     Â = zeros(K, K, T)
     for n = 1:N-1
@@ -982,7 +1061,7 @@ end
     N = 200
     n2t = n_to_t(N, T)
     y_past = rand(rng, Bool, D, order)
-    z, y = rand(MersenneTwister(12), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(12), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
     lag_cat = SPSM.conditional_to(y, y_past)
 
     LL = loglikelihoods(hmm, y, y_past; n2t=n2t)
@@ -1013,7 +1092,7 @@ end
     hmm_sep = ARPeriodicHMM([0.5, 0.5], A, Bernoulli.(p))
     y_past_sep = zeros(Bool, 4, 0)
     n2t_sep = n_to_t(2000, Ts)
-    z_sep, y_sep = rand(MersenneTwister(13), hmm_sep, n2t_sep; y_ini=y_past_sep, z_ini=1, seq=true)
+    z_sep, y_sep = rand(MersenneTwister(13), hmm_sep, n2t_sep; Y_past=y_past_sep, z_ini=1, seq=true)
 
     ẑ = viterbi(hmm_sep, y_sep, y_past_sep; n2t=n2t_sep)
     @test length(ẑ) == length(z_sep)
@@ -1033,7 +1112,7 @@ end
 
     n2t = n_to_t(N, T)
     y_past = rand(rng, Bool, D, order)
-    z, y = rand(MersenneTwister(2022), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(2022), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
 
     # Guess: right mean level, no seasonality at all
     θᴬ0 = zeros(K, K - 1, 2deg + 1)
@@ -1083,7 +1162,7 @@ end
     N = 2_000
     n2t = n_to_t(N, T)
     y_past = [rand(rng, Bool, orders[j]) for j = 1:D]
-    z, y = rand(MersenneTwister(34), hmm, n2t; y_ini=y_past, z_ini=1, seq=true)
+    z, y = rand(MersenneTwister(34), hmm, n2t; Y_past=y_past, z_ini=1, seq=true)
     @test size(y) == (D, N)
     @test all(1 .≤ z .≤ K)
 
@@ -1117,6 +1196,236 @@ end
     @test all(θᴮ_thr[k, j][h] ≈ θᴮ_fit[k, j][h] for k = 1:K, j = 1:D for h = 1:2^orders[j])
 end
 
+@testset "Smooth HMMs: bases other than the trigonometric one" begin
+    K, D, T, order, deg = 2, 3, 12, 1, 1
+    rng = StableRNG(7)
+    a = fill(1 / K, K)
+    inv_logit(x) = 1 / (1 + exp(-x))
+
+    # `Trig2ARPeriodicHMM` is the trigonometric default of the generic coefficient constructors
+    θᴬ, θᴮ = 0.5randn(rng, K, K - 1, 2deg + 1), 0.5randn(rng, K, D, 2^order, 2deg + 1)
+    hmm = ARPeriodicHMM(a, θᴬ, θᴮ, T)
+    @test hmm.A == Trig2ARPeriodicHMM(a, θᴬ, θᴮ, T).A
+    @test succprob.(hmm.B) == succprob.(Trig2ARPeriodicHMM(a, θᴬ, θᴮ, T).B)
+    @test ARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A=TrigBasis(T, deg), basis_B=TrigBasis(T, deg)).A == hmm.A
+    # with two states the softmax row is a logistic, of the polynomial `polynomial_trigo` evaluates
+    @test hmm.A[1, 1, 5] ≈ inv_logit(polynomial_trigo(5 / T, θᴬ[1, 1, :]))
+    @test succprob(hmm.B[2, 7, 3, 2]) ≈ inv_logit(polynomial_trigo(7 / T, θᴮ[2, 3, 2, :]))
+    θᴮr = [[0.5randn(rng, 2deg + 1) for _ = 1:2^o] for k = 1:K, o in (0, 1, 2)]
+    @test sARPeriodicHMM(a, θᴬ, θᴮr, T).A == Trig2ARPeriodicHMM(a, θᴬ, θᴮr, T).A
+    @test degrees(SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)) == (deg, deg)
+
+    # B-splines: a smooth curve that need not be periodic, and a cyclic one that is
+    bA, bB = BSplineBasis(1, T, 3), CyclicBSplineBasis(T, 6)
+    θᴬs = 0.5randn(rng, K, K - 1, nbasis(bA))
+    θᴬs[1, 1, :] .+= 1.5                  # persistent states
+    θᴬs[2, 1, :] .-= 1.5
+    θᴮs = randn(rng, K, D, 2^order, nbasis(bB))
+    m = SmoothARPeriodicHMM(a, θᴬs, θᴮs, T; basis_A=bA, basis_B=bB)
+    @test m.basis_A === bA && m.basis_B === bB
+    XA, XB = design_matrix(bA, 1:T), design_matrix(bB, 1:T)
+    @test ARPeriodicHMM(m).A[1, 1, 4] ≈ inv_logit(sum(XA[4, :] .* θᴬs[1, 1, :]))
+    @test succprob(ARPeriodicHMM(m).B[2, 7, 3, 1]) ≈ inv_logit(sum(XB[7, :] .* θᴮs[2, 3, 1, :]))
+    @test_throws ArgumentError degrees(m)             # a spline basis has no degree
+    # six coefficients are not the 2d + 1 of a trigonometric polynomial: the basis must be given
+    @test_throws ArgumentError SmoothARPeriodicHMM(a, θᴬ, θᴮs, T)
+    # and a basis whose size is not the number of coefficients is refused
+    @test_throws ArgumentError SmoothARPeriodicHMM(a, θᴬs, θᴮs, T; basis_A=bB, basis_B=bB)
+
+    N = 6_000
+    n2t = n_to_t(N, T)
+    y_past = rand(rng, Bool, D, order)
+    z, y = rand(rng, m, n2t; Y_past=y_past, z_ini=1, seq=true)
+    # start from the right level and no variation: B-splines sum to one, so a constant
+    # coefficient vector is a constant curve
+    θᴮ0 = repeat(mean(θᴮs; dims=4), 1, 1, 1, nbasis(bB))
+    m0 = SmoothARPeriodicHMM(a, zeros(K, K - 1, nbasis(bA)), θᴮ0, T; basis_A=bA, basis_B=bB)
+    m_fit, hist = fit_mle(m0, y, y_past; n2t, maxiter=200, tol=1e-6)
+    @test m_fit.basis_A === bA && m_fit.basis_B === bB
+    @test all(diff(hist.logtots) .> -1e-8 * abs(hist.logtots[1]))
+    @test loglikelihood(m_fit, y, y_past; n2t) ≈ hist.logtots[end]
+    # Checking a fit against the truth, the parameters the data were drawn from. By Wilks'
+    # theorem, twice the loglikelihood gain of the MLE over the truth is asymptotically χ² with
+    # `p = nparams` degrees of freedom: the gain is about p/2 ± √(2p)/2. Hence two bounds:
+    # - `gain > 0`: the fit reached at least the truth's likelihood. It fails when EM stops
+    #   early or in a worse local optimum.
+    # - `gain < p`: exceeded with probability about 2e-7 at p = 82. It fails when the
+    #   likelihood is not the one the data came from: short sequences drawn with the old `rand`,
+    #   whose initial condition sat inside the draw, gave 196 nats in the test below.
+    # For HMMs the theorem rests on the asymptotic normality of the MLE (Bickel, Ritov & Rydén),
+    # shown for emissions that depend on past observations, as here, by Douc, Moulines & Rydén.
+    # For many independent sequences it is ordinary MLE theory; a periodic chain is homogeneous
+    # once grouped by period, an argument rather than a reference. The truth is only defined up
+    # to a relabelling of the states, so the fits start from its labelling.
+    # - S. S. Wilks (1938), Ann. Math. Statist. 9(1):60-62, doi:10.1214/aoms/1177732360
+    # - P. J. Bickel, Y. Ritov, T. Rydén (1998), Ann. Statist. 26(4):1614-1635,
+    #   doi:10.1214/aos/1024691255
+    # - R. Douc, É. Moulines, T. Rydén (2004), Ann. Statist. 32(5):2254-2304,
+    #   doi:10.1214/009053604000000021
+    # Measured here: 50.7 nats for 82 parameters, against 41 ± 6.4. Single success probabilities
+    # are only roughly recovered: a cell holds 60-120 observations, and the worst is off by 0.29
+    # with the median at 0.07.
+    gain = hist.logtots[end] - loglikelihood(m, y, y_past; n2t)
+    @test 0 < gain < SPSM.nparams(m)
+    @test median(abs.(succprob.(ARPeriodicHMM(m_fit).B) .- succprob.(ARPeriodicHMM(m).B))) < 0.1
+
+    # the site-dependent model takes the same bases
+    θᴮrs = [[randn(rng, nbasis(bB)) for _ = 1:2^o] for k = 1:K, o in (0, 1, 2)]
+    ms = SmoothsARPeriodicHMM(a, θᴬs, θᴮrs, T; basis_A=bA, basis_B=bB)
+    @test succprob(sARPeriodicHMM(ms).B[1, 7, 3][4]) ≈ inv_logit(sum(XB[7, :] .* θᴮrs[1, 3][4]))
+    y_pasts = [rand(rng, Bool, o) for o in (0, 1, 2)]
+    ys = rand(rng, ms, n2t; Y_past=y_pasts, z_ini=1)
+    ms_fit, hist_s = fit_mle(ms, ys, y_pasts; n2t, maxiter=10)
+    @test all(diff(hist_s.logtots) .> -1e-8 * abs(hist_s.logtots[1]))
+    @test loglikelihood(ms_fit, ys, y_pasts; n2t) ≈ hist_s.logtots[end]
+end
+
+@testset "Smooth HMMs: several independent sequences" begin
+    K, D, T, order = 2, 3, 15, 1
+    rng = StableRNG(8)
+    a = [0.3, 0.7]
+    basis = BSplineBasis(1, T, 4)    # a position along each sequence, not a periodic index
+    nb = nbasis(basis)
+    θᴬ = 0.3randn(rng, K, K - 1, nb)
+    θᴬ[1, 1, :] .+= 2.0
+    θᴬ[2, 1, :] .-= 2.0
+    θᴮ = randn(rng, K, D, 2^order, nb)
+    θᴮ[1, :, :, :] .+= 1.0
+    θᴮ[2, :, :, :] .-= 1.0
+    m = SmoothARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A=basis, basis_B=basis)
+
+    # each sequence covers the positions `1:T`, after its own initial condition
+    G = 80
+    Y_pasts = [rand(rng, Bool, D, order) for _ = 1:G]
+    sims = [rand(rng, m, 1:T; Y_past=Y_pasts[g], seq=true) for g = 1:G]
+    Ys = [y for (_, y) in sims]
+    zs = [z for (z, _) in sims]
+    n2ts = [collect(1:T) for _ = 1:G]
+
+    # the loglikelihood of independent sequences is the sum of theirs, and not that of the
+    # sequences laid end to end
+    ll = loglikelihood(m, Ys, Y_pasts; n2t=n2ts)
+    @test ll ≈ sum(loglikelihood(m, Ys[g], Y_pasts[g]; n2t=n2ts[g]) for g = 1:G)
+    @test !(ll ≈ loglikelihood(m, reduce(hcat, Ys), Y_pasts[1]; n2t=reduce(vcat, n2ts)))
+    # `n2t` defaults to `n_to_t(Nᵢ, T)`
+    @test loglikelihood(m, Ys, Y_pasts) ≈ loglikelihood(m, Ys, Y_pasts; n2t=n2ts)
+    @test_throws ArgumentError loglikelihood(m, Ys, Y_pasts[1:2]; n2t=n2ts)
+
+    θᴮ0 = zeros(K, D, 2^order, nb)
+    θᴮ0[1, :, :, :] .= 0.5
+    θᴮ0[2, :, :, :] .= -0.5
+    m0 = SmoothARPeriodicHMM(fill(1 / K, K), zeros(K, K - 1, nb), θᴮ0, T; basis_A=basis, basis_B=basis)
+
+    # one sequence in a vector is the single-sequence fit
+    m1, h1 = fit_mle(m0, Ys[1], Y_pasts[1]; n2t=n2ts[1], maxiter=5)
+    m1v, h1v = fit_mle(m0, Ys[1:1], Y_pasts[1:1]; n2t=n2ts[1:1], maxiter=5)
+    @test parameters(m1v) ≈ parameters(m1)
+    @test h1v.logtots ≈ h1.logtots
+
+    m_fit, hist = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, maxiter=200, tol=1e-6)
+    @test m_fit.cfg === nothing    # the fitting context, which holds the data's index sets, stays behind
+    @test all(diff(hist.logtots) .> -1e-8 * abs(hist.logtots[1]))
+    @test loglikelihood(m_fit, Ys, Y_pasts; n2t=n2ts) ≈ hist.logtots[end]
+    @test 0 < hist.logtots[end] - ll < SPSM.nparams(m)    # Wilks' bound, see the test on bases above
+
+    # one decoded path per sequence, each the single-sequence decoding
+    paths = viterbi(m_fit, Ys, Y_pasts; n2t=n2ts)
+    @test length(paths) == G && all(length.(paths) .== T)
+    @test paths[3] == viterbi(m_fit, Ys[3], Y_pasts[3]; n2t=n2ts[3])
+    ẑ, z = reduce(vcat, paths), reduce(vcat, zs)
+    @test max(mean(ẑ .== z), mean(ẑ .!= z)) > 0.8
+
+    # the site-dependent model, likewise
+    orders = (0, 1, 2)
+    θᴮr = [[randn(rng, nb) for _ = 1:2^o] for k = 1:K, o in orders]
+    ms = SmoothsARPeriodicHMM(a, θᴬ, θᴮr, T; basis_A=basis, basis_B=basis)
+    Yp_s = [[rand(rng, Bool, o) for o in orders] for _ = 1:G]
+    Ys_s = [rand(rng, ms, n2ts[g]; Y_past=Yp_s[g], z_ini=1) for g = 1:G]
+    @test loglikelihood(ms, Ys_s, Yp_s; n2t=n2ts) ≈
+          sum(loglikelihood(ms, Ys_s[g], Yp_s[g]; n2t=n2ts[g]) for g = 1:G)
+    ms_fit, hist_s = fit_mle(ms, Ys_s, Yp_s; n2t=n2ts, maxiter=10)
+    @test all(diff(hist_s.logtots) .> -1e-8 * abs(hist_s.logtots[1]))
+    @test loglikelihood(ms_fit, Ys_s, Yp_s; n2t=n2ts) ≈ hist_s.logtots[end]
+    @test length(viterbi(ms_fit, Ys_s, Yp_s; n2t=n2ts)) == G
+
+    # HiddenMarkovModels.jl on several sequences: the controls end to end, and `seq_ends`
+    seq_ends = cumsum(size.(Ys, 2))
+    controls = SeasonalControls(Ys, Y_pasts; n2t=n2ts)
+    obs = [Y[:, n] for Y in Ys for n in axes(Y, 2)]
+    @test HMMs.logdensityof(m_fit, obs, controls; seq_ends) ≈ hist.logtots[end]
+    @test HMMs.viterbi(m_fit, obs, controls; seq_ends)[1] == ẑ
+    @test HMMs.logdensityof(ms_fit, [Y[:, n] for Y in Ys_s for n in axes(Y, 2)],
+        SeasonalControls(Ys_s, Yp_s; n2t=n2ts); seq_ends) ≈ hist_s.logtots[end]
+
+    # a likelihood needs no solver, so it is not in the fitting extension
+    @test which(loglikelihood, Tuple{typeof(m),Matrix{Bool},Matrix{Bool}}).module === SPSM
+
+    # model selection, with `nobs` the observed steps of all sequences
+    f = fit(SeasonalFit, m0, Ys, Y_pasts; n2t=n2ts, maxiter=200, tol=1e-6)
+    @test loglikelihood(f) ≈ hist.logtots[end]
+    @test nobs(f) == G * T
+    @test dof(f) == SPSM.nparams(m0)
+    @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(G * T)
+    @test :retcode ∉ propertynames(f)
+    @test occursin("coefficients\nFitHistory", sprint(show, MIME"text/plain"(), f))
+end
+
+@testset "fit_mle_all_slices: a starting point from D × N observations" begin
+    K, T, D, deg = 2, 5, 3, 1
+    # well-separated states, so that one mixture per period index identifies them
+    θᴬ = zeros(K, K - 1, 2deg + 1)
+    θᴬ[:, 1, 1] = [2.0, -2.0]
+    θᴮ = zeros(K, D, 1, 2deg + 1)
+    θᴮ[1, :, :, 1] .= 2.0
+    θᴮ[2, :, :, 1] .= -2.0
+    N = 10_000
+    n2t = n_to_t(N, T)
+
+    # no memory: every (state, site) cell is well filled, and the emissions are recovered
+    truth = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T)
+    y_past = zeros(Bool, D, 0)
+    y = rand(MersenneTwister(40), truth, n2t; Y_past=y_past, z_ini=1)
+    start = randARPeriodicHMM(MersenneTwister(41), K, T, D, 0)
+    B_start = copy(start.B)
+    hmm, hist = fit_mle_all_slices(MersenneTwister(42), start, y, y_past; n2t, n_random_ini=3,
+        robust=true, history=true)
+    @test start.B == B_start                       # the start is copied, not overwritten
+    @test length(hist) == T
+    @test all(isprobvec(hmm.A[k, :, t]) for k = 1:K, t = 1:T)
+    @test maximum(abs, succprob.(hmm.B) .- succprob.(truth.B)) < 0.05
+
+    # memory of order 1
+    truth1 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, cat(θᴮ, θᴮ; dims=3), T)
+    y_past1 = zeros(Bool, D, 1)
+    y1 = rand(MersenneTwister(43), truth1, n2t; Y_past=y_past1, z_ini=1)
+    hmm1 = fit_mle_all_slices(MersenneTwister(44), randARPeriodicHMM(MersenneTwister(45), K, T, D, 1),
+        y1, y_past1; n2t, n_random_ini=3, robust=true)
+    @test size(hmm1) == size(truth1)
+    @test all(isprobvec(hmm1.A[k, :, t]) for k = 1:K, t = 1:T)
+
+    # site-dependent memory: the order-0 site has full cells and is roughly recovered. A mixture
+    # per period index ignores the dynamics, so it is biased: over six seeds the worst cell is off
+    # by 0.06-0.10, with this `rand` and with the previous one (which gave 0.048 at this seed).
+    orders = [0, 1, 2]
+    θᴮs = [[θᴮ[k, j, 1, :] for _ = 1:2^orders[j]] for k = 1:K, j = 1:D]
+    truths = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮs, T)
+    y_pasts = [zeros(Bool, o) for o in orders]
+    ys = rand(MersenneTwister(46), truths, n2t; Y_past=y_pasts, z_ini=1)
+    hmms = fit_mle_all_slices(MersenneTwister(47), randARPeriodicHMM(MersenneTwister(48), K, T, orders),
+        ys, y_pasts; n2t, n_random_ini=3, robust=true)
+    @test all(isprobvec(hmms.A[k, :, t]) for k = 1:K, t = 1:T)
+    @test maximum(abs(succprob(hmms.B[k, t, 1][1]) - succprob(truths.B[k, t, 1][1])) for k = 1:K, t = 1:T) < 0.15
+
+    # `likelihoods!` is the exponential of `loglikelihoods!`, for both layouts
+    for (model, obs, past) in ((truth1, y1, y_past1), (truths, ys, y_pasts))
+        lag_cat = SPSM.conditional_to(obs, past)
+        L, LL = zeros(N, K), zeros(N, K)
+        SPSM.likelihoods!(L, model, obs, lag_cat; n2t)
+        SPSM.loglikelihoods!(LL, model, obs, lag_cat; n2t)
+        @test L ≈ exp.(LL)
+    end
+end
+
 @testset "PeriodicHMM" begin
     Random.seed!(2020)
     K = 3 # Number of Hidden states
@@ -1133,7 +1442,7 @@ end
     z_ini = 1
     y_past = rand(Bool, D, autoregressive_order)
     n2t = n_to_t(N, T)
-    z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
+    z, y = rand(hmm, n2t; Y_past=y_past, z_ini=z_ini, seq=true)
 
     trans_θ_guess = rand(K, K - 1, size_degree_of_P)
     trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]
@@ -1159,6 +1468,11 @@ end
     @test length(hist.ps_iters) == hist.iterations + 1
     # the last kept iterate is the model that was returned
     @test hist.ps_iters[end].A == θq_fit && hist.ps_iters[end].B == θy_fit
+    # plain arrays, so the history can be saved; and no solver report, since EM keeps no solve
+    @test hist.ps_iters[end].A isa Array{Float64,3}
+    @test :ps_iters in propertynames(hist)
+    @test isempty(intersect(propertynames(hist), (:solution, :retcode, :objective, :stats)))
+    @test_throws ArgumentError hist.retcode
 
     # With the fitted model, decoding recovers the simulated states far better than chance (1/K)
     ẑ = viterbi(hmm_fit, y, y_past; n2t=n2t)
@@ -1180,7 +1494,7 @@ end
         z_ini = 1
         y_past = rand(Bool, D, autoregressive_order)
         n2t = n_to_t(N, T)
-        z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
+        z, y = rand(hmm, n2t; Y_past=y_past, z_ini=z_ini, seq=true)
 
         trans_θ_guess = rand(K, K - 1, size_degree_of_P)
         trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]
@@ -1233,7 +1547,7 @@ addprocs(2)
     z_ini = 1
     y_past = rand(Bool, D, autoregressive_order)
     n2t = n_to_t(N, T)
-    z, y = rand(hmm, n2t; y_ini=y_past, z_ini=z_ini, seq=true)
+    z, y = rand(hmm, n2t; Y_past=y_past, z_ini=z_ini, seq=true)
 
     trans_θ_guess = rand(K, K - 1, size_degree_of_P)
     trans_θ_guess[:, :, 1] .= trans_θ[:, :, 1]

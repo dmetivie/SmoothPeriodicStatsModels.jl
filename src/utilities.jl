@@ -1,14 +1,19 @@
 """
-    Merge vectors with alternate elements
-    For example
-    ```julia
-    x = [x₁, x₂]
-    y = [y₁, y₂]
-    interleave2(x, y) = [x₁, y₁, x₂, y₂]
-    ```
+    interleave2(args...) -> Vector
+
+Merge vectors by alternating their elements.
+
+```julia
+interleave2([1, 2], [10, 20]) == [1, 10, 2, 20]
+```
 """
 interleave2(args...) = collect(Iterators.flatten(zip(args...)))
 
+"""
+    remaining(N::Int)
+
+The indices `1:N`, or an empty `Vector{Int}` when `N ≤ 0`.
+"""
 remaining(N::Int) = N > 0 ? range(1, length=N) : Int64[]
 
 # TODO: add check on length of β
@@ -38,12 +43,35 @@ function polynomial_trigo(t::AbstractArray{<:Number}, β)
     return β[1] .+ sum(β[2*l] * cos.(2π * l * t) + β[2*l+1] * sin.(2π * l * t) for l = 1:d; init=zero(t))
 end
 
-# Link functions mapping the trigonometric polynomial onto each parameter's domain.
-# `t` is in fractions of a period, as for `polynomial_trigo`.
-μₜ(t, θ::AbstractArray) = polynomial_trigo(t, θ[:]) # not constrained
-αₜ(t, θ::AbstractArray) = logistic(polynomial_trigo(t, θ[:])) # [0,1] parameter
-σₜ(t, θ::AbstractArray) = exp(polynomial_trigo(t, θ[:])) # >0 parameter
-ρₜ(t, θ::AbstractArray) = 2logistic(polynomial_trigo(t, θ[:])) - 1 # [-1,1]
+"""
+    μₜ(t, θ) -> Real
+
+An unconstrained seasonal parameter: `polynomial_trigo(t, θ)`, with `t` in fractions of a period.
+"""
+μₜ(t, θ::AbstractArray) = polynomial_trigo(t, θ[:])
+
+"""
+    αₜ(t, θ) -> Real
+
+A seasonal parameter in `(0, 1)`: `logistic(polynomial_trigo(t, θ))`, with `t` in fractions of a
+period.
+"""
+αₜ(t, θ::AbstractArray) = logistic(polynomial_trigo(t, θ[:]))
+
+"""
+    σₜ(t, θ) -> Real
+
+A positive seasonal parameter: `exp(polynomial_trigo(t, θ))`, with `t` in fractions of a period.
+"""
+σₜ(t, θ::AbstractArray) = exp(polynomial_trigo(t, θ[:]))
+
+"""
+    ρₜ(t, θ) -> Real
+
+A seasonal parameter in `(-1, 1)`: `2logistic(polynomial_trigo(t, θ)) - 1`, with `t` in fractions
+of a period.
+"""
+ρₜ(t, θ::AbstractArray) = 2logistic(polynomial_trigo(t, θ[:])) - 1
 
 # ## Transition matrices
 # Originally `PeriodicHiddenMarkovModels`', itself from HMMBase; neither keeps them, and the

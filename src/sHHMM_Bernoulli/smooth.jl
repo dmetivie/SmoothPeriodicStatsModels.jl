@@ -4,36 +4,41 @@
 # generate — for the variant where each site carries its own autoregressive order.
 
 """
-    SmoothsARPeriodicHMM(a, θᴬ, θᴮ, T)
+    SmoothsARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)
 
-A periodic autoregressive Bernoulli HMM with site-dependent memory, carrying the coefficients
-that generate it.
+A periodic autoregressive Bernoulli HMM with site-dependent memory, given by its coefficients,
+with the layout and the bases of the coefficient method of [`sARPeriodicHMM`](@ref).
 
 ```julia
 m  = SmoothsARPeriodicHMM(a, θᴬ, θᴮ, T)
 parameters(m)                  # (A = θᴬ, B = θᴮ)
 m, history = fit_mle(m, Y, Y_past; n2t)
-sARPeriodicHMM(m)              # the evaluated twin
+sARPeriodicHMM(m)              # the evaluated model
 ```
 
-Unlike its sibling, `parameters(m)` is a `NamedTuple` and not a `ComponentArray`: `θᴮ[k, j]` is
-a vector of coefficient vectors, one per memory category of site `j`, and the sites may differ
-in order — a ragged shape that no flat container holds. Everything else, including the
-`(model, history)` return, is the same.
+`parameters(m)` is a `NamedTuple`: `θᴮ[k, j]` holds one coefficient vector per memory category of
+site `j`, and the sites may differ in order.
 """
-struct SmoothsARPeriodicHMM{A,B,S<:sARPeriodicHMM,C} <: HMMs.AbstractHMM
+struct SmoothsARPeriodicHMM{A,B,S<:sARPeriodicHMM,BA,BB,C} <: HMMs.AbstractHMM
     θᴬ::A
     θᴮ::B
     stored::S    # concrete: every accessor reads it, once per observation
     nT::Int
+    basis_A::BA
+    basis_B::BB
     cfg::C
 end
 
 function SmoothsARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
-    θᴮ::AbstractMatrix, T::Integer; cfg=nothing)
+    θᴮ::AbstractMatrix, T::Integer;
+    basis_A=TrigBasis(T, _trig_order(size(θᴬ, 3), "θᴬ")),
+    basis_B=TrigBasis(T, _trig_order(length(first(first(θᴮ))), "θᴮ")), cfg=nothing)
     θᴬ, θᴮ = collect(float.(θᴬ)), deepcopy(θᴮ)
-    return SmoothsARPeriodicHMM(θᴬ, θᴮ, Trig2ARPeriodicHMM(a, θᴬ, θᴮ, T), Int(T), cfg)
+    stored = sARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)
+    return SmoothsARPeriodicHMM(θᴬ, θᴮ, stored, Int(T), basis_A, basis_B, cfg)
 end
+
+degrees(m::SmoothsARPeriodicHMM) = (_trig_degree(m.basis_A), _trig_degree(m.basis_B))
 
 parameters(m::SmoothsARPeriodicHMM) = (A=m.θᴬ, B=m.θᴮ)
 nparams(m::SmoothsARPeriodicHMM) =
@@ -42,7 +47,7 @@ nparams(m::SmoothsARPeriodicHMM) =
 """
     sARPeriodicHMM(m::SmoothsARPeriodicHMM) -> sARPeriodicHMM
 
-The evaluated twin: the `A` and `B` arrays the coefficients generate.
+The `sARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
 sARPeriodicHMM(m::SmoothsARPeriodicHMM) = m.stored
 
@@ -57,31 +62,27 @@ HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothsARPeriodicHMM, obs, c::Tu
 # Rewrite the evaluated arrays from the current coefficients, in place.
 function _refresh!(m::SmoothsARPeriodicHMM)
     K, T, D = size(m.stored.B, 1), m.nT, size(m.stored.B, 3)
-    if K > 1
-        A = m.stored.A
-        for k = 1:K, l = 1:K-1, t = 1:T
-            A[k, l, t] = exp(polynomial_trigo(t / T, view(m.θᴬ, k, l, :)))
-        end
-        for k = 1:K, t = 1:T
-            A[k, K, t] = 1
-        end
-        for k = 1:K, t = 1:T
-            s = sum(view(A, k, :, t))
-            for l = 1:K
-                A[k, l, t] /= s
-            end
-        end
-    end
+    _transitions!(m.stored.A, m.θᴬ, design_matrix(m.basis_A, 1:T))
+    X = design_matrix(m.basis_B, 1:T)
     for k = 1:K, t = 1:T, j = 1:D
-        m.stored.B[k, t, j][:] .=
-            Bernoulli.([logistic(polynomial_trigo(t / T, θh)) for θh in m.θᴮ[k, j]])
+        Bt = m.stored.B[k, t, j]
+        for (h, θh) in enumerate(m.θᴮ[k, j])
+            Bt[h] = Bernoulli(logistic(_linear_predictor(X, t, θh)))
+        end
     end
     return m
 end
 
-rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, args...; kwargs...) =
-    rand(rng, m.stored, args...; kwargs...)
-rand(m::SmoothsARPeriodicHMM, args...; kwargs...) = rand(GLOBAL_RNG, m.stored, args...; kwargs...)
+# One method per signature, as for `SmoothARPeriodicHMM`.
+rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, N::Integer; kwargs...) = rand(rng, m.stored, N; kwargs...)
+rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, n2t::_IndexVector; kwargs...) =
+    rand(rng, m.stored, n2t; kwargs...)
+rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
+    rand(rng, m.stored, z, n2t; kwargs...)
+rand(m::SmoothsARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
+rand(m::SmoothsARPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
+rand(m::SmoothsARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
+    rand(GLOBAL_RNG, m, z, n2t; kwargs...)
 
 loglikelihoods(m::SmoothsARPeriodicHMM, args...; kwargs...) = loglikelihoods(m.stored, args...; kwargs...)
 viterbi(m::SmoothsARPeriodicHMM, args...; kwargs...) = viterbi(m.stored, args...; kwargs...)
@@ -92,6 +93,7 @@ function Base.show(io::IO, ::MIME"text/plain", m::SmoothsARPeriodicHMM)
     K, D, T, size_orders = size(m.stored)
     println(io, "SmoothsARPeriodicHMM: ", K, " states, ", D, " sites, period ", T,
         ", memory per site ", Int.(log2.(size_orders)))
+    println(io, "  transitions  ", m.basis_A, ", emissions ", m.basis_B)
     print(io, "  ", nparams(m), " coefficients")
     return
 end

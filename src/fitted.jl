@@ -15,20 +15,21 @@
 
 A seasonal fit together with what is needed to judge it.
 
+`fit(SeasonalFit, m0, data...; kwargs...)` runs the same estimator as `fit_mle(m0, data...;
+kwargs...)` and keeps the sample size and the attained loglikelihood, so that `loglikelihood`,
+`dof`, `nobs`, `aic`, `aicc` and `bic` are defined.
+
 ```julia
-m, history = fit_mle(m0, y; n2t)        # the usual call: model in, model out
+m, history = fit_mle(m0, y; n2t)
 f = fit(SeasonalFit, m0, y; n2t)        # the same estimator, diagnostics kept
 
-f.model          # the fitted `SmoothAR1`, as `fit_mle` would have returned
-f.history        # as `fit_mle` would have returned
-coef(f, :ρ)      # that parameter's coefficients
+f.model          # the fitted model, as `fit_mle` returns it
+f.history        # the `FitHistory`, as `fit_mle` returns it
+coef(f, :ρ)      # one parameter's coefficients
 curve(f, :σ)     # σ(t) over one period
-rand(f, 10_000)  # it behaves like the model it fitted
-bic(f)           # choose a degree, or a number of states
+rand(f, 10_000)  # samples from the fitted model
+bic(f)           # to choose a degree, or a number of states
 ```
-
-`loglikelihood`, `dof` and `nobs` are the whole `StatisticalModel` interface that `aic`, `aicc`
-and `bic` are built from, so stating those three is enough.
 """
 struct SeasonalFit{M,H,L} <: StatisticalModel
     model::M
@@ -55,10 +56,22 @@ TimeVaryingParameters.curve(f::SeasonalFit, name::Symbol, times...) =
 StatsAPI.params(f::SeasonalFit, t) = params(f.model, t)
 (f::SeasonalFit)(t) = f.model(t)
 
-rand(rng::AbstractRNG, f::SeasonalFit, args...; kwargs...) = rand(rng, f.model, args...; kwargs...)
-rand(f::SeasonalFit, args...; kwargs...) = rand(GLOBAL_RNG, f.model, args...; kwargs...)
+# A length, or a vector followed by the other arguments of the model's own `rand`. A single
+# `args...` method would be ambiguous with `Random`'s `rand` methods.
+rand(rng::AbstractRNG, f::SeasonalFit, N::Integer; kwargs...) = rand(rng, f.model, N; kwargs...)
+rand(rng::AbstractRNG, f::SeasonalFit, x::AbstractVector, args...; kwargs...) =
+    rand(rng, f.model, x, args...; kwargs...)
+rand(f::SeasonalFit, N::Integer; kwargs...) = rand(GLOBAL_RNG, f, N; kwargs...)
+rand(f::SeasonalFit, x::AbstractVector, args...; kwargs...) = rand(GLOBAL_RNG, f, x, args...; kwargs...)
 
 StatsAPI.loglikelihood(f::SeasonalFit) = f.loglikelihood
+
+"""
+    nobs(f::SeasonalFit) -> Int
+
+The number of terms in the fitted loglikelihood: the number of transitions for an AR(1), of
+observations for a mixture.
+"""
 StatsAPI.nobs(f::SeasonalFit) = f.nobs
 
 """
@@ -79,8 +92,8 @@ converged(f::SeasonalFit) = converged(f.history)
     return getfield(f, name)
 end
 
-Base.propertynames(::SeasonalFit) =
-    (fieldnames(SeasonalFit)..., :retcode, :objective, :stats)
+Base.propertynames(f::SeasonalFit) = (fieldnames(SeasonalFit)...,
+    filter(!=(:solution), _solver_properties(getfield(f, :history)))...)
 
 # v3 returned bare tuples here, so `θμ, θρ, θσ = fit_mle_AR1(...)` was the idiom, and v4's own
 # `fit_mle` returns a 2-tuple. Destructuring calls `iterate`, which would otherwise be an
@@ -98,7 +111,8 @@ end
 
 function Base.show(io::IO, ::MIME"text/plain", f::SeasonalFit)
     print(io, "SeasonalFit of ")
-    show(io, MIME"text/plain"(), f.model)
+    model = sprint(show, MIME"text/plain"(), f.model; context=io)
+    print(io, model, endswith(model, '\n') ? "" : "\n")
     show(io, MIME"text/plain"(), f.history)
     print(io, "\n  loglikelihood ", round(loglikelihood(f); digits=2),
         "   dof ", dof(f), "   nobs ", nobs(f), "   bic ", round(bic(f); digits=2))

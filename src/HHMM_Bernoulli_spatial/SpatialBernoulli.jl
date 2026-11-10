@@ -1,9 +1,12 @@
 #-----------------will soon be replace by using SpatialBernoulli, Caroline's own package.  ---------------------------#
 
 """
-    SpatialBernoulli{TR<:Real, AV<:AbstractVector, AM<:AbstractMatrix, AAM<:AbstractMatrix}
-Defines a discrete multivariate distribution `SpatialBernoulli` using a latent Gaussian process. The latent covariance matrix is defined by a Matern covariance (range). 
-The marginal Bernoulli probabilities are given by `λ`.
+    SpatialBernoulli(range, λ, h)
+    SpatialBernoulli(range, λ, h, ΣU)
+
+A multivariate Bernoulli distribution on `D` sites: site `s` is a success with probability
+`λ[s]`, and the sites are correlated through a latent Gaussian vector with covariance
+`ΣU = expkernel.(h; range)`, `h` being the `D × D` distance matrix between sites.
 """
 struct SpatialBernoulli{TR<:Real,AV<:AbstractVector,AM<:AbstractMatrix,AAM<:AbstractMatrix} <: DiscreteMultivariateDistribution
     range::TR
@@ -14,20 +17,15 @@ end
 
 Base.length(d::SpatialBernoulli) = length(d.λ)
 
-"""
-    SpatialBernoulli(range, λ, h)
-Constructor for a discrete multivariate distribution `SpatialBernoulli` using a latent Gaussian process. The latent covariance matrix is defined by a exp covariance (range). 
-The marginal Bernoulli probabilities are given by `λ`.
-The constructor used the distance matrix to compute the covariance matrix.
-"""
 function SpatialBernoulli(range, λ, h)
     C_GS = expkernel.(h; range=range)
     return SpatialBernoulli(range, λ, h, C_GS)
 end
 
 """
-expkernel(h;range)
-Define the exponential kernel. 
+    expkernel(h; range) -> Real
+
+The exponential correlation `exp(-h / range)` at distance `h`, and `1` at `h = 0`.
 """
 function expkernel(h; range)
     iszero(h) && return one(h)
@@ -42,13 +40,12 @@ function Distributions._rand!(rng::AbstractRNG, d::SpatialBernoulli, x::Abstract
 end
 
 """
+    pdf(d::SpatialBernoulli, y; m = 500length(d), return_error = false)
 
-    pdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; m=length(d) * 100, return_error=false)
-pdf(y) = CDF(N(mu,sigma))(0,...,0) is all there is to compute !
-``
-h(y) = \\int_{-infty}^0 \\dots \\int_{-infty}^0 pdf(\\mathcal{N}((-1)^{y_s}\\sigma_s \\phi^{-1}(\\lambda_s)),\\Sigma U)
-``
-recommended to use m= d*1000 inside of MvNormalCDF, set to d*100 as a starting point for this work (is quite ok)
+The probability of the binary vector `y`: the probability that the latent Gaussian vector lies in
+the orthant `y` selects, estimated by quasi-Monte-Carlo with `m` points
+(`MvNormalCDF.mvnormcdf`). `return_error = true` returns `(estimate, error)`. `logpdf` is its
+logarithm.
 """
 function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; m=length(d) * 500, return_error=false, a=zeros(length(d)), b=zeros(length(d)), finite_bounds=zeros(length(d)), zerosvec=fill(0, length(d)))
     finite_bounds .= quantile.(Normal(), d.λ)

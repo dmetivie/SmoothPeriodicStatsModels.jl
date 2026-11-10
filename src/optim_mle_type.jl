@@ -1,3 +1,8 @@
+"""
+    AbstractMLE
+
+Supertype of the maximum likelihood problems that `fit_mle(problem, y)` solves.
+"""
 abstract type AbstractMLE end
 
 # All three fields are parametric so that the type stays concrete: with `ℓ::Function` the compiler

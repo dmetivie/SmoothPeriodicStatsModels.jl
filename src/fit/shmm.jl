@@ -38,7 +38,7 @@ function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::A
     end
 
     for k = 1:K, t = 1:T, s = 1:D
-        B[k, t, s][:] .= Bernoulli.([logistic(polynomial_trigo(t / T, θh)) for θh in θᴮ[k, s]])
+        B[k, t, s][:] .= Bernoulli.([logistic(_linear_predictor(basis, t, θh)) for θh in θᴮ[k, s]])
     end
 end
 

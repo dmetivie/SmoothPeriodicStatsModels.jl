@@ -52,6 +52,12 @@ end
 # Observation matrices are written sites-first below and transposed when the loaded version wants
 # them time-first, so both revisions are timed on the very same data.
 const as_obs = DXN ? identity : permutedims
+
+# v4 renamed `rand`'s initial condition `y_ini` to `Y_past`, the name the fits use, and no longer
+# returns it as the first columns of the draw. Asked of the signature, as for `solve_kwargs`.
+const rand_takes_Y_past = any(m -> :Y_past in Base.kwarg_decl(m),
+    methods(rand, (AbstractRNG, ARPeriodicHMM, Vector{Int}, Vector{Int})))
+initial_condition(y) = rand_takes_Y_past ? (; Y_past=y) : (; y_ini=y)
 const SUITE = BenchmarkGroup()
 
 """
@@ -124,9 +130,9 @@ let
     for (K, D, order) in [(2, 5, 0), (2, 5, 1), (4, 20, 1), (4, 20, 2)]
         hmm, = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
+        y_past = as_obs(rand(StableRNG(2), Bool, D, order))
         SUITE["hmm"]["rand"]["K=$K D=$D order=$order"] = @benchmarkable(
-            rand(rng, $hmm, $n2t; y_ini=$y_ini, z_ini=1),
+            rand(rng, $hmm, $n2t; $(initial_condition(y_past))..., z_ini=1),
             setup = (rng = StableRNG(3)),
             evals = 1
         )
@@ -143,16 +149,16 @@ let
     for (K, D, order, N) in [(2, 5, 1, 10_000), (4, 20, 1, 10_000), (4, 20, 2, 50_000)]
         hmm, = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
-        z, y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1, seq=true)
+        y_past = as_obs(rand(StableRNG(2), Bool, D, order))
+        z, y = rand(StableRNG(3), hmm, n2t; initial_condition(y_past)..., z_ini=1, seq=true)
 
         key = "K=$K D=$D order=$order N=$N"
         SUITE["hmm"]["loglikelihoods"][key] =
-            @benchmarkable loglikelihoods($hmm, $y, $y_ini; n2t=$n2t)
+            @benchmarkable loglikelihoods($hmm, $y, $y_past; n2t=$n2t)
         SUITE["hmm"]["viterbi"][key] =
-            @benchmarkable viterbi($hmm, $y, $y_ini; n2t=$n2t)
+            @benchmarkable viterbi($hmm, $y, $y_past; n2t=$n2t)
         SUITE["hmm"]["complete_loglikelihood"][key] =
-            @benchmarkable complete_loglikelihood($hmm, $y, $y_ini, $z; n2t=$n2t)
+            @benchmarkable complete_loglikelihood($hmm, $y, $y_past, $z; n2t=$n2t)
     end
 end
 
@@ -183,8 +189,8 @@ let
     for (K, D, order, N) in [(2, 5, 1, 5_000), (3, 6, 1, 10_000), (4, 10, 1, 10_000), (3, 6, 2, 10_000)]
         hmm, θᴬ, θᴮ = toy_hmm(StableRNG(1), K, D, T, order, deg)
         n2t = n_to_t(N, T)
-        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
-        y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
+        y_past = as_obs(rand(StableRNG(2), Bool, D, order))
+        y = rand(StableRNG(3), hmm, n2t; initial_condition(y_past)..., z_ini=1)
 
         θᴬ0, θᴮ0 = flat_guess(θᴬ, θᴮ)
 
@@ -194,10 +200,10 @@ let
         # entry is comparable across the break — it is the same estimator, driven differently.
         hmm_fit = if isdefined(SPSM, :SmoothARPeriodicHMM)
             m0 = SPSM.SmoothARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
-            () -> fit_mle(m0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+            () -> fit_mle(m0, y, y_past; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
         else
             hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
-            () -> fit_mle(hmm0, θᴬ0, θᴮ0, y, y_ini; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+            () -> fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
         end
 
         SUITE["hmm"]["fit_mle"]["K=$K D=$D order=$order N=$N"] =
@@ -226,17 +232,17 @@ let
 
         hmm = Trig2ARPeriodicHMMSpatial(fill(1 / K, K), θᴬ, θᴮ, θᴿ, T, distance)
         n2t = n_to_t(N, T)
-        y_ini = as_obs(rand(StableRNG(2), Bool, D, order))
-        y = rand(StableRNG(3), hmm, n2t; y_ini=y_ini, z_ini=1)
+        y_past = as_obs(rand(StableRNG(2), Bool, D, order))
+        y = rand(StableRNG(3), hmm, n2t; initial_condition(y_past)..., z_ini=1)
 
         key = "D=$D N=$N"
         SUITE["hmm_spatial"]["rand"][key] = @benchmarkable(
-            rand(rng, $hmm, $n2t; y_ini=$y_ini, z_ini=1),
+            rand(rng, $hmm, $n2t; $(initial_condition(y_past))..., z_ini=1),
             setup = (rng = StableRNG(3)),
             evals = 1
         )
         SUITE["hmm_spatial"]["loglikelihoods"][key] = @benchmarkable(
-            loglikelihoods($hmm, $y, $y_ini; n2t=$n2t, QMC_m=10),
+            loglikelihoods($hmm, $y, $y_past; n2t=$n2t, QMC_m=10),
             evals = 1
         )
     end
@@ -278,7 +284,7 @@ end
 # Newton's iterations are pinned, as the EM fits' are. Left to converge, NewtonTrustRegion
 # reaches the optimum in ~12 iterations and then its stopping test either fires or does not,
 # on last-bit rounding: when it does not, it runs on to `maxiters = 1000` at the same optimum,
-# 70× the time. Which problem size flips differs by machine and environment (master's T=100 on
+# 70× the time. Which problem size flips differs by machine and environment (main's T=100 on
 # one, the branch's T=50 on another), so that entry was timing a coin toss. Eight iterations
 # is short of convergence everywhere, so every sample does the same work.
 const newton_pinned = solver_options(maxiters=8)

@@ -1,32 +1,26 @@
 """
-    Trig2ARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::AbstractArray{<:AbstractFloat,4}, T::Integer)
-Takes trigonometric parameters `θᴬ[k∈[1,K], l∈[1,K-1]`, `d∈[1,𝐃𝐞𝐠]`, `θᴬ[k∈[1,K]`, `l∈[1,K-1]`, `d∈[1,𝐃𝐞𝐠]`
+    sARPeriodicHMM(a, θᴬ, θᴮ::AbstractMatrix, T; basis_A, basis_B) -> sARPeriodicHMM
+
+The [`sARPeriodicHMM`](@ref) of period `T` given by coefficients. `θᴬ` and the bases are as for
+the coefficient method of [`ARPeriodicHMM`](@ref); `θᴮ` is a `K × D` matrix whose entry
+`θᴮ[k, j]` holds one coefficient vector per memory category of site `j`: the success
+probability is `logistic(X_B[t, :] ⋅ θᴮ[k, j][h])`.
 """
-function Trig2ARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::AbstractMatrix, T::Integer)
+function sARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3}, θᴮ::AbstractMatrix,
+    T::Integer; basis_A=TrigBasis(T, _trig_order(size(θᴬ, 3), "θᴬ")),
+    basis_B=TrigBasis(T, _trig_order(length(first(first(θᴮ))), "θᴮ")))
     K, D = size(θᴮ)
-
-    @assert K == size(θᴬ, 1)
-    if K == 1
-        A = ones(K, K, T)
-    else
-        A = zeros(K, K, T)
-        for k = 1:K, l = 1:K-1, t = 1:T
-            #TODO use μ, α, θ functions
-            A[k, l, t] = exp(polynomial_trigo(t / T, θᴬ[k, l, :]))
-        end
-        for k = 1:K, t = 1:T
-            A[k, K, t] = 1  # last colum is 1/normalization (one could do otherwise)
-        end
-        normalization_polynomial = [1 + sum(A[k, l, t] for l = 1:K-1) for k = 1:K, t = 1:T]
-        for k = 1:K, l = 1:K, t = 1:T
-            A[k, l, t] /= normalization_polynomial[k, t]
-        end
-    end
-    # `αₜ`'s link, inlined: calling `αₜ` would copy `θ[:]` once per (k, t, s)
-    B = [Bernoulli.([logistic(polynomial_trigo(t / T, θh)) for θh in θᴮ[k, s]]) for k = 1:K, t = 1:T, s = 1:D]
-
-    return sARPeriodicHMM(a, A, B)
+    @argcheck size(θᴬ, 1) == K "`θᴬ` and `θᴮ` disagree on the number of states"
+    _check_basis(basis_A, size(θᴬ, 3), "θᴬ")
+    foreach(θh -> _check_basis(basis_B, length(θh), "θᴮ"), Iterators.flatten(θᴮ))
+    A = _transitions!(zeros(K, K, T), θᴬ, design_matrix(basis_A, 1:T))
+    X = design_matrix(basis_B, 1:T)
+    B = [Bernoulli.([logistic(_linear_predictor(X, t, θh)) for θh in θᴮ[k, s]])
+         for k = 1:K, t = 1:T, s = 1:D]
+    return sARPeriodicHMM(collect(float.(a)), A, B)
 end
 
-Trig2ARPeriodicHMM(θᴬ::AbstractArray{<:AbstractFloat,3}, θᴮ::AbstractMatrix, T::Integer) = Trig2ARPeriodicHMM(ones(size(θᴬ, 1)) ./ size(θᴬ, 1), θᴬ, θᴮ, T)
-
+Trig2ARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3}, θᴮ::AbstractMatrix, T::Integer) =
+    sARPeriodicHMM(a, θᴬ, θᴮ, T)
+Trig2ARPeriodicHMM(θᴬ::AbstractArray{<:Real,3}, θᴮ::AbstractMatrix, T::Integer) =
+    sARPeriodicHMM(fill(1 / size(θᴬ, 1), size(θᴬ, 1)), θᴬ, θᴮ, T)

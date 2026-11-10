@@ -28,6 +28,7 @@ using LogExpFunctions: logsumexp, log1pexp, logistic
 # this namespace is PeriodicHiddenMarkovModels'.
 using TimeVaryingParameters: TimeVaryingParameters,
     ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis,
+    BSplineBasis, CyclicBSplineBasis, CombinedBasis,
     PeriodicDesign, linear_predictors, design_matrix, nbasis,
     paramnames, ncoef, coefs, blockindex, blockrange, parameters_at, apply_link, curve,
     initial_coefficients,
@@ -45,6 +46,7 @@ using ComponentArrays: ComponentArray
 
 # Re-exported so that a seasonal family can be declared with nothing but this package loaded.
 export ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis
+export BSplineBasis, CyclicBSplineBasis
 export IdentityLink, LogLink, LogitLink, IntervalLink
 export paramnames, ncoef, coefs, blockindex, blockrange, curve, design_matrix, nbasis
 # The generic time-varying layer, so that a downstream package can state a seasonal model and
@@ -121,6 +123,8 @@ include("AR/AR1.jl")
 # ## HMM problem
 # The decoding kernel the three models share, on loose `a`, `A` and `LL`
 include("viterbi.jl")
+# Coefficients to the arrays of a model, for any basis
+include("hmm_coefficients.jl")
 
 include("HHMM_Bernoulli/periodichmm.jl")
 include("HHMM_Bernoulli/likelihoods.jl")
@@ -156,6 +160,7 @@ export SeasonalControls
 include("HHMM_Bernoulli/smooth.jl")
 include("sHHMM_Bernoulli/smooth.jl")
 include("HHMM_Bernoulli_spatial/smooth.jl")
+include("smooth_hmm_sequences.jl")
 export SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial, degrees
 # for HMMMspa 
 export ARPeriodicHMMSpatial,norm_cdf_2d_vfast,Trig2ARPeriodicHMMSpatial
@@ -169,7 +174,6 @@ export
     # messages.jl
     # likelihoods.jl
     loglikelihoods,
-    likelihoods,
     viterbi,
     complete_loglikelihood, nb_param, bic_sel,
     # trigonometric

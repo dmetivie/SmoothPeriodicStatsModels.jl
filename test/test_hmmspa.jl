@@ -119,7 +119,7 @@ end
 
     # rand
     Y_past = rand(Bool, D, autoregressive_order)
-    z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
+    z, Y = rand(model, n2t; seq=true, Y_past=Y_past)
 
     @test size(Y) == (D, N)
 
@@ -132,7 +132,7 @@ end
     lag_cat = SPSM.conditional_to(Y, Y_past)
     controls = SeasonalControls(n2t, lag_cat)
     @test length(controls) == N
-    @test controls[7] == (n2t[7], lag_cat[:, 7], 7)
+    @test controls[7] == (n2t[7], lag_cat[:, 7], 7, n2t[6])
     @test HMMs.initialization(model) == model.a
     @test HMMs.transition_matrix(model, controls[5]) == model.A[:, :, n2t[4]]
     @test_throws ArgumentError rand(model, controls)
@@ -172,7 +172,7 @@ end
     # `fit_mle` returns the *best* iterate here, not the last, because of that noise
     @test 1 <= history.best_iteration <= length(logtots)
     @test logtots[history.best_iteration] == maximum(logtots)
-    @test parameters(m) == history.ps_iters[history.best_iteration+1]
+    @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
 
     # the twin, the curves and the accessors all follow from the fitted coefficients
     twin = ARPeriodicHMMSpatial(m)
@@ -184,4 +184,45 @@ end
     @test curve(m, :R) == twin.R
     @test_throws ArgumentError curve(m, :nosuch)
     @test length(viterbi(m, Y, Y_past; n2t=n2t)) == N
+end
+
+@testset "ARPeriodicHMMSpatial: general bases and several sequences" begin
+    Random.seed!(99)
+    K, T, order = 2, 8, 0
+    sites = 1:5
+    h = distance[sites, sites]
+    D = length(sites)
+    θᴬ = 0.5 * (rand(K, K - 1, 3) .- 0.5)
+    θᴮ = rand(K, D, 2^order, 3) .- 0.5
+    θᴿ = rand(K, 3) .- 0.5
+    θᴿ[:, 1] = log.(100.0 .* (1:K))
+    a = fill(1 / K, K)
+
+    # the generic constructor and its trigonometric alias
+    hmm = ARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m=10)
+    trig = Trig2ARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m=10)
+    @test hmm.A == trig.A && hmm.B == trig.B && hmm.R == trig.R
+
+    # a range on cyclic B-splines; they sum to one, so constant coefficients give a constant range
+    bR = CyclicBSplineBasis(T, 4)
+    θᴿs = repeat(log.(100.0 .* (1:K)), 1, nbasis(bR))
+    m0 = SmoothARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿs, T, h; QMC_m=10, basis_R=bR)
+    @test curve(m0, :R) ≈ repeat(100.0 .* (1:K), 1, T)
+    @test m0.basis_R === bR
+    @test_throws ArgumentError degrees(m0)
+
+    G = 6
+    n2ts = [n_to_t(2T, T) for _ = 1:G]
+    Y_pasts = [zeros(Bool, D, order) for _ = 1:G]
+    Ys = [last(rand(ARPeriodicHMMSpatial(m0), n2ts[g]; Y_past=Y_pasts[g], seq=true)) for g = 1:G]
+
+    solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
+    m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=3, maxiters_R=5)
+    @test m.basis_R === bR
+    @test 1 <= history.best_iteration <= length(history.logtots)
+    @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
+    @test all(>(0), curve(m, :R))
+    @test isfinite(loglikelihood(m, Ys, Y_pasts; n2t=n2ts))
+    paths = viterbi(m, Ys, Y_pasts; n2t=n2ts)
+    @test length(paths) == G && all(length.(paths) .== 2T)
 end

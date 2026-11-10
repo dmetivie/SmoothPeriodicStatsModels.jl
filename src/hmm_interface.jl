@@ -13,15 +13,17 @@
 """
     SeasonalControls(n2t, lag_cat)
 
-The control sequence of a periodic autoregressive HMM: `(n2t[n], lag_cat[:, n], n)` at step `n`.
+The control sequence of a periodic autoregressive HMM: `(n2t[n], lag_cat[:, n], n, n2t[n-1])`
+at step `n`.
 
 `n2t[n] ∈ 1:T` is the period index and `lag_cat[j, n]` the memory category of site `j`, the
 `1 + ` binary encoding of its `order` previous values that [`conditional_to`](@ref) builds.
-The third element is the observation index, which the accessors ignore and
-[`CachedEmissions`](@ref) uses to find its row.
+The third element is the observation index, used by [`CachedEmissions`](@ref). The fourth is
+the period index of the previous observation, which the transition into `n` leaves; at `n = 1`,
+where no transition arrives, it is `n2t[1]`.
 
-Lazy on purpose: a year of 50 000 observations would otherwise be 50 000 allocated tuples, and
-the memory categories are already laid out contiguously by site.
+It is the `control_seq` to pass to `HiddenMarkovModels` functions such as `forward_backward`
+or `logdensityof`. The tuples are built on access, not stored.
 """
 struct SeasonalControls{L<:AbstractMatrix{<:Integer},E} <: AbstractVector{E}
     n2t::Vector{Int}
@@ -30,42 +32,58 @@ end
 
 function SeasonalControls(n2t::AbstractVector{<:Integer}, lag_cat::AbstractMatrix{<:Integer})
     @argcheck length(n2t) == size(lag_cat, 2) "`n2t` has $(length(n2t)) entries and `lag_cat` $(size(lag_cat, 2)) columns; both index the observations"
-    E = Tuple{Int,typeof(view(lag_cat, :, 1)),Int}
+    E = Tuple{Int,typeof(view(lag_cat, :, 1)),Int,Int}
     return SeasonalControls{typeof(lag_cat),E}(collect(Int, n2t), lag_cat)
 end
 
 """
     SeasonalControls(Y, Y_past; n2t)
+    SeasonalControls(Ys, Y_pasts; n2t)
 
-The control sequence implied by the observations: the memory categories are read off `Y` and
-its initial condition `Y_past`, as every likelihood in this package does.
+The control sequence of the `D × N` observations `Y` with initial observations `Y_past`, the
+memory categories computed with [`conditional_to`](@ref). With vectors of sequences, the
+controls of all of them end to end, in the layout of the multi-sequence [`fit_mle`](@ref); give
+`HiddenMarkovModels` the matching `seq_ends = cumsum(size.(Ys, 2))`.
 """
-SeasonalControls(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool};
-    n2t=n_to_t(size(Y, 2), 0)::AbstractVector{<:Integer}) =
+SeasonalControls(Y::AbstractMatrix{<:Bool}, Y_past::AbstractArray; n2t::AbstractVector{<:Integer}) =
     SeasonalControls(n2t, conditional_to(Y, Y_past))
 
 Base.size(c::SeasonalControls) = (length(c.n2t),)
 Base.@propagate_inbounds Base.getindex(c::SeasonalControls, n::Integer) =
-    (c.n2t[n], view(c.lag_cat, :, n), Int(n))
+    (c.n2t[n], view(c.lag_cat, :, n), Int(n), c.n2t[max(n - 1, 1)])
 
 # ## The three accessors
 #
-# ### Why the transition matrix is read one period index back
+# ### Which period index the transition matrix is read at
 #
 # This package, following Touron, indexes `A` by the period the step *leaves*: the complete
-# loglikelihood multiplies `A[z[n], z[n+1], n2t[n]]`. `HiddenMarkovModels` asks instead for the
-# matrix of the step that *arrives* at a control — `forward_backward!` builds `ξ[n]` with
-# `transition_matrix(hmm, control_seq[n + 1])`, and this has been its convention since v0.6.
+# loglikelihood multiplies `A[z[n], z[n+1], n2t[n]]`, whatever `n2t[n+1]` is. `HiddenMarkovModels`
+# asks instead for the matrix of the step that *arrives* at a control — `forward_backward!` builds
+# `ξ[n]` with `transition_matrix(hmm, control_seq[n + 1])`, its convention since v0.6. So each
+# control also carries the period index of the observation before it, and the accessor reads `A`
+# there. Stored `θᴬ` keeps its published meaning.
 #
-# The two meet at `mod1(t - 1, T)`: for contiguous data `n2t[n+1] = mod1(n2t[n] + 1, T)`, so
-# asking for period `n2t[n+1]` and shifting back by one gives `n2t[n]`, the matrix this package
-# means. Stored `θᴬ` therefore keeps its published meaning and the `.jld` assets stay valid —
-# the alternative was to redefine `A` and invalidate both.
+# Reading `A` one period index before the arriving one, `mod1(t - 1, T)`, would agree only when
+# `n2t` steps by one, and it need not: with `T = 366` and February 29 at index 60, a non-leap year
+# goes from 59 to 61 in one day, and that step leaves February 28.
 
 HMMs.initialization(hmm::ARPeriodicHMM) = hmm.a
 
-HMMs.transition_matrix(hmm::ARPeriodicHMM, (t, _)::Tuple) =
-    view(hmm.A, :, :, mod1(t - 1, size(hmm.A, 3)))
+"""
+    transition_matrix(hmm::ARPeriodicHMM, control) -> AbstractMatrix
+
+The transition matrix of the step arriving at `control`, as `HiddenMarkovModels` asks for it:
+`A[:, :, s]`, where `s = control[4]` is the period index of the previous observation, the one
+the step leaves. The elements of a [`SeasonalControls`](@ref) carry it. Also defined for
+`sARPeriodicHMM` and `ARPeriodicHMMSpatial`.
+"""
+HMMs.transition_matrix(hmm::ARPeriodicHMM, c::Tuple) = view(hmm.A, :, :, _leaving(c))
+
+# The period index the transition into a control leaves.
+_leaving(c::NTuple{4,Any}) = c[4]
+_leaving(::Tuple) = throw(ArgumentError(
+    "a control of a periodic HMM is `(t, h, n, s)`, with `s` the period index of the previous " *
+    "observation, which the transition leaves; build the controls with `SeasonalControls`"))
 
 """
     obs_distributions(hmm::ARPeriodicHMM, (t, h)) -> Vector
@@ -81,17 +99,8 @@ end
 """
     obs_logdensities!(logb, hmm::ARPeriodicHMM, obs, (t, h))
 
-Fill `logb[k]` with the loglikelihood of `obs` in state `k`, without building a distribution.
-
-`HiddenMarkovModels` provides this as `logdensityof.(obs_distributions(hmm, control), obs)`,
-which here would allocate `K` product distributions for *every one* of the `N` observations in
-every forward pass — measured at roughly 3× the cost of the whole fit. The sum below is the
-same arithmetic as [`loglikelihoods!`](@ref), which is where this model's inner loop has always
-lived.
-
-This overrides an internal of that package rather than part of its documented interface: if a
-future version stops calling it, the generic path above still gives the same numbers, only
-slower.
+Fill `logb[k]` with the loglikelihood of `obs` in state `k`, without building distributions.
+Also defined for `sARPeriodicHMM`.
 """
 function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMM, obs,
     (t, h)::Tuple; error_if_not_finite::Bool=true) where {T}
@@ -125,8 +134,7 @@ end
 
 HMMs.initialization(hmm::sARPeriodicHMM) = hmm.a
 
-HMMs.transition_matrix(hmm::sARPeriodicHMM, (t, _)::Tuple) =
-    view(hmm.A, :, :, mod1(t - 1, size(hmm.A, 3)))
+HMMs.transition_matrix(hmm::sARPeriodicHMM, c::Tuple) = view(hmm.A, :, :, _leaving(c))
 
 function HMMs.obs_distributions(hmm::sARPeriodicHMM, (t, h)::Tuple)
     K, D = size(hmm.B, 1), size(hmm.B, 3)
@@ -169,26 +177,14 @@ end
 
 HMMs.initialization(hmm::ARPeriodicHMMSpatial) = hmm.a
 
-HMMs.transition_matrix(hmm::ARPeriodicHMMSpatial, c::Tuple) =
-    view(hmm.A, :, :, mod1(first(c) - 1, size(hmm.A, 3)))
+HMMs.transition_matrix(hmm::ARPeriodicHMMSpatial, c::Tuple) = view(hmm.A, :, :, _leaving(c))
 
 """
     obs_distributions(hmm::ARPeriodicHMMSpatial, (t, h, _...)) -> Vector{SpatialBernoulli}
 
-One [`SpatialBernoulli`](@ref) per hidden state: marginal rain probabilities
+One [`SpatialBernoulli`](@ref) per hidden state: marginal success probabilities
 `B[k, t, j, h[j]]` tied together by a latent Gaussian field whose correlation is
 `exp(-distance / R[k, t])`.
-
-The `D × D` kernel is rebuilt on every call, and since `HiddenMarkovModels` asks for the
-distributions one observation at a time that is once per `(observation, state)`. The
-four-argument constructor is used only to make that visible — the three-argument one computes
-exactly the same `expkernel.(h)` inside itself.
-
-It is left that way deliberately. Caching it on the model would mean `D²·K·T` floats kept in
-step with `R`, which `update_R!` writes directly, and it buys about 1% here because
-`mvnormcdf` dominates. The path that *does* matter for fitting never calls this: `fit_mle`
-fills the whole `N × K` matrix with the threaded [`loglikelihoods!`](@ref), which precomputes
-the kernels once per `(k, t)`.
 """
 function HMMs.obs_distributions(hmm::ARPeriodicHMMSpatial, c::Tuple)
     t, h = c[1], c[2]
@@ -200,12 +196,9 @@ end
 """
     obs_logdensities!(logb, hmm::ARPeriodicHMMSpatial, obs, (t, h, _...))
 
-Fill `logb[k]` with the loglikelihood of `obs` in state `k`, the same orthant probability
-[`loglikelihoods!`](@ref) computes.
-
-This is the correct but *sequential* path. The fitter does not use it: it fills the whole
-`N × K` matrix with the threaded `loglikelihoods!` instead and substitutes that, because
-`mvnormcdf` dominates and threading over observations is worth roughly an order of magnitude.
+Fill `logb[k]` with the loglikelihood of `obs` in state `k`, the orthant probability that
+[`loglikelihoods!`](@ref) computes, for one observation. For many observations,
+`loglikelihoods!` is faster: it runs over observations in parallel.
 """
 function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMMSpatial, obs,
     c::Tuple; error_if_not_finite::Bool=true) where {T}
@@ -231,13 +224,13 @@ end
 # wrong draws, say so.
 @noinline function Base.rand(::AbstractRNG,
     ::Union{ARPeriodicHMM,sARPeriodicHMM,ARPeriodicHMMSpatial},
-    ::SeasonalControls)
+    ::SeasonalControls{<:Any,<:Tuple})
     throw(ArgumentError("""
     an autoregressive periodic HMM cannot be simulated from a fixed control sequence: the
     memory categories in `SeasonalControls` are a function of the observations, which do not
     exist yet. Use this package's own
 
-        z, y = rand(hmm, n2t; y_ini = …, z_ini = …, seq = true)
+        z, y = rand(hmm, n2t; Y_past = …, z_ini = …, seq = true)
 
     which encodes each observation's memory as it goes. `SeasonalControls` is for inference,
     where the observations are given."""))
@@ -255,17 +248,11 @@ end
 """
     CachedEmissions(model, LL)
 
-An `AbstractHMM` that answers `initialization` and `transition_matrix` from `model` but reads
-its emission loglikelihoods out of `LL`, an `N × K` matrix filled beforehand.
-
-It is what lets the batched — and for the spatial model threaded — `loglikelihoods!` evaluate
-the emission in one sweep while the forward–backward recursions, the transition marginals and
-the multi-sequence bookkeeping still come from `HiddenMarkovModels`. The observation index in
-[`SeasonalControls`](@ref) is the only way `obs_logdensities!` can find its row, which is why
-the control carries one.
-
-The cache can go stale, so keep it local: fill it, use it, and let it go. The spatial fitter
-creates one inside a single call and never lets it escape.
+An `AbstractHMM` that takes `initialization`, `transition_matrix` and `obs_distributions` from
+`model` but reads its emission loglikelihoods from `LL`, an `N × K` matrix computed beforehand
+(for example with [`loglikelihoods!`](@ref)). Row `n` is found from the observation index, the
+third element of each [`SeasonalControls`](@ref) control. `LL` is not updated when `model`
+changes.
 """
 struct CachedEmissions{M,L<:AbstractMatrix} <: HMMs.AbstractHMM
     model::M
@@ -280,4 +267,18 @@ function HMMs.obs_logdensities!(logb::AbstractVector, c::CachedEmissions, obs, c
     error_if_not_finite::Bool=true)
     logb .= view(c.LL, ctl[3], :)
     return nothing
+end
+
+"""
+    viterbi(hmm, Ys, Y_pasts; n2t, kwargs...) -> Vector{Vector{Int}}
+
+The most likely hidden state path of each of several independent sequences: `Ys[i]` is the
+`D × Nᵢ` sequence `i`, `Y_pasts[i]` its initial observations and `n2t[i]` its period indices, by
+default `n_to_t(Nᵢ, T)`. Other keywords are passed to the single-sequence `viterbi`.
+"""
+function viterbi(hmm::Union{ARPeriodicHMM,sARPeriodicHMM,ARPeriodicHMMSpatial},
+    Ys::AbstractVector{<:AbstractMatrix{<:Bool}}, Y_pasts::AbstractVector;
+    n2t=[n_to_t(size(Y, 2), size(hmm.B, 2)) for Y in Ys], kwargs...)
+    @argcheck length(Ys) == length(Y_pasts) == length(n2t) "$(length(Ys)) sequences, $(length(Y_pasts)) initial conditions and $(length(n2t)) period-index vectors"
+    return [viterbi(hmm, Y, Y_past; n2t=n2tᵢ, kwargs...) for (Y, Y_past, n2tᵢ) in zip(Ys, Y_pasts, n2t)]
 end
