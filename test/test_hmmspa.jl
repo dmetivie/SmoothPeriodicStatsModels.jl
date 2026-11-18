@@ -149,6 +149,8 @@ end
     # `complete_loglikelihood` could never run before: `D, N = size(y)` was the wrong way round
     # and `logpdf(::SpatialBernoulli, …)` did not exist.
     @test isfinite(complete_loglikelihood(model, Y, Y_past, z; n2t=n2t, QMC_m=10))
+    # the marginal loglikelihood, on the evaluated model as on the smooth one
+    @test isfinite(loglikelihood(model, Y, Y_past; n2t=n2t))
 
     # --- fitting, from a guess at the truth (cheating) so the test stays short
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
@@ -156,7 +158,7 @@ end
         distance; QMC_m=10)
     ps0 = copy(parameters(m0))
 
-    m, history = fit_mle(m0, Y, Y_past; solver, n2t=n2t, maxiter=10, tol=1e-4,
+    m, history = fit_mle(m0, Y, Y_past; solver, n2t=n2t, maxiter=10, tol=1e-4, ps_iters=true,
         maxiters_R=20, display=:none, tdist=1.1)
 
     logtots = history.logtots
@@ -217,7 +219,7 @@ end
     Ys = [last(rand(ARPeriodicHMMSpatial(m0), n2ts[g]; Y_past=Y_pasts[g], seq=true)) for g = 1:G]
 
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
-    m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=3, maxiters_R=5)
+    m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=3, maxiters_R=5, ps_iters=true)
     @test m.basis_R === bR
     @test 1 <= history.best_iteration <= length(history.logtots)
     @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]

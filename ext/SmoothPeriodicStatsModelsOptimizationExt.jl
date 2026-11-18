@@ -3,7 +3,10 @@ Fitting routines for SmoothPeriodicStatsModels.
 
 This extension loads as soon as the solver stack is available:
 
-    using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+    using Optimization, SimpleNonlinearSolve
+
+Every fit takes its optimization algorithm explicitly, as `solver`, from whichever package the
+user loads. ForwardDiff, for the default `adtype`, comes with SimpleNonlinearSolve.
 
 It adds the methods behind every `fit_*` name the package exports. The parent package keeps the
 models themselves — construction, `rand`, likelihoods, viterbi — none of which need a solver.
@@ -15,10 +18,11 @@ const SPSM = SmoothPeriodicStatsModels
 
 # Declared in the parent (src/fit_stubs.jl) so that they exist and error helpfully when this
 # extension is not loaded; `import` because we add the real methods to them.
-import SmoothPeriodicStatsModels: default_solver, default_nlls_solver, default_adtype,
+import SmoothPeriodicStatsModels: default_nlls_solver, default_adtype,
     default_ensemble, solve_unconstrained, solve_nlls,
     fit_θ, fit_θ!, fit_θᴬ!, fit_θᴮ!,
-    fit_mle_RO, fit_loss_optim, update_B!, update_α!, update_dist, update_R!
+    fit_mle_RO, fit_loss_optim, update_B!, update_α!, update_dist, update_R!,
+    fit_mle_all_slices
 
 # The seasonal mixture's M-step: `M_step!` is ExpectationMaximization's, re-exposed through the
 # parent, and the three types below carry the seasonal parametrization it operates on.
@@ -32,8 +36,10 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     OptimMLE, Trig2ARPeriodicHMM, Trig2ARPeriodicHMMSpatial,
     PeriodicDesign, SmoothAR1, SeasonalFit, FitHistory, seasonal_params, _params_like, ncolumns, column,
     SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial,
-    SeasonalControls, CachedEmissions, degrees, _refresh!, _linear_predictor, design_matrix,
+    SeasonalControls, CachedEmissions, RobustEmissions, _clamp_inf!, degrees, _refresh!, _linear_predictor, design_matrix,
     _trig_order, _plain, _sequences, _SmoothHMM, _ar1_loglikelihood,
+    SmoothPeriodicHMM, PeriodicHMMDists, emission_coefs, group_by_time, _ncols,
+    linear_predictors, apply_link, _required_solver,
     TimeVaryingFamily, DistConstructor, PeriodicNLL, distributions, ParamSpec, TrigBasis,
     trig_basis, bernoulli_logit_nll, multinomial_logit_nll, exponential_nll, ar1_nll,
     bernoulli_residual, transition_residual, ar1_sufficient_statistics,
@@ -41,11 +47,10 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     loglikelihoods, loglikelihoods!, likelihoods!, complete_loglikelihood,
     pairwise_loglikelihood, pairwise_loglikelihood_memory
 
-# The solver stack this extension is triggered by
+# The solver stack this extension is triggered by. SimpleNonlinearSolve depends on ForwardDiff,
+# which makes the default `adtype`, `AutoForwardDiff()`, usable.
 using Optimization
-using OptimizationOptimJL: LBFGS
 using SimpleNonlinearSolve: SimpleGaussNewton
-import ForwardDiff # `AutoForwardDiff()` is unusable unless ForwardDiff is loaded
 import HiddenMarkovModels as HMMs
 using SciMLBase: successful_retcode, NonlinearFunction, NonlinearLeastSquaresProblem,
     EnsembleProblem, EnsembleSerial, EnsembleThreads, EnsembleDistributed, remake,
@@ -57,7 +62,7 @@ using ArgCheck
 using StatsAPI: StatsAPI
 using Base: OneTo
 using Base.Threads
-using Random: AbstractRNG, GLOBAL_RNG
+using Random: AbstractRNG, GLOBAL_RNG, randperm, Xoshiro
 using Distributions
 using LogExpFunctions: logsumexp, log1pexp, logistic
 import Distributions: fit_mle   # the generic every `fit_mle` method below extends
@@ -68,6 +73,8 @@ include("../src/fit/optim_mle.jl")
 include("../src/fit/trig_conversion.jl")
 include("../src/fit/hmm.jl")
 include("../src/fit/smooth_hmm.jl")
+include("../src/fit/smooth_periodic_hmm.jl")
+include("../src/fit/slice_periodic_hmm.jl")
 include("../src/fit/shmm.jl")
 include("../src/fit/add_sites.jl")
 include("../src/fit/spatial.jl")

@@ -12,7 +12,7 @@ with the layout and the bases of the coefficient method of [`sARPeriodicHMM`](@r
 ```julia
 m  = SmoothsARPeriodicHMM(a, θᴬ, θᴮ, T)
 parameters(m)                  # (A = θᴬ, B = θᴮ)
-m, history = fit_mle(m, Y, Y_past; n2t)
+m, history = fit_mle(m, Y, Y_past; n2t, solver)
 sARPeriodicHMM(m)              # the evaluated model
 ```
 

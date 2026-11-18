@@ -4,11 +4,11 @@
 CurrentModule = SmoothPeriodicStatsModels
 ```
 
-The hidden Markov models of this package are models of
+The hidden Markov models of this package are all subtype `HiddenMarkovModels.AbstractHMM` from 
 [HiddenMarkovModels.jl](https://github.com/gdalle/HiddenMarkovModels.jl): `SmoothARPeriodicHMM`,
-`SmoothsARPeriodicHMM`, `SmoothARPeriodicHMMSpatial` and their evaluated twins all subtype
-`HiddenMarkovModels.AbstractHMM`. The forward and backward passes of every fit and likelihood
-here are that package's.
+`SmoothsARPeriodicHMM`, `SmoothARPeriodicHMMSpatial`, `SmoothPeriodicHMM` and their evaluated
+twins . The forward and backward passes of every fit
+and likelihood here are that package's.
 
 ## A periodic HMM is a controlled HMM
 
@@ -21,13 +21,13 @@ periodic autoregressive HMM is the case where the control at step `n` is
 (t, h, n, s) = (n2t[n], lag_cat[:, n], n, n2t[n-1])
 ```
 
-- `t`, the position in the cycle, chooses the emission laws;
+- `t`, the period index, chooses the emission laws;
 - `h[j]`, the memory category of series `j`, encodes its `order` previous values, which the
   emission of series `j` depends on;
 - `n` is the index of the step;
-- `s` is the position of the previous step. HiddenMarkovModels.jl asks for the transition
+- `s` is the period index of the previous step. HiddenMarkovModels.jl asks for the transition
   matrix of the step that *arrives* at a control, while here `A[:, :, t]` is the step that
-  *leaves* position `t`, so the control carries `s`.
+  *leaves* period index `t`, so the control carries `s`.
 
 [`SeasonalControls`](@ref) builds that control sequence from the data, without storing the
 tuples:
@@ -89,6 +89,20 @@ Two functions do not apply:
 - `rand`. Its controls are fixed in advance, so the memory categories would come from given data
   rather than from the values just drawn. `rand(m, n2t; Y_past)` simulates the model.
 
+## Models without memory
+
+[`SmoothPeriodicHMM`](@ref) has no memory, so its control holds the period index alone, with empty
+memory categories: `SeasonalControls(n2t)` builds it. Nothing in the controls then depends on the
+observations, and `rand` from HiddenMarkovModels.jl applies too:
+
+```@example hmms
+using Distributions
+m = SmoothPeriodicHMM(Normal, 2, 1, T; init=[(μ=0.0, σ=1.0), (μ=3.0, σ=1.0)])
+controls = SeasonalControls(n2t)
+states, obs = HMMs.rand(m, controls)
+HMMs.logdensityof(m, obs, controls) ≈ loglikelihood(m, reduce(hcat, obs); n2t)
+```
+
 For the spatial model, every emission loglikelihood is a quasi-Monte-Carlo estimate. The
 functions of HiddenMarkovModels.jl work, but they evaluate one step at a time, while
 `loglikelihood` and the fits evaluate all steps at once, in parallel.
@@ -96,8 +110,10 @@ functions of HiddenMarkovModels.jl work, but they evaluate one step at a time, w
 ## PeriodicHiddenMarkovModels.jl
 
 [PeriodicHiddenMarkovModels.jl](https://github.com/dmetivie/PeriodicHiddenMarkovModels.jl) is
-the non-smooth relative: one transition matrix and one set of emission laws per position, any
+the non-smooth relative: one transition matrix and one set of emission laws per period index, any
 emission distribution, no autoregressive memory. It suits data with many observations at every
-position. Here the parameters are smooth functions of the position, which needs far fewer
-observations and keeps the meaning of the states over the cycle, at the price of Bernoulli
-emissions only.
+period index. Here the parameters are smooth functions of the period index, which needs far fewer
+observations and keeps the meaning of the states over the cycle. `SmoothPeriodicHMM` is its
+smooth counterpart. One difference: there, the transition matrix of a period index is that of the
+step *arriving* at it; here, that of the step *leaving* it, which differs when `n2t` skips an
+index.

@@ -12,8 +12,8 @@
 """
     SmoothARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)
 
-A periodic autoregressive Bernoulli HMM given by its coefficients, with the layout and the bases
-of the coefficient method of [`ARPeriodicHMM`](@ref): trigonometric polynomials by default, any
+A periodic autoregressive Bernoulli HMM given by its coefficients. The coefficients have the
+layout and the bases of the coefficient method of [`ARPeriodicHMM`](@ref): trigonometric polynomials by default, any
 TimeVaryingParameters basis otherwise. It is a `HiddenMarkovModels.AbstractHMM` whose control
 at step `n` is `(n2t[n], memory categories, n)`, see [`SeasonalControls`](@ref).
 
@@ -22,7 +22,7 @@ m  = SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)
 ps = parameters(m)              # ComponentArray(A = θᴬ, B = θᴮ)
 ps.B[k, j, h, :]                # one emission's coefficients
 
-m, history = fit_mle(m, Y, Y_past; n2t)
+m, history = fit_mle(m, Y, Y_past; n2t, solver)
 ARPeriodicHMM(m)                # the evaluated model
 rand(m, n2t; Y_past, seq = true) # simulate
 viterbi(m, Y, Y_past; n2t)      # decode

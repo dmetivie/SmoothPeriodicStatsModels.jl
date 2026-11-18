@@ -4,8 +4,8 @@
     SpatialBernoulli(range, λ, h)
     SpatialBernoulli(range, λ, h, ΣU)
 
-A multivariate Bernoulli distribution on `D` sites: site `s` is a success with probability
-`λ[s]`, and the sites are correlated through a latent Gaussian vector with covariance
+A multivariate Bernoulli distribution on `D` correlated sites. Site `s` is a success with
+probability `λ[s]`, and the sites are correlated through a latent Gaussian vector with covariance
 `ΣU = expkernel.(h; range)`, `h` being the `D × D` distance matrix between sites.
 """
 struct SpatialBernoulli{TR<:Real,AV<:AbstractVector,AM<:AbstractMatrix,AAM<:AbstractMatrix} <: DiscreteMultivariateDistribution

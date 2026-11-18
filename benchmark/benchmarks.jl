@@ -28,7 +28,7 @@ const V4M = isdefined(SPSM, :SmoothSeasonalMixture)
 
 # v3 renamed this; the old name survives as a deprecated alias, but benchmark the real one.
 const ar1_fit =
-    V4R ? (y, d, T) -> SPSM.fit_mle(SPSM.SmoothAR1(d, T), y) :
+    V4R ? (y, d, T) -> SPSM.fit_mle(SPSM.SmoothAR1(d, T), y; solver=LBFGS()) :
     V3 ? SPSM.fit_mle_AR1 : SPSM.model_for_loglikelihood_AR1_full
 
 # v2 and v3 slurped solver options into `kwargs...`; v4 funnels them through `solve_kwargs`.
@@ -158,7 +158,7 @@ let
         SUITE["hmm"]["viterbi"][key] =
             @benchmarkable viterbi($hmm, $y, $y_past; n2t=$n2t)
         SUITE["hmm"]["complete_loglikelihood"][key] =
-            @benchmarkable complete_loglikelihood($hmm, $y, $y_past, $z; n2t=$n2t)
+            @benchmarkable SPSM.complete_loglikelihood($hmm, $y, $y_past, $z; n2t=$n2t)
     end
 end
 
@@ -200,7 +200,7 @@ let
         # entry is comparable across the break — it is the same estimator, driven differently.
         hmm_fit = if isdefined(SPSM, :SmoothARPeriodicHMM)
             m0 = SPSM.SmoothARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
-            () -> fit_mle(m0, y, y_past; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
+            () -> fit_mle(m0, y, y_past; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true, solver=LBFGS())
         else
             hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
             () -> fit_mle(hmm0, θᴬ0, θᴮ0, y, y_past; n2t=n2t, maxiter=maxiter, tol=0.0, robust=true)
@@ -268,7 +268,7 @@ let
         mix_fit = if V4M
             m0 = SPSM.SmoothSeasonalMixture(Exponential, 2, 1, T; init=[θ0[:, 1], θ0[:, 2]])
             SPSM.parameters(m0).α[:, 1] .= θ0[:, 3]
-            () -> fit_mle(m0, y; n2t=n2t, maxiter=maxiter, tol=0.0, robust=false)
+            () -> fit_mle(m0, y; n2t=n2t, maxiter=maxiter, tol=0.0, robust=false, solver=LBFGS())
         else
             mix0 = [mixture_exp2(t / T, θ0) for t = 1:T]
             θ_α0 = permutedims(θ0[:, 3])
@@ -302,12 +302,12 @@ let
         ℓ = (θ, x) -> -sum(logpdf(mixture_exp2(t / T, θ), x[n]) for (n, t) in enumerate(n2t))
 
         SUITE["mixture"]["OptimMLE"]["Ipopt T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, opt, $θ0), $y; $ipopt_quiet...),
+            fit_mle(SPSM.OptimMLE($ℓ, opt, $θ0), $y; $ipopt_quiet...),
             setup = (opt = Ipopt.Optimizer()),
             evals = 1
         )
         SUITE["mixture"]["OptimMLE"]["NewtonTrustRegion T=$T N=$N"] = @benchmarkable(
-            fit_mle(OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y; $newton_pinned...),
+            fit_mle(SPSM.OptimMLE($ℓ, NewtonTrustRegion(), $θ0), $y; $newton_pinned...),
             evals = 1
         )
     end

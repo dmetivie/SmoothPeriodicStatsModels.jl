@@ -117,8 +117,7 @@ rand(hmm::ARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwarg
 """
     rand_emissions!(y, rng, B, z, n2t, Y_past)
 
-Fill `y` from the emission distributions `B` along the state path `z`: site `j` at time `n` is
-drawn from `B[z[n], n2t[n], j, h]`, where `h` encodes the `order` previous values of site `j` in
+Fill `y` with emissions drawn along the state path `z`. Site `j` at time `n` is drawn from `B[z[n], n2t[n], j, h]`, where `h` encodes the `order` previous values of site `j` in
 `[Y_past y]` the way `bin2digit` does.
 """
 function rand_emissions!(y::AbstractMatrix{Bool}, rng::AbstractRNG, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}, Y_past::AbstractMatrix)

@@ -22,6 +22,17 @@ function likelihoods!(L::AbstractMatrix, B::AbstractArray{F,4} where {F<:Univari
     end
 end
 
+"""
+    loglikelihoods!(LL, hmm::ARPeriodicHMM, Y, lag_cat; n2t)
+    loglikelihoods!(LL, B, Y, lag_cat; n2t)
+    loglikelihoods!(LL, B, Y; n2t)
+
+Fill `LL[n, k]` with the emission loglikelihood of observation `n` in state `k`, the
+distributions taken at period index `n2t[n]`. With `lag_cat`, `B` is `K × T × D × 2^order` and
+site `j` uses memory category `lag_cat[j, n]`; without it, `B[k, t]` is one distribution per
+state and period index, multivariate for a matrix `Y`, univariate for a vector `Y`. Also defined
+for `sARPeriodicHMM` and, with the keyword `QMC_m`, for `ARPeriodicHMMSpatial`.
+"""
 function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,2} where {F<:MultivariateDistribution}, Y::AbstractMatrix; n2t=n_to_t(size(Y, 2), size(B, 2))::AbstractVector{<:Integer})
     N, K = size(Y, 2), size(B, 1)
     @argcheck size(LL) == (N, K)
@@ -46,17 +57,6 @@ function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,2} where {F<:Uni
     end
 end
 
-"""
-    loglikelihoods!(LL, hmm::ARPeriodicHMM, Y, lag_cat; n2t)
-    loglikelihoods!(LL, B, Y, lag_cat; n2t)
-    loglikelihoods!(LL, B, Y; n2t)
-
-Fill `LL[n, k]` with the emission loglikelihood of observation `n` in state `k`, the
-distributions taken at period index `n2t[n]`. With `lag_cat`, `B` is `K × T × D × 2^order` and
-site `j` uses memory category `lag_cat[j, n]`; without it, `B[k, t]` is one distribution per
-state and period index, multivariate for a matrix `Y`, univariate for a vector `Y`. Also defined
-for `sARPeriodicHMM` and, with the keyword `QMC_m`, for `ARPeriodicHMMSpatial`.
-"""
 loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMM, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}) = loglikelihoods!(LL, hmm.B, Y, lag_cat; n2t=n2t::AbstractVector{<:Integer})
 
 function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,4} where {F<:UnivariateDistribution}, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(Y, 2), size(B, 2))::AbstractVector{<:Integer})
@@ -82,7 +82,8 @@ end
 The `N × K` matrix of emission loglikelihoods of the `D × N` observations `Y`, given the `D ×
 order` initial observations `Y_past`: entry `[n, k]` is that of observation `n` in state `k`.
 Defined for `ARPeriodicHMM`, `sARPeriodicHMM`, `ARPeriodicHMMSpatial` and their smooth versions.
-`robust = true` replaces infinite values by the largest finite ones. For the spatial model the
+`robust = true` gives an observation that is impossible in every state the same finite value,
+`log(floatmin())`, in all of them, and caps `Inf` at `log(floatmax())`. For the spatial model the
 loglikelihood is a quasi-Monte-Carlo estimate with `QMC_m` points.
 """
 function loglikelihoods(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}; robust = false, n2t=n_to_t(size(Y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
@@ -93,7 +94,7 @@ function loglikelihoods(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::A
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     if robust
-        replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        _clamp_inf!(LL)
     end
     return LL
 end
@@ -103,8 +104,8 @@ end
 """
     complete_loglikelihood(hmm, y, y_past, z; n2t) -> Float64
 
-The loglikelihood of the observations `y` and the state path `z` jointly: the transition terms
-`log A[z[n], z[n+1], n2t[n]]` plus the emission terms, given the `D × order` initial observations
+The joint loglikelihood of the observations `y` and the state path `z`. It sums the transition
+terms `log A[z[n], z[n+1], n2t[n]]` and the emission terms, given the `D × order` initial observations
 `y_past`. Defined for `ARPeriodicHMM`, `ARPeriodicHMMSpatial` and their smooth versions.
 """
 function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractMatrix, y_past::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})

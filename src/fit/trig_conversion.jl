@@ -13,9 +13,9 @@ end
 """
     fit_θᴬ!(p, A; basis, solver, solve_kwargs) -> p
 
-Fit the coefficients `p`, `(K-1) × nbasis`, of one row of a periodic transition matrix to the
-probabilities `A[l, t]`, in place, by nonlinear least squares, with the softmax of
-[`ARPeriodicHMM`](@ref). `basis` is a basis of TimeVaryingParameters or its `T × nbasis` design
+Fit in place the coefficients of one row of a periodic transition matrix. The coefficients `p`,
+`(K-1) × nbasis`, are fitted to the probabilities `A[l, t]` by nonlinear least squares, with the
+softmax of [`ARPeriodicHMM`](@ref). `basis` is a basis of TimeVaryingParameters or its `T × nbasis` design
 matrix, by default `TrigBasis(T, d)` for `2d + 1` coefficients. `p` doubles as the starting
 point, so the fit is warm-started from whatever it already holds. A one-state chain leaves `p`
 untouched.

@@ -10,6 +10,10 @@ using StableRNGs
 import HiddenMarkovModels as HMMs
 
 const SPSM = SmoothPeriodicStatsModels
+# every fit takes its optimization algorithm explicitly
+const SOLVER = LBFGS()
+# internal names the tests call directly
+using SmoothPeriodicStatsModels: polynomial_trigo, OptimMLE, complete_loglikelihood, seasonal_params
 
 # A forward-backward written against this package's own indexing convention, to check the
 # library's against. See the file for why it is not vacuous.
@@ -34,14 +38,14 @@ include("reference_inference.jl")
     @test length(fit_θ(hmm, deg)) == 2
     @test length(fit_θ!(copy(hmm), deg)) == 2
     @test length(fit_mle(SmoothARPeriodicHMM(fill(1 / K, K), 0.5randn(rng, K, K - 1, 2deg + 1),
-        0.5randn(rng, K, D, 2^order, 2deg + 1), T), y, y_past; n2t=n2t, maxiter=2, tol=0.0)) == 2
-    @test length(fit_mle_RO(y, y_past, z, n2t, deg, K, T)) == 2
+        0.5randn(rng, K, D, 2^order, 2deg + 1), T), y, y_past; solver=SOLVER, n2t=n2t, maxiter=2, tol=0.0)) == 2
+    @test length(fit_mle_RO(y, y_past, z, n2t, deg, K, T; solver=SOLVER)) == 2
 
     y_ar = rand(AR1([0.1t for t = 1:T], fill(0.3, T), fill(0.5, T)), 500; y₁=0.0)
     z_ar = rand(rng, 1:2, 500)
-    @test length(fit_mle(SmoothAR1(deg, T), y_ar)) == 2
-    @test length(fit_mle(SmoothAR1(deg, T), y_ar, z_ar)) == 2
-    @test fit(SeasonalFit, SmoothAR1(deg, T), y_ar) isa SeasonalFit
+    @test length(fit_mle(SmoothAR1(deg, T), y_ar; solver=SOLVER)) == 2
+    @test length(fit_mle(SmoothAR1(deg, T), y_ar, z_ar; solver=SOLVER)) == 2
+    @test fit(SeasonalFit, SmoothAR1(deg, T), y_ar; solver=SOLVER) isa SeasonalFit
 
     mix(t, θ) = MixtureModel([Exponential(σₜ(t, θ[:, 1])), Exponential(σₜ(t, θ[:, 2]))],
         [αₜ(t, θ[:, 3]), 1 - αₜ(t, θ[:, 3])])
@@ -50,12 +54,17 @@ include("reference_inference.jl")
     n2tm = repeat(1:Tm, Nm ÷ Tm)
     ym = [rand(rng, mix(t / Tm, θtrue)) for t in n2tm]
     mix0() = SmoothSeasonalMixture(Exponential, 2, 1, Tm; init=[1.0, 5.0])
-    @test length(fit_mle(mix0(), ym; n2t=n2tm, maxiter=2, tol=0.0)) == 2
-    @test fit(SeasonalFit, mix0(), ym; n2t=n2tm, maxiter=2, tol=0.0) isa SeasonalFit
+    @test length(fit_mle(mix0(), ym; solver=SOLVER, n2t=n2tm, maxiter=2, tol=0.0)) == 2
+    @test fit(SeasonalFit, mix0(), ym; solver=SOLVER, n2t=n2tm, maxiter=2, tol=0.0) isa SeasonalFit
+
+    mh0 = SmoothPeriodicHMM(Normal, 2, 1, T; init=[(μ=0.0, σ=1.0), (μ=2.0, σ=1.0)])
+    yh = vec(rand(MersenneTwister(3), mh0, n2t))
+    @test length(fit_mle(mh0, yh; solver=SOLVER, n2t, maxiter=2, tol=0.0)) == 2
+    @test fit(SeasonalFit, mh0, yh; solver=SOLVER, n2t, maxiter=2, tol=0.0) isa SeasonalFit
 
     ℓ(θ, x) = sum(abs2, θ .- 1.0)
-    @test fit_mle(OptimMLE(ℓ, [0.0, 0.0]), [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
-    @test fit_loss_optim(ℓ, [1.0], [0.0, 0.0]).u ≈ [1.0, 1.0] atol = 1e-6
+    @test fit_mle(OptimMLE(ℓ, SOLVER, [0.0, 0.0]), [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
+    @test fit_loss_optim(ℓ, [1.0], [0.0, 0.0]; solver=SOLVER).u ≈ [1.0, 1.0] atol = 1e-6
 end
 
 
@@ -76,7 +85,7 @@ end
 
     m0 = SmoothSeasonalMixture(Rayleigh, 2, 1, T; init=[1.0, exp(1.0)])
     parameters(m0).α[:, 1] .= [0.0, 0.2, 0.0]
-    m, history = fit_mle(m0, y; n2t=n2t, maxiter=200, tol=1e-5)
+    m, history = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=200, tol=1e-5)
 
     @test history.converged
     @test all(diff(history.logtots) .>= -1e-8)                # EM still monotone
@@ -96,7 +105,7 @@ end
     n2tg = repeat(1:Tg, Ng ÷ Tg)
     yG = [rand(rng, mixG(t / Tg)) for t in n2tg]
     mG, hG = fit_mle(SmoothSeasonalMixture(Gamma, 2, 1, Tg; init=[(α=1.0, θ=1.0), (α=4.0, θ=3.0)]),
-        yG; n2t=n2tg, maxiter=200, tol=1e-5)
+        yG; solver=SOLVER, n2t=n2tg, maxiter=200, tol=1e-5)
     @test hG.converged
     @test all(diff(hG.logtots) .>= -1e-8)
     @test length(component_coefs(mG, 1)) == 6                 # 2 parameters × 3 coefficients
@@ -134,7 +143,7 @@ end
     @test nparams(m0) == 10                    # 7 for the components, 3 for the weights
     @test_throws ArgumentError component_range(m0, 3)
 
-    m, h = fit_mle(m0, y; n2t=n2t, maxiter=500, tol=1e-6)
+    m, h = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=500, tol=1e-6)
     @test h.converged
     @test all(diff(h.logtots) .>= -1e-8)
     @test h.logtots[end] > ll_true          # the MLE beats the parameters it was drawn from
@@ -170,8 +179,7 @@ rayleigh_nll(theta, (s_pi, s_piy2, basis)) =
     sum(2 * s_pi[t] * P + s_piy2[t] * exp(-2P) / 2 for (t, P) in enumerate(basis * theta))
 
 function SPSM.update_dist(fam::TimeVaryingFamily{SPSM.DistConstructor{Rayleigh}},
-    design::PeriodicDesign, theta, gamma, obs, n_in_t;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    design::PeriodicDesign, theta, gamma, obs, n_in_t; solver, adtype, solve_kwargs)
     T, total = design.nT, sum(gamma)
     s_pi = [sum(gamma[n] for n in n_in_t[t]; init=0.0) / total for t = 1:T]
     s_piy2 = [sum(gamma[n] * obs[n]^2 for n in n_in_t[t]; init=0.0) / total for t = 1:T]
@@ -199,8 +207,8 @@ end
         TimeVaryingFamily(x -> Rayleigh(x), ParamSpec(σ=TrigBasis(T, 1) => LogLink())),
         SPSM.mixture_weight_spec(T, 1), T, 2; init=[1.0, exp(1.0)])
 
-    mO, hO = fit_mle(m0, y; n2t=n2t, maxiter=300, tol=1e-7)
-    mG, hG = fit_mle(gen, y; n2t=n2t, maxiter=300, tol=1e-7)
+    mO, hO = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=300, tol=1e-7)
+    mG, hG = fit_mle(gen, y; solver=SOLVER, n2t=n2t, maxiter=300, tol=1e-7)
     @test hO.iterations == hG.iterations
     @test maximum(abs, parameters(mO) .- parameters(mG)) < 1e-8
     @test hO.logtots[end] ≈ hG.logtots[end]
@@ -225,8 +233,8 @@ end
         TimeVaryingFamily(x -> Exponential(x), ParamSpec(θ=TrigBasis(T, 1) => LogLink())),
         SPSM.mixture_weight_spec(T, 1), T, 2; init=[1.0, 5.0])
 
-    mC, hC = fit_mle(tierC, y; n2t=n2t, maxiter=300, tol=1e-7)
-    mB, hB = fit_mle(tierB, y; n2t=n2t, maxiter=300, tol=1e-7)
+    mC, hC = fit_mle(tierC, y; solver=SOLVER, n2t=n2t, maxiter=300, tol=1e-7)
+    mB, hB = fit_mle(tierB, y; solver=SOLVER, n2t=n2t, maxiter=300, tol=1e-7)
 
     @test hC.iterations == hB.iterations
     @test maximum(abs, parameters(mC) .- parameters(mB)) < 1e-9
@@ -324,7 +332,7 @@ end
     m0 = SmoothSeasonalMixture(Exponential, 2, 1, T; init=[exp(0.0), exp(5.0)])
     parameters(m0).α[:, 1] .= [0.0, 0.2, 0]
 
-    m, history = fit_mle(m0, y; n2t=n2t, display=:none, maxiter=1000, tol=1e-5, robust=false)
+    m, history = fit_mle(m0, y; solver=SOLVER, n2t=n2t, display=:none, maxiter=1000, tol=1e-5, robust=false)
 
     @test all(diff(history.logtots) .> 0) # increasing loglikelihood
     @test history.converged
@@ -357,7 +365,7 @@ end
     @test loglikelihood(m, y; n2t=n2t) ≈ history.logtots[end]
 
     # Model selection comes off the second tier, as for the AR(1)
-    fsel = fit(SeasonalFit, m0, y; n2t=n2t, maxiter=1000, tol=1e-5)
+    fsel = fit(SeasonalFit, m0, y; solver=SOLVER, n2t=n2t, maxiter=1000, tol=1e-5)
     @test dof(fsel) == 9            # (2d+1) per component, plus (2dα+1) for the K-1 weights
     @test nobs(fsel) == N
     @test bic(fsel) ≈ -2loglikelihood(fsel) + log(N) * 9
@@ -382,15 +390,15 @@ end
     end
 
     # `display=:iter` used to throw `UndefVarError: method` from this package's own loop
-    @test_nowarn fit_mle(base(), y; n2t=n2t, display=:iter, maxiter=2, tol=0.0)
+    @test_nowarn fit_mle(base(), y; solver=SOLVER, n2t=n2t, display=:iter, maxiter=2, tol=0.0)
 
     # `rtol`, which the hand-rolled loop had no equivalent of
-    _, h_rtol = fit_mle(base(), y; n2t=n2t, maxiter=1000, tol=0.0, rtol=1e-6)
+    _, h_rtol = fit_mle(base(), y; solver=SOLVER, n2t=n2t, maxiter=1000, tol=0.0, rtol=1e-6)
     @test h_rtol.converged
     @test h_rtol.iterations < 1000
 
     # Stochastic EM: a different driver over the same seasonal M-step
-    mS, hS = fit_mle(base(), y; n2t=n2t, method=StochasticEM(MersenneTwister(1)),
+    mS, hS = fit_mle(base(), y; solver=SOLVER, n2t=n2t, method=StochasticEM(MersenneTwister(1)),
         maxiter=200, tol=1e-5)
     @test length(mixtures(mS)) == T
     @test components(mS)[1][1] isa Exponential
@@ -400,8 +408,8 @@ end
     # Per-observation weights agree with replicating the observations they weight
     w = [isodd(n) ? 2.0 : 1.0 for n = 1:N]
     rep = findall(isodd, 1:N)
-    m_w, _ = fit_mle(base(), y, w; n2t=n2t, maxiter=500, tol=1e-8)
-    m_r, _ = fit_mle(base(), vcat(y, y[rep]); n2t=vcat(n2t, n2t[rep]), maxiter=500, tol=1e-8)
+    m_w, _ = fit_mle(base(), y, w; solver=SOLVER, n2t=n2t, maxiter=500, tol=1e-8)
+    m_r, _ = fit_mle(base(), vcat(y, y[rep]); solver=SOLVER, n2t=vcat(n2t, n2t[rep]), maxiter=500, tol=1e-8)
     @test parameters(m_w).Y ≈ parameters(m_r).Y rtol = 1e-4
     @test parameters(m_w).α ≈ parameters(m_r).α rtol = 1e-4
 
@@ -410,7 +418,7 @@ end
     # the whole aliasing surface -- v3 had the same hazard spread over `θ_α` and `θ_Y`.
     m0 = base()
     snapshot = copy(parameters(m0))
-    m_out, _ = fit_mle(m0, y; n2t=n2t, maxiter=20, tol=1e-6)
+    m_out, _ = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=20, tol=1e-6)
     @test parameters(m0) == snapshot
     @test parameters(m_out) != snapshot   # and the fit did move, so the check is not vacuous
 end
@@ -418,7 +426,7 @@ end
 
 @testset "OptimMLE is concrete and bounds θ₀" begin
     loss(th, x) = sum(abs2, th .- 1.0)
-    o = OptimMLE(loss, [0.0, 0.0])
+    o = OptimMLE(loss, SOLVER, [0.0, 0.0])
 
     # Every field parametric, so the struct is concrete. `ℓ::Function` would not be: `Function`
     # is abstract, and the compiler then cannot see through `OptimizationFunction(opt.ℓ, adtype)`.
@@ -428,10 +436,11 @@ end
 
     # `θ₀` must be a vector. The bound used to be written as a trailing `where` on the supertype,
     # where it silently did nothing and a scalar was accepted, failing much later inside `solve`.
-    @test_throws MethodError OptimMLE(loss, default_solver(), 5)
-    @test_throws MethodError OptimMLE(loss, 5)
+    @test_throws MethodError OptimMLE(loss, SOLVER, 5)
+    # no default solver: the problem names its own
+    @test_throws MethodError OptimMLE(loss, [0.0, 0.0])
 
-    @test fit_mle(o, [1.0]).u ≈ [1.0, 1.0] atol = 1e-6
+    @test fit_mle(o, [1.0]; solver=SOLVER).u ≈ [1.0, 1.0] atol = 1e-6
 end
 
 # Optim for Mixture
@@ -514,7 +523,7 @@ end
     y = rand(AR, 20_000; y₁=0.0)
 
     m0 = SmoothAR1(d, T)
-    m, history = fit_mle(m0, y)
+    m, history = fit_mle(m0, y; solver=SOLVER)
     @test converged(history)
     # model in, model out: the convention of every sequence-model package in the ecosystem
     @test typeof(m) == typeof(m0)
@@ -555,7 +564,7 @@ end
     Random.seed!(99)
     y = rand(AR, 20_000; y₁=0.0)
 
-    plain = fit(SeasonalFit, SmoothAR1(d, T), y)
+    plain = fit(SeasonalFit, SmoothAR1(d, T), y; solver=SOLVER)
 
     # a linear trend on μ beside the seasonal cycle, and a higher degree on σ: the point of
     # keeping the parametrization a value rather than a hard-coded `2d+1`
@@ -563,7 +572,7 @@ end
         μ=ConstantBasis() + PolynomialBasis(1; center=T / 2, scale=T) + FourierBasis(T, 1) => IdentityLink(),
         ρ=TrigBasis(T, 1) => IntervalLink(-1, 1),
         σ=TrigBasis(T, 2) => LogLink())
-    mt = fit(SeasonalFit, SmoothAR1(trend, T), y)
+    mt = fit(SeasonalFit, SmoothAR1(trend, T), y; solver=SOLVER)
 
     @test dof(mt) == ncoef(trend) == 12
     @test length(curve(mt, :σ)) == T
@@ -581,7 +590,7 @@ end
     y = rand(AR, 20_000; y₁=0.0)
     n2t = n_to_t(length(y), T)
 
-    m, history = fit_mle(SmoothAR1(d, T), y; n2t)
+    m, history = fit_mle(SmoothAR1(d, T), y; solver=SOLVER, n2t)
 
     # `ar1_nll` drops the `-N/2 log(2π)`; `loglikelihood` puts it back, so it is the real thing
     direct = sum(logpdf(Normal(AR1(m).μ[n2t[n]] + AR1(m).ρ[n2t[n]] * y[n-1], AR1(m).σ[n2t[n]]), y[n])
@@ -598,7 +607,7 @@ end
     @test history.ps_iters === nothing
 
     # the second tier is the same estimator plus the inference metadata
-    f = fit(SeasonalFit, SmoothAR1(d, T), y; n2t)
+    f = fit(SeasonalFit, SmoothAR1(d, T), y; solver=SOLVER, n2t)
     @test parameters(f.model) == parameters(m)
     @test loglikelihood(f) ≈ direct
     @test nobs(f) == length(y) - 1              # transitions, not observations
@@ -610,9 +619,9 @@ end
     @test_throws ArgumentError iterate(f)       # it is not the `(model, history)` tuple
 
     # a degree too high is penalised, a degree too low fits worse
-    @test loglikelihood(fit_mle(SmoothAR1(3, T), y; n2t)[2]) > loglikelihood(history)
-    @test bic(f) < bic(fit(SeasonalFit, SmoothAR1(3, T), y; n2t))
-    @test loglikelihood(fit_mle(SmoothAR1(0, T), y; n2t)[2]) < loglikelihood(history)
+    @test loglikelihood(fit_mle(SmoothAR1(3, T), y; solver=SOLVER, n2t)[2]) > loglikelihood(history)
+    @test bic(f) < bic(fit(SeasonalFit, SmoothAR1(3, T), y; solver=SOLVER, n2t))
+    @test loglikelihood(fit_mle(SmoothAR1(0, T), y; solver=SOLVER, n2t)[2]) < loglikelihood(history)
 end
 
 @testset "AR1: one fit per hidden state" begin
@@ -635,7 +644,7 @@ end
     @test ncolumns(m0.spec, parameters(m0)) == K
     @test nparams(m0) == K * 3 * (2d + 1)
 
-    m, history = fit_mle(m0, y, z; n2t)
+    m, history = fit_mle(m0, y, z; solver=SOLVER, n2t)
     @test converged(history)
     @test size(parameters(m).ρ) == (2d + 1, K)
     # curves are state-major, the layout `AR1` indexes as `ρ[k, t]`
@@ -650,16 +659,16 @@ end
     @test length(history.objective) == K
 
     # a model with no `K` starts every state from the same column and must land in the same place
-    cold, _ = fit_mle(SmoothAR1(d, T), y, z; n2t)
+    cold, _ = fit_mle(SmoothAR1(d, T), y, z; solver=SOLVER, n2t)
     @test maximum(abs, parameters(cold) - parameters(m)) < 1e-8
     # a warm start, one column per state
     warm, _ = fit_mle(SmoothAR1(ar1_spec(d, T), T, seasonal_params(ar1_spec(d, T), vcat(θμ, θρ, θσ))),
-        y, z; n2t)
+        y, z; solver=SOLVER, n2t)
     @test maximum(abs, parameters(warm) - parameters(m)) < 1e-4
 
     @test_throws ArgumentError params(m, 3)          # ambiguous with K columns
-    @test_throws ArgumentError fit_mle(m0, y; n2t)   # the single-model method
-    @test_throws ArgumentError fit_mle(SmoothAR1(d, T; K=K + 3), y, z; n2t, K=K)
+    @test_throws ArgumentError fit_mle(m0, y; solver=SOLVER, n2t)   # the single-model method
+    @test_throws ArgumentError fit_mle(SmoothAR1(d, T; K=K + 3), y, z; solver=SOLVER, n2t, K=K)
 end
 
 @testset "AR1: the parametrization is the one the kernel assumes" begin
@@ -773,6 +782,7 @@ end
     c = zeros(N)
     ref_forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
     @test HMMs.logdensityof(hmm, obs, controls; seq_ends=(N,)) ≈ sum(c)
+    @test loglikelihood(hmm, y, y_past; n2t=n2t) ≈ sum(c)   # on the evaluated model itself
 
     # the state posteriors, and the decoded path
     β = zeros(N, K)
@@ -844,6 +854,7 @@ end
     c = zeros(N)
     ref_forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
     @test HMMs.logdensityof(hmm, obs, controls; seq_ends=(N,)) ≈ sum(c)
+    @test loglikelihood(hmm, y, y_past; n2t=n2t) ≈ sum(c)   # on the evaluated model itself
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)
     @test_throws ArgumentError rand(hmm, controls)
@@ -1122,7 +1133,7 @@ end
     hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
 
     m0 = SmoothARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
-    m_fit, hist = fit_mle(m0, y, y_past; n2t=n2t, maxiter=100, tol=1e-4, robust=true, display=:none)
+    m_fit, hist = fit_mle(m0, y, y_past; solver=SOLVER, n2t=n2t, maxiter=100, tol=1e-4, robust=true, display=:none)
     hmm_fit = ARPeriodicHMM(m_fit)
     θᴬ_fit, θᴮ_fit = parameters(m_fit).A, parameters(m_fit).B
 
@@ -1173,7 +1184,7 @@ end
     hmm0 = Trig2ARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
 
     m0 = SmoothsARPeriodicHMM(fill(1 / K, K), θᴬ0, θᴮ0, T)
-    m_fit, hist = fit_mle(m0, y, y_past; n2t=n2t, maxiter=30, tol=1e-4, robust=true)
+    m_fit, hist = fit_mle(m0, y, y_past; solver=SOLVER, n2t=n2t, maxiter=30, tol=1e-4, robust=true)
     hmm_fit = sARPeriodicHMM(m_fit)
     θᴬ_fit, θᴮ_fit = parameters(m_fit).A, parameters(m_fit).B
 
@@ -1189,7 +1200,7 @@ end
     @test parameters(m0).A == θᴬ0
 
     # The M-step problems are independent, so the parallel backend must not change the answer
-    m_thr, _ = fit_mle(m0, y, y_past; n2t=n2t, maxiter=30, tol=1e-4, robust=true,
+    m_thr, _ = fit_mle(m0, y, y_past; solver=SOLVER, n2t=n2t, maxiter=30, tol=1e-4, robust=true,
         ensemble=EnsembleThreads())
     θᴬ_thr, θᴮ_thr = parameters(m_thr).A, parameters(m_thr).B
     @test θᴬ_thr ≈ θᴬ_fit
@@ -1240,7 +1251,7 @@ end
     # coefficient vector is a constant curve
     θᴮ0 = repeat(mean(θᴮs; dims=4), 1, 1, 1, nbasis(bB))
     m0 = SmoothARPeriodicHMM(a, zeros(K, K - 1, nbasis(bA)), θᴮ0, T; basis_A=bA, basis_B=bB)
-    m_fit, hist = fit_mle(m0, y, y_past; n2t, maxiter=200, tol=1e-6)
+    m_fit, hist = fit_mle(m0, y, y_past; solver=SOLVER, n2t, maxiter=200, tol=1e-6)
     @test m_fit.basis_A === bA && m_fit.basis_B === bB
     @test all(diff(hist.logtots) .> -1e-8 * abs(hist.logtots[1]))
     @test loglikelihood(m_fit, y, y_past; n2t) ≈ hist.logtots[end]
@@ -1275,7 +1286,7 @@ end
     @test succprob(sARPeriodicHMM(ms).B[1, 7, 3][4]) ≈ inv_logit(sum(XB[7, :] .* θᴮrs[1, 3][4]))
     y_pasts = [rand(rng, Bool, o) for o in (0, 1, 2)]
     ys = rand(rng, ms, n2t; Y_past=y_pasts, z_ini=1)
-    ms_fit, hist_s = fit_mle(ms, ys, y_pasts; n2t, maxiter=10)
+    ms_fit, hist_s = fit_mle(ms, ys, y_pasts; solver=SOLVER, n2t, maxiter=10)
     @test all(diff(hist_s.logtots) .> -1e-8 * abs(hist_s.logtots[1]))
     @test loglikelihood(ms_fit, ys, y_pasts; n2t) ≈ hist_s.logtots[end]
 end
@@ -1306,6 +1317,9 @@ end
     # sequences laid end to end
     ll = loglikelihood(m, Ys, Y_pasts; n2t=n2ts)
     @test ll ≈ sum(loglikelihood(m, Ys[g], Y_pasts[g]; n2t=n2ts[g]) for g = 1:G)
+    # the evaluated model answers the same calls
+    @test loglikelihood(ARPeriodicHMM(m), Ys, Y_pasts; n2t=n2ts) == ll
+    @test loglikelihood(ARPeriodicHMM(m), Ys[1], Y_pasts[1]) == loglikelihood(m, Ys[1], Y_pasts[1])
     @test !(ll ≈ loglikelihood(m, reduce(hcat, Ys), Y_pasts[1]; n2t=reduce(vcat, n2ts)))
     # `n2t` defaults to `n_to_t(Nᵢ, T)`
     @test loglikelihood(m, Ys, Y_pasts) ≈ loglikelihood(m, Ys, Y_pasts; n2t=n2ts)
@@ -1317,12 +1331,12 @@ end
     m0 = SmoothARPeriodicHMM(fill(1 / K, K), zeros(K, K - 1, nb), θᴮ0, T; basis_A=basis, basis_B=basis)
 
     # one sequence in a vector is the single-sequence fit
-    m1, h1 = fit_mle(m0, Ys[1], Y_pasts[1]; n2t=n2ts[1], maxiter=5)
-    m1v, h1v = fit_mle(m0, Ys[1:1], Y_pasts[1:1]; n2t=n2ts[1:1], maxiter=5)
+    m1, h1 = fit_mle(m0, Ys[1], Y_pasts[1]; solver=SOLVER, n2t=n2ts[1], maxiter=5)
+    m1v, h1v = fit_mle(m0, Ys[1:1], Y_pasts[1:1]; solver=SOLVER, n2t=n2ts[1:1], maxiter=5)
     @test parameters(m1v) ≈ parameters(m1)
     @test h1v.logtots ≈ h1.logtots
 
-    m_fit, hist = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, maxiter=200, tol=1e-6)
+    m_fit, hist = fit_mle(m0, Ys, Y_pasts; solver=SOLVER, n2t=n2ts, maxiter=200, tol=1e-6)
     @test m_fit.cfg === nothing    # the fitting context, which holds the data's index sets, stays behind
     @test all(diff(hist.logtots) .> -1e-8 * abs(hist.logtots[1]))
     @test loglikelihood(m_fit, Ys, Y_pasts; n2t=n2ts) ≈ hist.logtots[end]
@@ -1343,7 +1357,7 @@ end
     Ys_s = [rand(rng, ms, n2ts[g]; Y_past=Yp_s[g], z_ini=1) for g = 1:G]
     @test loglikelihood(ms, Ys_s, Yp_s; n2t=n2ts) ≈
           sum(loglikelihood(ms, Ys_s[g], Yp_s[g]; n2t=n2ts[g]) for g = 1:G)
-    ms_fit, hist_s = fit_mle(ms, Ys_s, Yp_s; n2t=n2ts, maxiter=10)
+    ms_fit, hist_s = fit_mle(ms, Ys_s, Yp_s; solver=SOLVER, n2t=n2ts, maxiter=10)
     @test all(diff(hist_s.logtots) .> -1e-8 * abs(hist_s.logtots[1]))
     @test loglikelihood(ms_fit, Ys_s, Yp_s; n2t=n2ts) ≈ hist_s.logtots[end]
     @test length(viterbi(ms_fit, Ys_s, Yp_s; n2t=n2ts)) == G
@@ -1361,13 +1375,377 @@ end
     @test which(loglikelihood, Tuple{typeof(m),Matrix{Bool},Matrix{Bool}}).module === SPSM
 
     # model selection, with `nobs` the observed steps of all sequences
-    f = fit(SeasonalFit, m0, Ys, Y_pasts; n2t=n2ts, maxiter=200, tol=1e-6)
+    f = fit(SeasonalFit, m0, Ys, Y_pasts; solver=SOLVER, n2t=n2ts, maxiter=200, tol=1e-6)
     @test loglikelihood(f) ≈ hist.logtots[end]
     @test nobs(f) == G * T
     @test dof(f) == SPSM.nparams(m0)
     @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(G * T)
     @test :retcode ∉ propertynames(f)
     @test occursin("coefficients\nFitHistory", sprint(show, MIME"text/plain"(), f))
+end
+
+# * Any emission law, no memory * #
+
+# The real gate on `SmoothPeriodicHMM`: with Bernoulli emissions it *is* the order-0
+# `SmoothARPeriodicHMM`, and the two fits run independent emission M-steps — sufficient
+# statistics there, the mixture's generic weighted fit here.
+@testset "SmoothPeriodicHMM: Bernoulli emissions are the order-0 SmoothARPeriodicHMM" begin
+    K, D, T, N = 2, 3, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    θᴮ = zeros(K, D, 1, 3)
+    θᴮ[1, :, 1, :] .= [1.0 0.5 0.0]
+    θᴮ[2, :, 1, :] .= [-1.0 0.0 0.3]
+    blocks(θ) = [θ[k, j, 1, :] for k = 1:K, j = 1:D]
+    bern = [Bernoulli => 1 for _ = 1:D]
+    m_ar = SmoothARPeriodicHMM([0.5, 0.5], θᴬ, θᴮ, T)
+    m = SmoothPeriodicHMM(bern, [0.5, 0.5], θᴬ, blocks(θᴮ), T)
+    n2t = n_to_t(N, T)
+    Y_past = zeros(Bool, D, 0)
+    Y = rand(StableRNG(1), m_ar, n2t; Y_past)
+
+    @test loglikelihood(m, Y; n2t) ≈ loglikelihood(m_ar, Y, Y_past; n2t) rtol = 1e-12
+    @test viterbi(m, Y; n2t) == viterbi(m_ar, Y, Y_past; n2t)
+    @test PeriodicHMMDists(m).A ≈ ARPeriodicHMM(m_ar).A
+
+    θᴬ₀ = zeros(K, K - 1, 3)
+    θᴬ₀[:, 1, 1] = [1.0, -1.0]
+    θᴮ₀ = zeros(K, D, 1, 3)
+    θᴮ₀[1, :, 1, 1] .= 0.5
+    θᴮ₀[2, :, 1, 1] .= -0.5
+    f_ar, h_ar = fit_mle(SmoothARPeriodicHMM([0.5, 0.5], θᴬ₀, θᴮ₀, T), Y, Y_past; solver=SOLVER, n2t, maxiter=300, tol=1e-9)
+    f, h = fit_mle(SmoothPeriodicHMM(bern, [0.5, 0.5], θᴬ₀, blocks(θᴮ₀), T), Y; solver=SOLVER, n2t, maxiter=300, tol=1e-9)
+    @test h.converged && h_ar.converged
+    @test h.logtots[end] ≈ h_ar.logtots[end] atol = 1e-6
+    @test maximum(abs, parameters(f).A .- parameters(f_ar).A) < 1e-4
+    @test maximum(maximum(abs, emission_coefs(f, k, j) .- parameters(f_ar).B[k, j, 1, :]) for k = 1:K, j = 1:D) < 1e-4
+end
+
+@testset "SmoothPeriodicHMM: a univariate Normal emission" begin
+    K, T, N = 2, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    # (μ coefficients, log σ coefficients) per state
+    θᴮ = reshape([[0.0, 1.0, 0.0, 0.0, 0.2, 0.0], [3.0, 0.0, 1.0, log(1.5), 0.0, 0.0]], K, 1)
+    truth = SmoothPeriodicHMM([Normal => 1], [0.5, 0.5], θᴬ, θᴮ, T)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(2), truth, n2t; seq=true)
+    @test size(Y) == (1, N) && eltype(Y) == Float64
+    y = vec(Y)
+
+    m0 = SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=0.0, σ=1.0), (μ=2.0, σ=1.0)])
+    ps0 = copy(parameters(m0))
+    m, history = fit_mle(m0, y; solver=SOLVER, n2t, maxiter=200, ps_iters=true)
+    @test history.converged
+    @test all(diff(history.logtots) .>= -1e-8)
+    @test history.logtots[end] ≈ loglikelihood(m, y; n2t)
+    @test loglikelihood(m, y; n2t) == loglikelihood(m, Y; n2t)   # a vector is one row
+    @test 0 < loglikelihood(m, y; n2t) - loglikelihood(truth, y; n2t) < nparams(m)
+    @test all(maximum(abs, emission_coefs(m, k, 1) .- θᴮ[k, 1]) < 0.2 for k = 1:K)
+    @test mean(viterbi(m, y; n2t) .== z) > 0.9
+    @test parameters(m0) == ps0
+    @test m.cfg === nothing
+    @test history.ps_iters[end].B == parameters(m).B
+    @test history.ps_iters[end].B isa Vector{Float64}
+
+    X = design_matrix(TrigBasis(T, 1), 1:T)
+    @test curve(m, :μ)[1, :] ≈ X * emission_coefs(m, 1, 1)[1:3]
+    @test curve(m, :σ)[2, :] ≈ exp.(X * emission_coefs(m, 2, 1)[4:6])
+    @test_throws ArgumentError curve(m, :λ)
+    @test emission_range(m, 2, 1) == 7:12
+    @test PeriodicHMMDists(m).B[1][2, 5] ≈ Normal(curve(m, :μ)[2, 5], curve(m, :σ)[2, 5])
+
+    f = fit(SeasonalFit, m0, y; solver=SOLVER, n2t, maxiter=200)
+    @test nobs(f) == N
+    @test dof(f) == nparams(m) == 18
+    @test loglikelihood(f) ≈ history.logtots[end]
+    @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(N)
+    @test :retcode ∉ propertynames(f)
+    @test occursin("row 1", sprint(show, MIME"text/plain"(), m))
+end
+
+@testset "PeriodicHMMDists: the HiddenMarkovModels.jl interface" begin
+    K, T, N = 3, 11, 2_000
+    θᴬ = 2 * (rand(StableRNG(3), K, K - 1, 3) .- 1 / 2)
+    m = SmoothPeriodicHMM([Normal => 1, Gamma => 1], K, T; θᴬ,
+        init=[[(μ=-2.0, σ=1.0), (α=2.0, θ=1.0)], [(μ=0.0, σ=1.0), (α=3.0, θ=2.0)],
+            [(μ=2.0, σ=0.5), (α=1.0, θ=1.0)]])
+    hmm = PeriodicHMMDists(m)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(4), m, n2t; seq=true)
+    @test size(Y) == (2, N)
+    @test m isa HMMs.AbstractHMM && hmm isa HMMs.AbstractHMM
+    @test size(m) == (K, 2, T)
+    @test hmm.blocks == (1:1, 2:2)
+
+    controls = SeasonalControls(n2t)
+    @test controls[7] == (n2t[7], Int[], 7, n2t[6])
+    @test HMMs.transition_matrix(m, controls[5]) == hmm.A[:, :, n2t[4]]
+
+    obs = [view(Y, :, n) for n = 1:N]
+    LL = loglikelihoods(m, Y; n2t)
+    @test maximum(abs(logpdf(HMMs.obs_distributions(m, controls[n])[k], obs[n]) - LL[n, k])
+                  for n = 1:N, k = 1:K) < 1e-10
+    logb = zeros(K)
+    HMMs.obs_logdensities!(logb, m, obs[9], controls[9])
+    @test logb ≈ LL[9, :]
+
+    α, β, γ, c = zeros(N, K), zeros(N, K), zeros(N, K), zeros(N)
+    ref_forwardlog!(α, c, hmm.a, hmm.A, LL; n2t)
+    @test loglikelihood(m, Y; n2t) ≈ sum(c)
+    @test loglikelihood(hmm, Y; n2t) == loglikelihood(m, Y; n2t)
+    ref_backwardlog!(β, c, hmm.a, hmm.A, LL; n2t)
+    ref_posteriors!(γ, α, β)
+    γ_hmms, _ = HMMs.forward_backward(m, obs, controls)
+    @test permutedims(γ_hmms) ≈ γ
+    @test HMMs.viterbi(m, obs, controls)[1] == viterbi(m, Y; n2t)
+
+    # a skipped position: the step across it leaves the previous observation's position
+    n2t_skip = filter(!=(3), repeat(1:T, N))[1:N]
+    ref_forwardlog!(α, c, hmm.a, hmm.A, loglikelihoods(m, Y; n2t=n2t_skip); n2t=n2t_skip)
+    @test loglikelihood(m, Y; n2t=n2t_skip) ≈ sum(c)
+
+    # without memory, nothing in the controls depends on the observations, so the library's
+    # own simulation applies
+    states, obs_sim = HMMs.rand(StableRNG(5), m, controls)
+    @test length(states) == N && length(obs_sim[1]) == 2
+    @test_throws ArgumentError loglikelihood(m, Y[1:1, :]; n2t)
+end
+
+@testset "SmoothPeriodicHMM: blocks, with a multivariate law" begin
+    K, T, N = 2, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    b = TrigBasis(T, 1)
+    spec = ParamSpec(μ1=b => IdentityLink(), μ2=b => IdentityLink(), σ1=b => LogLink(),
+        σ2=b => LogLink(), ρ=b => IntervalLink(-1, 1))
+    bivariate = TimeVaryingFamily((μ1, μ2, σ1, σ2, ρ) ->
+            MvNormal([μ1, μ2], [σ1^2 ρ*σ1*σ2; ρ*σ1*σ2 σ2^2]), spec)
+    # a bivariate block, a Bernoulli row and an Exponential row (the sufficient-statistic M-step)
+    fams = [bivariate, Bernoulli => 1, Exponential => 1]
+    θᴮ = Matrix{Vector{Float64}}(undef, K, 3)
+    θᴮ[1, 1] = [0, 1, 0, 2, 0, 0.5, 0, 0.2, 0, log(2), 0, 0, 1.4, 0.5, 0]
+    θᴮ[2, 1] = [3, 0, 0, 0, 0, 0, log(0.5), 0, 0, 0, 0, 0, -1.0, 0, 0]
+    θᴮ[1, 2], θᴮ[2, 2] = [1.0, 0.5, 0.0], [-1.0, 0.0, 0.0]
+    θᴮ[1, 3], θᴮ[2, 3] = [log(2.0), 0.3, 0.0], [log(0.5), 0.0, 0.0]
+    truth = SmoothPeriodicHMM(fams, [0.5, 0.5], θᴬ, θᴮ, T)
+    @test PeriodicHMMDists(truth).blocks == (1:2, 3:3, 4:4)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(6), truth, n2t; seq=true)
+    @test size(Y) == (4, N)
+
+    d = HMMs.obs_distributions(truth, SeasonalControls(n2t)[2])[1]
+    @test length(d) == 4
+    B, x = PeriodicHMMDists(truth).B, Y[:, 2]
+    @test logpdf(d, x) ≈ logpdf(B[1][1, 2], x[1:2]) + logpdf(B[2][1, 2], x[3]) + logpdf(B[3][1, 2], x[4])
+    @test length(rand(StableRNG(7), d)) == 4
+    # univariate blocks only: `Distributions`' own product
+    m_uni = SmoothPeriodicHMM([Normal => 0, Normal => 0], 2, T;
+        init=[[(μ=0.0, σ=1.0), (μ=0.0, σ=1.0)], [(μ=1.0, σ=1.0), (μ=1.0, σ=1.0)]])
+    @test HMMs.obs_distributions(m_uni, SeasonalControls(n2t)[1])[1] isa Distributions.ProductDistribution
+
+    m0 = SmoothPeriodicHMM(fams, K, T; init=[[(μ1=0.0, μ2=1.0, σ1=1.0, σ2=1.0, ρ=0.0), 0.7, 1.0],
+        [(μ1=2.0, μ2=0.0, σ1=1.0, σ2=1.0, ρ=0.0), 0.3, 1.0]])
+    m, history = fit_mle(m0, Y; solver=SOLVER, n2t, maxiter=100)
+    @test history.converged
+    @test all(diff(history.logtots) .>= -1e-6)
+    @test 0 < loglikelihood(m, Y; n2t) - loglikelihood(truth, Y; n2t) < nparams(m)
+    @test maximum(abs, curve(m, :ρ) .- curve(truth, :ρ)) < 0.1
+    @test maximum(abs, curve(m, :p) .- curve(truth, :p)) < 0.1
+    @test maximum(abs, log.(curve(m, :θ)) .- log.(curve(truth, :θ))) < 0.2
+    @test mean(viterbi(m, Y; n2t) .== z) > 0.95
+    @test occursin("law of (μ1, μ2, σ1, σ2, ρ)", sprint(show, MIME"text/plain"(), m))
+end
+
+# A copula-based law is an ordinary multivariate `Distribution`, so it can be a block. Its density
+# goes through the marginal cdfs, which ForwardDiff differentiates for these marginals.
+@testset "SmoothPeriodicHMM: a block from a copula" begin
+    C = SPSM.Copulas
+    K, T, N = 2, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    b = TrigBasis(T, 1)
+    gauss = TimeVaryingFamily((μ, σ, θ, ρ) -> C.SklarDist(C.GaussianCopula(2, ρ), (Normal(μ, σ), Exponential(θ))),
+        ParamSpec(μ=b => IdentityLink(), σ=b => LogLink(), θ=b => LogLink(), ρ=b => IntervalLink(-1, 1)))
+    fams = [gauss, Bernoulli => 1]
+    θᴮ = Matrix{Vector{Float64}}(undef, K, 2)
+    θᴮ[1, 1] = [1.0, 0.5, 0.0, 0.0, 0.2, 0.0, log(2.0), 0.0, 0.3, 1.4, 0.5, 0.0]
+    θᴮ[2, 1] = [3.0, 0.0, 0.5, log(0.7), 0.0, 0.0, log(0.5), 0.0, 0.0, -1.0, 0.0, 0.0]
+    θᴮ[1, 2], θᴮ[2, 2] = [1.0, 0.5, 0.0], [-1.0, 0.0, 0.0]
+    truth = SmoothPeriodicHMM(fams, [0.5, 0.5], θᴬ, θᴮ, T)
+    @test PeriodicHMMDists(truth).blocks == (1:2, 3:3)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(8), truth, n2t; seq=true)
+
+    d = HMMs.obs_distributions(truth, SeasonalControls(n2t)[4])[2]
+    B, x = PeriodicHMMDists(truth).B, Y[:, 4]
+    @test B[1][2, 4] isa C.SklarDist
+    @test logpdf(d, x) ≈ logpdf(B[1][2, 4], x[1:2]) + logpdf(B[2][2, 4], x[3])
+
+    # no collapse to the independence copula at ρ = 0: the evaluated model stores one concrete
+    # law type per block, and a fit moves ρ away from its start
+    m0 = SmoothPeriodicHMM(fams, K, T;
+        init=[[(μ=0.0, σ=1.0, θ=1.0, ρ=0.0), 0.7], [(μ=2.0, σ=1.0, θ=1.0, ρ=0.0), 0.3]])
+    @test eltype(PeriodicHMMDists(m0).B[1]) == eltype(PeriodicHMMDists(truth).B[1])
+    m, history = fit_mle(m0, Y; solver=SOLVER, n2t, maxiter=100)
+    @test history.converged
+    @test all(diff(history.logtots) .>= -1e-6)
+    @test 0 < loglikelihood(m, Y; n2t) - loglikelihood(truth, Y; n2t) < nparams(m)
+    @test maximum(abs, curve(m, :ρ) .- curve(truth, :ρ)) < 0.1
+    @test mean(viterbi(m, Y; n2t) .== z) > 0.95
+end
+
+@testset "SmoothPeriodicHMM: robust = true and an impossible observation" begin
+    K, T = 2, 20
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[:, 1, 1] = [2.0, -2.0]
+    truth = SmoothPeriodicHMM([Exponential => 1], [0.5, 0.5], θᴬ,
+        reshape([[0.0, 0.3, 0.0], [log(4.0), 0.0, 0.0]], K, 1), T)
+    n2t = n_to_t(2_000, T)
+    y = vec(rand(StableRNG(9), truth, n2t))
+    y_bad = copy(y)
+    y_bad[100] = -1.0                          # impossible in every state
+    m0 = SmoothPeriodicHMM(Exponential, K, 1, T; init=[0.5, 3.0])
+
+    # without it the forward pass stops on a NaN loglikelihood
+    @test_throws ArgumentError fit_mle(m0, y_bad; solver=SOLVER, n2t)
+    m, history = fit_mle(m0, y_bad; solver=SOLVER, n2t, robust=true, maxiter=200)
+    # the clamped value is moderate, so the loglikelihood still moves and the fit runs to its end
+    @test history.converged && history.iterations > 5
+    @test all(isfinite, history.logtots)
+    m_clean, _ = fit_mle(m0, y; solver=SOLVER, n2t, maxiter=200)
+    @test all(maximum(abs, emission_coefs(m, k, 1) .- emission_coefs(m_clean, k, 1)) < 0.05 for k = 1:K)
+
+    logb = zeros(K)
+    HMMs.obs_logdensities!(logb, SPSM.RobustEmissions(truth), [-1.0], SeasonalControls(n2t)[100])
+    @test logb == fill(log(floatmin(Float64)), K)
+    # impossible in some states only: left alone, those states get probability zero
+    @test SPSM._clamp_inf!([-Inf, -3.0]) == [-Inf, -3.0]
+    @test SPSM._clamp_inf!([Inf, -3.0]) == [log(floatmax(Float64)), -3.0]
+    @test SPSM._clamp_inf!([-Inf -Inf; -Inf -2.0]) == [log(floatmin(Float64)) log(floatmin(Float64)); -Inf -2.0]
+end
+
+@testset "SmoothPeriodicHMM: a starting point from slices" begin
+    K, T, N = 2, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    # state 1 has the larger mean, the order the slices put the states in
+    θᴮ = reshape([[3.0, 0.0, 1.0, log(1.5), 0.0, 0.0], [0.0, 1.0, 0.0, 0.0, 0.2, 0.0]], K, 1)
+    truth = SmoothPeriodicHMM([Normal => 1], [0.5, 0.5], θᴬ, θᴮ, T)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(2), truth, n2t; seq=true)
+    y = vec(Y)
+
+    # a template that only knows the structure: two nearly equal states
+    m0 = SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=1.6, σ=3.0), (μ=1.5, σ=3.0)])
+    ps0 = copy(parameters(m0))
+    start, slices = fit_mle_all_slices(StableRNG(1), m0, y; solver=SOLVER, n2t, Yₜ_extanted=-1:1, n_random_ini=3, slices=true)
+    @test start isa SmoothPeriodicHMM && size(start) == size(m0)
+    @test start.cfg === nothing
+    @test parameters(m0) == ps0
+    @test slices isa PeriodicHMMDists && size(slices) == (K, 1, T)
+    @test all(mean(slices.B[1][1, t]) > mean(slices.B[1][2, t]) for t = 1:T)
+    @test all(t -> SPSM.istransmat(slices.A[:, :, t]), 1:T)
+    @test maximum(abs, curve(start, :μ) .- curve(truth, :μ)) < 0.6
+    # The transitions of a slice start are rough: they are counted between the most likely states
+    # of a fit that ignores the dynamics, so an observation given to the wrong state counts as
+    # two switches and the states look less persistent than they are (0.36 off at worst here,
+    # where the two means are closest). The states must still come out persistent.
+    A_start = PeriodicHMMDists(start).A
+    @test all(A_start[1, 1, :] .> 0.5) && all(A_start[2, 1, :] .< 0.5)
+    @test maximum(abs, A_start .- PeriodicHMMDists(truth).A) < 0.45
+    @test loglikelihood(start, y; n2t) > loglikelihood(m0, y; n2t) + 500
+
+    # the same seed gives the same start, with or without threads
+    again = fit_mle_all_slices(StableRNG(1), m0, y; solver=SOLVER, n2t, Yₜ_extanted=-1:1, n_random_ini=3,
+        ensemble=EnsembleThreads())
+    @test parameters(again) == parameters(start)
+
+    # the fit from that start reaches the maximum
+    m, history = fit_mle(start, y; solver=SOLVER, n2t, maxiter=200)
+    @test history.converged
+    @test loglikelihood(m, y; n2t) > loglikelihood(truth, y; n2t)
+    @test mean(viterbi(m, y; n2t) .== z) > 0.9
+
+    # several sequences, and a window that does not wrap around
+    ys, n2ts = [y[1:1000], y[1001:end]], [n2t[1:1000], n2t[1001:end]]
+    start_seq = fit_mle_all_slices(StableRNG(1), m0, ys; solver=SOLVER, n2t=n2ts, Yₜ_extanted=-1:1, n_random_ini=2, periodic=false)
+    @test loglikelihood(start_seq, ys; n2t=n2ts) > loglikelihood(m0, ys; n2t=n2ts) + 500
+    @test_throws ArgumentError fit_mle_all_slices(m0, rand(StableRNG(1), 2, 100); solver=SOLVER, n2t=n_to_t(100, T))
+end
+
+@testset "SmoothPeriodicHMM: slices with blocks and a chosen order of the states" begin
+    K, T, N = 2, 20, 3_000
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[1, 1, :] = [2.0, 0.5, 0.0]
+    θᴬ[2, 1, :] = [-2.0, 0.0, 0.5]
+    b = TrigBasis(T, 1)
+    bivariate = TimeVaryingFamily((μ1, μ2, σ1, σ2, ρ) ->
+            MvNormal([μ1, μ2], [σ1^2 ρ*σ1*σ2; ρ*σ1*σ2 σ2^2]),
+        ParamSpec(μ1=b => IdentityLink(), μ2=b => IdentityLink(), σ1=b => LogLink(),
+            σ2=b => LogLink(), ρ=b => IntervalLink(-1, 1)))
+    fams = [bivariate, Bernoulli => 1]
+    θᴮ = Matrix{Vector{Float64}}(undef, K, 2)
+    θᴮ[1, 1] = [0, 1, 0, 2, 0, 0.5, 0, 0.2, 0, log(2), 0, 0, 1.4, 0.5, 0]
+    θᴮ[2, 1] = [3, 0, 0, 0, 0, 0, log(0.5), 0, 0, 0, 0, 0, -1.0, 0, 0]
+    θᴮ[1, 2], θᴮ[2, 2] = [1.0, 0.5, 0.0], [-1.0, 0.0, 0.0]    # state 1: the higher success probability
+    truth = SmoothPeriodicHMM(fams, [0.5, 0.5], θᴬ, θᴮ, T)
+    n2t = n_to_t(N, T)
+    z, Y = rand(StableRNG(6), truth, n2t; seq=true)
+
+    m0 = SmoothPeriodicHMM(fams, K, T; init=[[(μ1=1.0, μ2=1.0, σ1=2.0, σ2=2.0, ρ=0.0), 0.5],
+        [(μ1=1.5, μ2=1.0, σ1=2.0, σ2=2.0, ρ=0.0), 0.4]])
+    # ordered by the success probability of the Bernoulli row rather than by the first mean
+    start = fit_mle_all_slices(StableRNG(2), m0, Y; solver=SOLVER, n2t, Yₜ_extanted=-1:1, n_random_ini=3,
+        sortby=laws -> succprob(laws[2]))
+    @test maximum(abs, curve(start, :ρ) .- curve(truth, :ρ)) < 0.15
+    @test maximum(abs, curve(start, :p) .- curve(truth, :p)) < 0.1
+    @test loglikelihood(start, Y; n2t) > loglikelihood(m0, Y; n2t) + 1000
+    # by the first mean, the states come out the other way round
+    swapped = fit_mle_all_slices(StableRNG(2), m0, Y; solver=SOLVER, n2t, Yₜ_extanted=-1:1, n_random_ini=3)
+    @test curve(swapped, :p)[1, :] ≈ curve(start, :p)[2, :]
+end
+
+@testset "SmoothPeriodicHMM: several sequences, and wrong inputs" begin
+    K, T = 2, 10
+    θᴬ = zeros(K, K - 1, 3)
+    θᴬ[:, 1, 1] = [2.0, -2.0]
+    truth = SmoothPeriodicHMM([Normal => 1], [0.5, 0.5], θᴬ,
+        reshape([[0.0, 1.0, 0.0, 0.0, 0.0, 0.0], [3.0, 0.0, 1.0, 0.0, 0.0, 0.0]], K, 1), T)
+    n2ts = [n_to_t(300, T), mod1.((1:500) .+ 4, T), n_to_t(200, T)]
+    ys = [vec(rand(StableRNG(10 + i), truth, n2ts[i])) for i = 1:3]
+    m0 = SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=0.0, σ=1.0), (μ=2.0, σ=1.0)])
+
+    @test loglikelihood(m0, ys; n2t=n2ts) ≈ sum(loglikelihood(m0, ys[i]; n2t=n2ts[i]) for i = 1:3)
+    @test loglikelihood(m0, [permutedims(y) for y in ys]; n2t=n2ts) == loglikelihood(m0, ys; n2t=n2ts)
+    _, h1 = fit_mle(m0, [ys[2]]; solver=SOLVER, n2t=[n2ts[2]], maxiter=50)
+    _, h2 = fit_mle(m0, ys[2]; solver=SOLVER, n2t=n2ts[2], maxiter=50)
+    @test h1.logtots ≈ h2.logtots
+    m, h = fit_mle(m0, ys; solver=SOLVER, n2t=n2ts, maxiter=50)
+    @test h.logtots[end] ≈ loglikelihood(m, ys; n2t=n2ts)
+    @test length.(viterbi(m, ys; n2t=n2ts)) == [300, 500, 200]
+    @test nobs(fit(SeasonalFit, m0, ys; solver=SOLVER, n2t=n2ts, maxiter=50)) == 1000
+
+    # identical starting states; one start for two blocks; a wrong number of coefficients
+    @test_throws ArgumentError SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=0.0, σ=1.0), (μ=0.0, σ=1.0)])
+    @test_throws ArgumentError SmoothPeriodicHMM([Normal => 1, Gamma => 1], K, T;
+        init=[[(μ=0.0, σ=1.0)], [(μ=1.0, σ=1.0)]])
+    @test_throws ArgumentError SmoothPeriodicHMM([Normal => 1], [0.5, 0.5], θᴬ,
+        reshape([zeros(6), zeros(5)], K, 1), T)
+    # observations that do not match the blocks or the positions
+    @test_throws ArgumentError fit_mle(m0, rand(StableRNG(1), 2, 100); solver=SOLVER, n2t=n_to_t(100, T))
+    @test_throws ArgumentError loglikelihood(m0, ys[1]; n2t=n2ts[2])
+    # a parameter name two blocks share needs `block`
+    m2 = SmoothPeriodicHMM([Normal => 1, Normal => 0], K, T;
+        init=[[(μ=0.0, σ=1.0), (μ=0.0, σ=1.0)], [(μ=1.0, σ=1.0), (μ=1.0, σ=1.0)]])
+    @test_throws ArgumentError curve(m2, :μ)
+    @test size(curve(m2, :μ; block=2)) == (K, T)
+    @test all(allequal, eachrow(curve(m2, :μ; block=2)))   # degree 0: constant
 end
 
 @testset "fit_mle_all_slices: a starting point from D × N observations" begin
@@ -1451,7 +1829,7 @@ end
     hmm_guess = Trig2ARPeriodicHMM([1 / 4, 1 / 4, 1 / 2], trans_θ_guess, Bernoulli_θ_guess, T)
 
     m_guess = SmoothARPeriodicHMM([1 / 4, 1 / 4, 1 / 2], trans_θ_guess, Bernoulli_θ_guess, T)
-    @time "FitMLE SHMM (Baum Welch)" m_fit, hist = fit_mle(m_guess, y, y_past; maxiter=10000, robust=true, display=:iter, tol=1e-3, ps_iters=true, n2t=n2t)
+    @time "FitMLE SHMM (Baum Welch)" m_fit, hist = fit_mle(m_guess, y, y_past; solver=SOLVER, maxiter=10000, robust=true, display=:iter, tol=1e-3, ps_iters=true, n2t=n2t)
     hmm_fit = ARPeriodicHMM(m_fit)
     θq_fit, θy_fit = parameters(m_fit).A, parameters(m_fit).B
     # The transition coefficients are only weakly identified: a state visited 15% of the time
@@ -1503,7 +1881,7 @@ end
         hmm_guess = Trig2ARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
 
         m_guess = SmoothARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
-        @time "FitMLE SHMM (Baum Welch) K = $K, autoregressive_order = $autoregressive_order, degree_of_P = $degree_of_P" m_fit, hist = fit_mle(m_guess, y, y_past; maxiter=10000, robust=true, tol=1e-3, ps_iters=true, n2t=n2t)
+        @time "FitMLE SHMM (Baum Welch) K = $K, autoregressive_order = $autoregressive_order, degree_of_P = $degree_of_P" m_fit, hist = fit_mle(m_guess, y, y_past; solver=SOLVER, maxiter=10000, robust=true, tol=1e-3, ps_iters=true, n2t=n2t)
         hmm_fit = ARPeriodicHMM(m_fit)
         θq_fit, θy_fit = parameters(m_fit).A, parameters(m_fit).B
         z_hat = viterbi(hmm_fit, y, y_past; n2t=n2t)
@@ -1556,7 +1934,7 @@ addprocs(2)
     hmm_guess = Trig2ARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
 
     m_guess = SmoothARPeriodicHMM(ξ, trans_θ_guess, Bernoulli_θ_guess, T)
-    @time "pmap worker" m_fit, hist = fit_mle(m_guess, y, y_past; maxiter=10000, robust=true, tol=1e-3, ps_iters=true, n2t=n2t)
+    @time "pmap worker" m_fit, hist = fit_mle(m_guess, y, y_past; solver=SOLVER, maxiter=10000, robust=true, tol=1e-3, ps_iters=true, n2t=n2t)
     hmm_fit = ARPeriodicHMM(m_fit)
     θq_fit, θy_fit = parameters(m_fit).A, parameters(m_fit).B
     # pmap 0 worker: 31.229542 seconds (161.79 M allocations: 17.413 GiB, 2.89% gc time, 0.01% compilation time)

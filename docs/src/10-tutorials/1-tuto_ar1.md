@@ -1,3 +1,7 @@
+```@codeblocks
+line_counter = :continue
+```
+
 ```@meta
 EditURL = "../../../examples/tuto_ar1.jl"
 ```
@@ -14,34 +18,51 @@ A periodic autoregressive process of order 1,
 y_n = \mu(t_n) + \rho(t_n)\, y_{n-1} + \sigma(t_n)\, \epsilon_n, \qquad \epsilon_n \sim \mathcal{N}(0, 1),
 ```
 
-where ``t_n \in 1{:}T`` is the position of step ``n`` in a cycle of ``T`` steps. Each parameter is
-a smooth function of ``t``: a trigonometric polynomial pushed through a link that keeps it in its
-domain, ``\rho \in (-1, 1)`` and ``\sigma > 0``.
+where ``t_n \in 1{:}T`` is the period index of step ``n`` in a cycle of ``T`` steps (`n2t[n]`, see
+the [data layout](@ref data-layout)). Each parameter is a trigonometric polynomial of degree
+``d``,
+
+```math
+P(t) = c_0 + \sum_{\ell=1}^{d} \left( c_{2\ell-1} \cos\frac{2\pi \ell t}{T} + c_{2\ell} \sin\frac{2\pi \ell t}{T} \right),
+```
+
+pushed through a link that keeps it in its domain:
+
+```math
+\mu(t) = P_\mu(t), \qquad
+\rho(t) = 2\,\operatorname{logistic}\big(P_\rho(t)\big) - 1 \in (-1, 1), \qquad
+\sigma(t) = \exp\big(P_\sigma(t)\big) > 0,
+```
+
+with ``\operatorname{logistic}(x) = 1/(1 + e^{-x})``.
 
 This toy example simulates such a process with a known seasonality, fits it back, and chooses
 the degree of the polynomials.
 
 ````@example 1-tuto_ar1
 using SmoothPeriodicStatsModels
-using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff # loads the fitting routines
+using Optimization, SimpleNonlinearSolve # loads the fitting routines
+using OptimizationOptimJL # the optimization algorithm, LBFGS
 using Random
 using CairoMakie
+
+solver = LBFGS()   # every fit below takes its optimization algorithm explicitly
 ````
 
 ## A model with known coefficients
 
 `SmoothAR1(d, T)` is a model whose three parameters are trigonometric polynomials of degree `d`
 over a cycle of `T` steps. Its coefficients start at zero. `parameters(m)` returns them as a
-`ComponentArray` with one block per parameter: the intercept, then a cosine and a sine
-coefficient per harmonic.
+`ComponentArray` with one block per parameter: `parameters(m).μ` is ``(c_0, c_1, \dots, c_{2d})``
+of ``P_\mu``, the intercept then a cosine and a sine coefficient per harmonic.
 
 ````@example 1-tuto_ar1
 T = 40
 truth = SmoothAR1(1, T)
 ps = parameters(truth)
-ps.μ .= [1.0, 0.8, -0.4]
+ps.μ .= [1.0, 0.8, -0.4]   # μ(t) = 1 + 0.8 cos(2πt/T) - 0.4 sin(2πt/T)
 ps.ρ .= [0.5, 0.6, 0.2]
-ps.σ .= [-0.7, 0.3, 0.0]
+ps.σ .= [-0.7, 0.3, 0.0]   # σ(t) = exp(-0.7 + 0.3 cos(2πt/T))
 truth
 ````
 
@@ -65,8 +86,8 @@ plot_curves([truth], ["truth"])
 
 ## Simulate and fit
 
-`rand(m, N; y₁)` simulates `N` steps from the initial value `y₁`. Step `n` sits at position
-`n2t[n]` in the cycle, with `n2t = n_to_t(N, T)` by default (`1, 2, …, T, 1, 2, …`).
+`rand(m, N; y₁)` simulates `N` steps from the initial value `y₁`. Step `n` has period index
+`n2t[n]`, with `n2t = n_to_t(N, T)` by default (`1, 2, …, T, 1, 2, …`).
 
 ````@example 1-tuto_ar1
 Random.seed!(1)
@@ -74,11 +95,11 @@ N = 20_000
 y = rand(truth, N; y₁=0.0)
 ````
 
-`fit_mle(model, y)` starts from the coefficients of `model` and returns the fitted model together
+`fit_mle(model, y; solver)` starts from the coefficients of `model` and returns the fitted model together
 with a [`FitHistory`](@ref).
 
 ````@example 1-tuto_ar1
-m, history = fit_mle(SmoothAR1(1, T), y)
+m, history = fit_mle(SmoothAR1(1, T), y; solver)
 history
 ````
 
@@ -96,11 +117,11 @@ parameters(m)
 
 ## Choosing the degree
 
-`fit(SeasonalFit, model, y)` runs the same fit and keeps what model selection needs, so
+`fit(SeasonalFit, model, y; solver)` runs the same fit and keeps what model selection needs, so
 `loglikelihood`, `dof`, `nobs`, `aic` and `bic` apply to it.
 
 ````@example 1-tuto_ar1
-fits = [fit(SeasonalFit, SmoothAR1(d, T), y) for d in 0:3]
+fits = [fit(SeasonalFit, SmoothAR1(d, T), y; solver) for d in 0:3]
 [(degree=d, dof=dof(f), bic=round(bic(f); digits=1)) for (d, f) in zip(0:3, fits)]
 ````
 
@@ -118,7 +139,7 @@ spec = ParamSpec(
     ρ=TrigBasis(T, 0) => IntervalLink(-1, 1),
     σ=TrigBasis(T, 1) => LogLink(),
 )
-f2 = fit(SeasonalFit, SmoothAR1(spec, T), y)
+f2 = fit(SeasonalFit, SmoothAR1(spec, T), y; solver)
 (ρ=coef(f2, :ρ), dof=dof(f2), bic=round(bic(f2); digits=1))
 ````
 

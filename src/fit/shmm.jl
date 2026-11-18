@@ -11,7 +11,7 @@ function γₛ!(γₛ::AbstractVector, γ, n_all::AbstractVector)
 end
 
 function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::AbstractMatrix, γₛ::AbstractVector, Y, n_all, basis::AbstractMatrix;
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @argcheck size(γ, 1) == size(Y, 2)
     @argcheck size(γ, 2) == size(B, 1)
     K, T, D = size(B)

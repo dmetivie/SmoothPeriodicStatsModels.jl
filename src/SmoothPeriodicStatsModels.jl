@@ -90,7 +90,7 @@ include("utilities.jl")
 
 # ## Explicit parameters, and what a fit reports
 include("params.jl")
-export parameters, nparams, seasonal_params, seasonal_curve, ncolumns, column, FitHistory, converged
+export parameters, nparams, ncolumns, column, FitHistory, converged
 
 # ## The second tier, for model selection
 include("fitted.jl")
@@ -101,7 +101,7 @@ export loglikelihood, dof, nobs, aic, aicc, bic
 
 # ## One solver convention shared by every fit in the package
 include("fit_stubs.jl")
-export default_solver, default_nlls_solver, default_adtype, default_ensemble
+export default_nlls_solver, default_adtype, default_ensemble
 export solve_unconstrained, solve_nlls
 
 # ## M-step objectives shared by the seasonal EM algorithms
@@ -115,7 +115,6 @@ export ncomponents, components
 
 # ## Generic MLE problem solved with Optimization
 include("optim_mle_type.jl")
-export OptimMLE
 
 # ## Auto-regressive problems
 include("AR/AR1.jl")
@@ -152,36 +151,37 @@ include("HHMM_Bernoulli_spatial/likelihoods.jl")
 include("HHMM_Bernoulli_spatial/viterbi.jl")
 include("HHMM_Bernoulli_spatial/trig_conversion.jl")
 
+# Any emission law, no memory
+include("HMM_Dists/periodichmm.jl")
+
 # ### …as HiddenMarkovModels.jl models
-# After all three HMM types: the accessors for every one of them are written in one place, so
+# After all the HMM types: the accessors for every one of them are written in one place, so
 # this has to see each type's definition.
 include("hmm_interface.jl")
 export SeasonalControls
 include("HHMM_Bernoulli/smooth.jl")
 include("sHHMM_Bernoulli/smooth.jl")
 include("HHMM_Bernoulli_spatial/smooth.jl")
+include("HMM_Dists/smooth.jl")
 include("smooth_hmm_sequences.jl")
 export SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial, degrees
+export SmoothPeriodicHMM, PeriodicHMMDists, emission_coefs, emission_range
 # for HMMMspa 
-export ARPeriodicHMMSpatial,norm_cdf_2d_vfast,Trig2ARPeriodicHMMSpatial
+export ARPeriodicHMMSpatial, Trig2ARPeriodicHMMSpatial
 
 export
     # periodichmm.jl
     ARPeriodicHMM,
-    sort_wrt_ref!,
     randARPeriodicHMM,
-    rand,
     # messages.jl
     # likelihoods.jl
     loglikelihoods,
     viterbi,
-    complete_loglikelihood, nb_param, bic_sel,
     # trigonometric
     fit_θ!,
     fit_θ,
     fit_θᴬ!,
     fit_θᴮ!,
-    polynomial_trigo,
     Trig2ARPeriodicHMM,
     fit_mle_RO,
     # fit slice

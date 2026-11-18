@@ -24,16 +24,14 @@ StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
 TimeVaryingParameters = "c3441385-f229-4866-8817-bbca1834e4b8"
 
 [weakdeps]
-ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
-OptimizationOptimJL = "36348300-93cb-4f02-beb5-3c3902f8871e"
 SimpleNonlinearSolve = "727e6d20-b764-4bd8-a329-72de5adea6c7"
 
 [sources]
 TimeVaryingParameters = {url = "https://github.com/dmetivie/TimeVaryingParameters.jl", rev = "harden-for-spsm"}
 
 [extensions]
-SmoothPeriodicStatsModelsOptimizationExt = ["Optimization", "OptimizationOptimJL", "SimpleNonlinearSolve", "ForwardDiff"]
+SmoothPeriodicStatsModelsOptimizationExt = ["Optimization", "SimpleNonlinearSolve"]
 
 [compat]
 ArgCheck = "2"
@@ -41,13 +39,11 @@ ComponentArrays = "0.15"
 Copulas = "0.1, 1"
 Distributions = "0.25"
 ExpectationMaximization = "0.3.5"
-ForwardDiff = "1"
 HiddenMarkovModels = "0.7"
 LinkFunctions = "0.1"
 LogExpFunctions = "0.3, 1"
 MvNormalCDF = "0.3.2"
 Optimization = "5"
-OptimizationOptimJL = "0.4"
 PeriodicHiddenMarkovModels = "0.4"
 SciMLBase = "2, 3"
 SimpleNonlinearSolve = "2"

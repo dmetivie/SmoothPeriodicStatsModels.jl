@@ -48,6 +48,17 @@ controls of all of them end to end, in the layout of the multi-sequence [`fit_ml
 SeasonalControls(Y::AbstractMatrix{<:Bool}, Y_past::AbstractArray; n2t::AbstractVector{<:Integer}) =
     SeasonalControls(n2t, conditional_to(Y, Y_past))
 
+"""
+    SeasonalControls(n2t)
+    SeasonalControls(n2ts)
+
+The control sequence of a periodic HMM without memory, such as [`SmoothPeriodicHMM`](@ref): the
+period indices alone, the memory categories being empty. With a vector of period-index vectors, the
+controls of several sequences end to end; give `HiddenMarkovModels` the matching `seq_ends`.
+"""
+SeasonalControls(n2t::AbstractVector{<:Integer}) = SeasonalControls(n2t, zeros(Int, 0, length(n2t)))
+SeasonalControls(n2ts::AbstractVector{<:AbstractVector{<:Integer}}) = SeasonalControls(reduce(vcat, n2ts))
+
 Base.size(c::SeasonalControls) = (length(c.n2t),)
 Base.@propagate_inbounds Base.getindex(c::SeasonalControls, n::Integer) =
     (c.n2t[n], view(c.lag_cat, :, n), Int(n), c.n2t[max(n - 1, 1)])
@@ -72,8 +83,8 @@ HMMs.initialization(hmm::ARPeriodicHMM) = hmm.a
 """
     transition_matrix(hmm::ARPeriodicHMM, control) -> AbstractMatrix
 
-The transition matrix of the step arriving at `control`, as `HiddenMarkovModels` asks for it:
-`A[:, :, s]`, where `s = control[4]` is the period index of the previous observation, the one
+The transition matrix of the step arriving at `control`, as `HiddenMarkovModels` asks for it.
+It is `A[:, :, s]`, where `s = control[4]` is the period index of the previous observation, the one
 the step leaves. The elements of a [`SeasonalControls`](@ref) carry it. Also defined for
 `sARPeriodicHMM` and `ARPeriodicHMMSpatial`.
 """
@@ -217,6 +228,42 @@ function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMMSpati
     return nothing
 end
 
+# ## Any emission, no memory
+#
+# The control is the period index alone, with the same four-element layout, so the transition is read
+# where the other models read it. Without memory, nothing in the control depends on the
+# observations, and `HiddenMarkovModels`' own `rand` is correct for this model.
+
+HMMs.initialization(hmm::PeriodicHMMDists) = hmm.a
+
+HMMs.transition_matrix(hmm::PeriodicHMMDists, c::Tuple) = view(hmm.A, :, :, _leaving(c))
+
+"""
+    obs_distributions(hmm::PeriodicHMMDists, (t, _...)) -> Vector
+
+One law per hidden state at period index `t`: the product of the blocks' laws, `B[b][k, t]`.
+"""
+HMMs.obs_distributions(hmm::PeriodicHMMDists, c::Tuple) = [emission(hmm, k, c[1]) for k in OneTo(size(hmm, 1))]
+
+function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::PeriodicHMMDists, obs, c::Tuple;
+    error_if_not_finite::Bool=true) where {T}
+    t = c[1]
+    fill!(logb, zero(T))
+    _foreach_block(hmm.B, hmm.blocks) do Bb, r
+        _add_block_logdensities!(logb, Bb, r, obs, t)
+    end
+    error_if_not_finite && @argcheck maximum(logb) < typemax(T)
+    return nothing
+end
+
+function _add_block_logdensities!(logb, Bb, r, obs, t)
+    x = _block_obs(Bb, obs, r)
+    @inbounds for k in eachindex(logb)
+        logb[k] += logpdf(Bb[k, t], x)
+    end
+    return logb
+end
+
 # `rand` is this package's own and stays that way. `HiddenMarkovModels` draws from
 # `obs_distributions(hmm, control)` with the control sequence fixed before the first draw,
 # which cannot work here: the memory category of site `j` at step `n` is a function of the
@@ -248,9 +295,10 @@ end
 """
     CachedEmissions(model, LL)
 
-An `AbstractHMM` that takes `initialization`, `transition_matrix` and `obs_distributions` from
-`model` but reads its emission loglikelihoods from `LL`, an `N × K` matrix computed beforehand
-(for example with [`loglikelihoods!`](@ref)). Row `n` is found from the observation index, the
+An `AbstractHMM` that reads its emission loglikelihoods from a precomputed matrix. It takes
+`initialization`, `transition_matrix` and `obs_distributions` from `model`, and the emission
+loglikelihoods from `LL`, an `N × K` matrix computed beforehand (for example with
+[`loglikelihoods!`](@ref)). Row `n` is found from the observation index, the
 third element of each [`SeasonalControls`](@ref) control. `LL` is not updated when `model`
 changes.
 """
@@ -270,9 +318,33 @@ function HMMs.obs_logdensities!(logb::AbstractVector, c::CachedEmissions, obs, c
 end
 
 """
+    RobustEmissions(model)
+
+An `AbstractHMM` that keeps the forward pass finite when an observation is impossible. It takes
+everything from `model`, but gives an observation that is impossible in every state the same
+small loglikelihood, `log(floatmin())` ≈ -708, in all of them, and caps an infinite
+loglikelihood at `log(floatmax())`. The fits run
+their E-step on it with `robust = true`.
+"""
+struct RobustEmissions{M} <: HMMs.AbstractHMM
+    model::M
+end
+
+HMMs.initialization(r::RobustEmissions) = HMMs.initialization(r.model)
+HMMs.transition_matrix(r::RobustEmissions, ctl::Tuple) = HMMs.transition_matrix(r.model, ctl)
+HMMs.obs_distributions(r::RobustEmissions, ctl::Tuple) = HMMs.obs_distributions(r.model, ctl)
+
+function HMMs.obs_logdensities!(logb::AbstractVector, r::RobustEmissions, obs, ctl::Tuple;
+    error_if_not_finite::Bool=true)
+    HMMs.obs_logdensities!(logb, r.model, obs, ctl; error_if_not_finite=false)
+    _clamp_inf!(logb)
+    return nothing
+end
+
+"""
     viterbi(hmm, Ys, Y_pasts; n2t, kwargs...) -> Vector{Vector{Int}}
 
-The most likely hidden state path of each of several independent sequences: `Ys[i]` is the
+The most likely hidden state path of each of several independent sequences. `Ys[i]` is the
 `D × Nᵢ` sequence `i`, `Y_pasts[i]` its initial observations and `n2t[i]` its period indices, by
 default `n_to_t(Nᵢ, T)`. Other keywords are passed to the single-sequence `viterbi`.
 """

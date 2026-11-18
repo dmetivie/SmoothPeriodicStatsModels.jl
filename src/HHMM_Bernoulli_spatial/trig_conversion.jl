@@ -1,9 +1,9 @@
 """
     ARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m = 30, basis_A, basis_B, basis_R) -> ARPeriodicHMMSpatial
 
-The [`ARPeriodicHMMSpatial`](@ref) of period `T` given by coefficients: `θᴬ`, `θᴮ` and their bases
-as for the coefficient method of [`ARPeriodicHMM`](@ref), and `θᴿ` (`K × nR`), the coefficients
-of the spatial range `exp(X_R[t, :] ⋅ θᴿ[k, :])` of each state. `h` is the `D × D` distance
+The [`ARPeriodicHMMSpatial`](@ref) of period `T` given by coefficients. `θᴬ`, `θᴮ` and their
+bases are as for the coefficient method of [`ARPeriodicHMM`](@ref), and `θᴿ` (`K × nR`) holds
+the coefficients of the spatial range `exp(X_R[t, :] ⋅ θᴿ[k, :])` of each state. `h` is the `D × D` distance
 matrix between sites. The bases default to trigonometric polynomials.
 """
 function ARPeriodicHMMSpatial(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},

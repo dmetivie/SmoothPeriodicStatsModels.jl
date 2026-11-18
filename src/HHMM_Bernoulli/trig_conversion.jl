@@ -42,7 +42,7 @@ Trig2ARPeriodicHMM(θᴬ::AbstractArray{<:Real,3}, θᴮ::AbstractArray{<:Real,4
 """
     transition_residual(p, (A, K, X)) -> Vector
 
-Residual of the softmax fit of one row of a transition matrix: entry `(t, k)` is
+Residual of the softmax fit of one row of a transition matrix. Entry `(t, k)` is
 `A(t)[k] - A[k, t]`, where `A(t)` is the row that the coefficients `p`, `(K-1) × nbasis`, encode
 on the `T × nbasis` design matrix `X`. The `K`-th column is the normalization
 `1 / (1 + Σₗ exp(X[t, :] ⋅ p[l, :]))`, matching [`ARPeriodicHMM`](@ref).

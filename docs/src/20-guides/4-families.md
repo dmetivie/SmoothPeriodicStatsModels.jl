@@ -4,10 +4,24 @@
 CurrentModule = SmoothPeriodicStatsModels
 ```
 
-A component of a [`SmoothSeasonalMixture`](@ref) can be any distribution whose parameters this
-package knows how to vary along the cycle: one basis and one link per parameter, in the order
-the distribution's constructor takes them. `Exponential`, `Rayleigh`, `Gamma`, `Weibull`,
-`Normal` and `LogNormal` are declared already.
+A seasonal family is a distribution whose parameters vary with the period index: one basis and
+one link per parameter, in the order the distribution's constructor takes them. Families are the
+components of a [`SmoothSeasonalMixture`](@ref) and the emission laws of a
+[`SmoothPeriodicHMM`](@ref). These are declared:
+
+| Family | Parameters and links |
+|:--|:--|
+| `Exponential` | scale `θ`, log |
+| `Rayleigh` | scale `σ`, log |
+| `Gamma` | shape `α` and scale `θ`, log |
+| `Weibull` | shape `α` and scale `θ`, log |
+| `Normal` | mean `μ`, identity; standard deviation `σ`, log |
+| `LogNormal` | `μ`, identity; `σ`, log |
+| `Bernoulli` | success probability `p`, logit |
+| `Poisson` | mean `λ`, log |
+
+In a model constructor, `Normal => 2` stands for `seasonal_family(Normal, TrigBasis(T, 2))`: each
+parameter a trigonometric polynomial of degree 2.
 
 ## Declaring a family
 
@@ -22,23 +36,44 @@ SmoothPeriodicStatsModels.seasonal_family(::Type{Pareto}, basis) =
 ```
 
 The method is declared on the type without its parameters, `Pareto` and not
-`Pareto{Float64}`. The family can then be a component:
+`Pareto{Float64}`. The family can then be a mixture component or an HMM emission:
 
 ```julia
 m0 = SmoothSeasonalMixture([Exponential => 1, Pareto => 1], T; init=[1.0, (α=2.0, θ=1.0)])
-m, history = fit_mle(m0, y; n2t)
+m, history = fit_mle(m0, y; n2t, solver=LBFGS())
+
+h0 = SmoothPeriodicHMM(Pareto, 2, 1, T; init=[(α=2.0, θ=1.0), (α=4.0, θ=1.0)])
+h, history = fit_mle(h0, y; n2t, solver=LBFGS())
 ```
 
 The M-step then maximizes the weighted loglikelihood of the family directly: one matrix-vector
 product per parameter and `T` distribution constructions per iteration, not one per
 observation.
 
+## One basis per parameter, and multivariate laws
+
+`seasonal_family` gives every parameter the same basis. A `TimeVaryingFamily` built directly
+takes one basis and one link per parameter, and any function that builds the law from them.
+Here a bivariate normal law, with a constant second standard deviation:
+
+```julia
+b = TrigBasis(T, 1)
+bivariate = TimeVaryingFamily(
+    (μ1, μ2, σ1, σ2, ρ) -> MvNormal([μ1, μ2], [σ1^2 ρ*σ1*σ2; ρ*σ1*σ2 σ2^2]),
+    ParamSpec(μ1=b => IdentityLink(), μ2=b => IdentityLink(), σ1=b => LogLink(),
+        σ2=TrigBasis(T, 0) => LogLink(), ρ=b => IntervalLink(-1, 1)))
+```
+
+Every parameter is a scalar. A multivariate law is an emission block of a `SmoothPeriodicHMM`,
+covering as many rows of the observations as its length; the [tutorial](@ref TutoHMMDists) fits
+this law and one built from a copula. A seasonal mixture takes univariate families.
+
 ## A faster M-step
 
-Some families reduce to sufficient statistics per position in the cycle, and the M-step then
-never touches the observations inside the solver. That is a method of `update_dist`, the M-step
-of one component, written for the family. For the seasonal `Rayleigh`, whose scale is
-`S(t) = exp(P(t))` and whose log-density is `log y - 2 log S - y² / 2S²`:
+Some families reduce to sufficient statistics per period index, and the M-step then never
+touches the observations inside the solver. That is a method of `update_dist`, the weighted fit
+of one family, written for it. For the seasonal `Rayleigh`, whose scale is `S(t) = exp(P(t))`
+and whose log-density is `log y - 2 log S - y² / 2S²`:
 
 ```julia
 using SmoothPeriodicStatsModels, Distributions
@@ -48,8 +83,7 @@ rayleigh_nll(θ, (s_γ, s_γy², basis)) =
     sum(2 * s_γ[t] * P + s_γy²[t] * exp(-2P) / 2 for (t, P) in enumerate(basis * θ))
 
 function SPSM.update_dist(fam::TimeVaryingFamily{SPSM.DistConstructor{Rayleigh}},
-    design::PeriodicDesign, θ, γ, obs, n_in_t;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    design::PeriodicDesign, θ, γ, obs, n_in_t; solver, adtype, solve_kwargs)
     T, total = design.nT, sum(γ)
     s_γ = [sum(γ[n] for n in n_in_t[t]; init=0.0) / total for t = 1:T]
     s_γy² = [sum(γ[n] * obs[n]^2 for n in n_in_t[t]; init=0.0) / total for t = 1:T]
@@ -63,9 +97,10 @@ Dividing by the total weight leaves the optimum unchanged and keeps the gradient
 the number of observations, which keeps the first steps of `LBFGS` from pushing the link into
 underflow.
 
-Nothing else changes: `fit_mle` is the same call and reaches the same estimator. The test suite
-checks that the two routes agree to `1e-8` on the coefficients. `Exponential` has such a method
-built in, and its EM runs about 3.5 times faster than through the generic M-step.
+Nothing else changes: `fit_mle` is the same call and reaches the same estimator, for a mixture
+and for a `SmoothPeriodicHMM` alike. The test suite checks that the two routes agree to `1e-8`
+on the coefficients. `Exponential` has such a method built in, and its EM runs about 3.5 times
+faster than through the generic M-step.
 
-The emissions of the hidden Markov models are not pluggable this way: their memory encoding
-makes the Bernoulli family part of the model.
+The emissions of the Bernoulli hidden Markov models are not pluggable this way: their memory
+encoding makes the Bernoulli family part of the model.

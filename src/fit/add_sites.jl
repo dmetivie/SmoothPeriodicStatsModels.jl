@@ -2,7 +2,7 @@
     fit_mle_RO(Y[, Y_past], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); solver, adtype, ensemble, solve_kwargs) -> (B, θᴮ)
 
 Fit the periodic autoregressive Bernoulli emissions of `D` sites given a known state sequence
-`z`: the success probability of site `j` in state `k` with memory category `h` is
+`z`. The success probability of site `j` in state `k` with memory category `h` is
 `logistic(P(t))`, a trigonometric polynomial of degree `deg_θᴮ`. Use it to add sites to an HMM
 whose hidden states are already estimated.
 
@@ -11,7 +11,7 @@ Returns the `K × T × D × 2^order` array of `Bernoulli` and the coefficients
 `θᴮ[k, j, h, :]`.
 """
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @assert K ≥ length(unique(z)) "The provided `K` is smaller than the number of states in the provided sequence `z`"
     @assert T ≥ length(unique(n2t)) "The provided `T` is smaller than the number of days in the provided sequence `n2t`"
 
@@ -36,7 +36,7 @@ function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z
 end
 
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     D, N = size(Y)
     Y_past = falses(D, 0)
     order = size(Y_past, 2)

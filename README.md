@@ -12,12 +12,15 @@ fitted by maximum likelihood:
 
 - an autoregressive process of order 1;
 - mixtures with varying weights and component parameters;
-- hidden Markov models with autoregressive Bernoulli emissions, optionally correlated in space.
+- hidden Markov models with autoregressive Bernoulli emissions, optionally correlated in space;
+- hidden Markov models with any `Distributions.jl` emission laws, univariate or multivariate.
 
 Each parameter is a basis expansion, a trigonometric polynomial by default, pushed through a link
-that keeps it in its domain. Estimating each day of the year on its own gives noisy curves and,
-in a hidden Markov model, regimes whose meaning drifts from one day to the next; a few
-coefficients per curve avoid both.
+that keeps it in its domain. Estimating each day of the year on its own gives noisy curves. One
+estimate per month or season, the usual remedy, gives curves that jump at every change of month,
+and the months still have to be glued back together. In a hidden Markov model, either way, the
+meaning of the regimes drifts from one day or month to the next. A few coefficients per curve
+avoid all three problems.
 
 The package was written for the multisite rain generator of
 [Gobet, Métivier and Parey (2025)](https://doi.org/10.5194/ascmo-11-159-2025), built on the
@@ -32,8 +35,9 @@ import Pkg
 Pkg.add("SmoothPeriodicStatsModels")
 ```
 
-The fitting routines need a solver stack, loaded with
-`using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff`.
+The fitting routines need Optimization.jl and SimpleNonlinearSolve, `using Optimization,
+SimpleNonlinearSolve`, and every fit takes its optimization algorithm explicitly as `solver`,
+from the package of your choice.
 
 ## Example
 
@@ -43,7 +47,8 @@ polynomial of degree 1, so three coefficients: an intercept, a cosine and a sine
 
 ```julia
 using SmoothPeriodicStatsModels
-using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
+using Optimization, SimpleNonlinearSolve   # loads the fitting routines
+using OptimizationOptimJL                  # the solver passed to the fit, LBFGS()
 using Random
 
 K, D, order, T, d = 3, 6, 1, 100, 1
@@ -67,7 +72,7 @@ z, Y = rand(truth, n2t; Y_past, seq=true)
 θᴬ₀, θᴮ₀ = zeros(size(θᴬ)), zeros(size(θᴮ))
 θᴬ₀[:, :, 1], θᴮ₀[:, :, :, 1] = θᴬ[:, :, 1], θᴮ[:, :, :, 1]
 m0 = SmoothARPeriodicHMM(fill(1 / K, K), θᴬ₀, θᴮ₀, T)
-m, history = fit_mle(m0, Y, Y_past; n2t)
+m, history = fit_mle(m0, Y, Y_past; n2t, solver=LBFGS())
 
 parameters(m).B              # the fitted emission coefficients
 ARPeriodicHMM(m).A           # the K × K × T transition matrices they give

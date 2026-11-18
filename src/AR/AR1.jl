@@ -27,13 +27,17 @@ struct AR1{T} <: AbstractPeriodicAR{T}
     σ::T
 end
 
+function rand(rng::AbstractRNG, AR::AR1, N::Integer; y₁=rand(rng, Normal(0, AR.σ[1])))
+    T = size(AR.μ, 1)
+    n2t = n_to_t(N, T)
+    return rand(rng, AR, n2t; y₁=y₁)
+end
+
 """
     rand([rng, ]AR::AR1, N::Integer; y₁) -> Vector
     rand([rng, ]AR::AR1, n2t; y₁) -> Vector
     rand([rng, ]AR::AR1, n2t, z; y₁) -> Vector
     rand([rng, ]AR::AR1, ϵ, n2t, z; y₁) -> Vector
-    rand([rng, ]ARs::AbstractArray{<:AR1}, n2t, z, Σ; y₁, output_ϵ = false) -> Matrix
-    rand([rng, ]ARs::AbstractArray{<:AR1}, ϵ, n2t, z, Σ; y₁) -> Matrix
 
 Simulate a periodic AR(1) from `y₁`, step `n` at period index `n2t[n]` (`N` steps give
 `n2t = n_to_t(N, T)`).
@@ -41,16 +45,9 @@ Simulate a periodic AR(1) from `y₁`, step `n` at period index `n2t[n]` (`N` st
 - With `z`, `AR` holds one process per hidden state (`K × T` curves) and step `n` uses state
   `z[n]`.
 - With `ϵ`, the standard normal innovations are given rather than drawn.
-- With an array `ARs` of such processes and `Σ`, one correlation matrix per hidden state, the
-  processes are simulated jointly, their innovations correlated through a Gaussian copula. The
-  result is `length(ARs) × N`; `output_ϵ = true` also returns the innovations.
-"""
-function rand(rng::AbstractRNG, AR::AR1, N::Integer; y₁=rand(rng, Normal(0, AR.σ[1])))
-    T = size(AR.μ, 1)
-    n2t = n_to_t(N, T)
-    return rand(rng, AR, n2t; y₁=y₁)
-end
 
+An array of such processes is simulated jointly by the method below.
+"""
 rand(AR::AR1, N::Integer; kwargs...) = rand(GLOBAL_RNG, AR, N; kwargs...)
 
 # The innovation is `Normal(0, σ(t))` and not a field of `AR1`, deliberately. Making it one is
@@ -113,6 +110,16 @@ rand(AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Intege
 #     return y
 # end
 
+"""
+    rand([rng, ]ARs::AbstractArray{<:AR1}, n2t, z, Σ; y₁, output_ϵ = false) -> Matrix
+    rand([rng, ]ARs::AbstractArray{<:AR1}, ϵ, n2t, z, Σ; y₁) -> Matrix
+
+Simulate several periodic AR(1) processes jointly, their innovations correlated. Each process
+holds one curve per hidden state, step `n` uses state `z[n]` and period index `n2t[n]`, and
+`Σ[k]` is the correlation matrix of the innovations in state `k`, through a Gaussian copula.
+With `ϵ`, the innovations are given rather than drawn. The result is `length(ARs) × N`;
+`output_ϵ = true` also returns the innovations.
+"""
 function rand(rng::AbstractRNG, ARs::AbstractArray{T}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}, Σ; y₁=[AR.σ[1] for AR in ARs].*rand(rng, MvNormal(Σ[1])), output_ϵ = false) where T<:AR1{<:AbstractMatrix}
     @assert length(z) == length(n2t)
     @assert size(ARs) == size(y₁)
@@ -192,7 +199,7 @@ m  = SmoothAR1(2, 366)                 # degree 2 over a period of 366, coeffici
 ps = parameters(m)                     # ComponentArray(μ = …, ρ = …, σ = …)
 ps.ρ .= θρ                             # set one parameter's coefficients
 
-m, history = fit_mle(m, y; n2t)
+m, history = fit_mle(m, y; n2t, solver)
 curve(m, :σ)                           # σ(t) over one period
 AR1(m)                                 # the curves, as an `AR1`
 rand(m, 1000; y₁ = 0.0)                # simulate
@@ -265,8 +272,8 @@ end
 """
     ar1_sufficient_statistics(y, n2t, T, ns = 2:length(y)) -> NamedTuple
 
-Per-period sufficient statistics of the periodic AR(1) loglikelihood: for each period index `t`,
-the number of transitions `N` and the sums `∑y²`, `∑y₋²`, `∑yy₋`, `∑y`, `∑y₋` taken over the
+Per-period sufficient statistics of the periodic AR(1) loglikelihood. For each period index `t`,
+they are the number of transitions `N` and the sums `∑y²`, `∑y₋²`, `∑yy₋`, `∑y`, `∑y₋` taken over the
 observations `n ∈ ns` with `n2t[n] == t`. `ns` defaults to every observation that has a
 predecessor; restrict it to fit one hidden state at a time.
 """

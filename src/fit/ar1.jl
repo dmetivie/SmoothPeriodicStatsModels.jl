@@ -24,7 +24,7 @@ model to simulate from, `curve(m, :σ)` the seasonal curve, `parameters(m).σ` t
 """
 function fit_mle(m::SmoothAR1, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck ncolumns(m.spec, parameters(m)) == 1 "`m` holds one column of coefficients per hidden state; pass `z` to fit them"
     design = PeriodicDesign(m.spec, 1:m.nT)
     stats = ar1_sufficient_statistics(y, n2t, m.nT)
@@ -62,7 +62,7 @@ fits in parallel. A state that `z` never visits has no data and keeps its starti
 function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
     K=_nstates(m, z),
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     spec, T = m.spec, m.nT
     design = PeriodicDesign(spec, 1:T)
     stats = [ar1_sufficient_statistics(y, n2t, T, [n for n = 2:length(y) if z[n] == k]) for k = 1:K]
@@ -91,7 +91,7 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
 end
 
 """
-    fit(SeasonalFit, m::SmoothAR1, y, args...; n2t, kwargs...) -> SeasonalFit
+    fit(SeasonalFit, m::SmoothAR1, y, args...; n2t, solver, kwargs...) -> SeasonalFit
 
 Fit a periodic AR(1) with [`fit_mle`](@ref), same keywords, and return a [`SeasonalFit`](@ref).
 `nobs` is the number of transitions.

@@ -1,8 +1,8 @@
 """
     conditional_to(Y, Y_past::AbstractVector) -> Matrix{Int}
 
-Memory category `lag_cat[j, n]` for sites that each carry their own memory order: `Y` is `D × N`
-and `Y_past[j]` is the initial condition of site `j`, its `order_j` values before `Y[j, :]` in
+The memory category of every site, for sites that each carry their own memory order. `Y` is
+`D × N` and `Y_past[j]` is the initial condition of site `j`, its `order_j` values before `Y[j, :]` in
 time order.
 """
 function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector)

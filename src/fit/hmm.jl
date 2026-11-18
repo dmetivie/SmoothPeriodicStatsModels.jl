@@ -17,14 +17,14 @@ end
 """
     update_B!(B, θᴮ, γ, γₛ, Y, n_all, basis; solver, adtype, ensemble, solve_kwargs)
 
-M-step for the emission probabilities: refit the coefficients `θᴮ[k, s, h, :]` of every (state,
-site, memory category) against the posteriors `γ` aggregated into `γₛ`, then write the resulting
-probabilities into `B`. `basis` is the `T × nB` design matrix of the coefficients. Also defined
+M-step for the emission probabilities of the Bernoulli HMMs. It refits the coefficients
+`θᴮ[k, s, h, :]` of every (state, site, memory category) against the posteriors `γ` aggregated
+into `γₛ`, then writes the resulting probabilities into `B`. `basis` is the `T × nB` design matrix of the coefficients. Also defined
 for the site-dependent layout of `sARPeriodicHMM`. `ensemble = EnsembleThreads()` refits them in
 parallel.
 """
 function update_B!(B::AbstractArray{T,4} where {T}, θᴮ::AbstractArray{N,4} where {N}, γ::AbstractMatrix, γₛ::AbstractArray, Y, n_all, basis::AbstractMatrix;
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @argcheck size(γ, 1) == size(Y, 2)
     @argcheck size(γ, 2) == size(B, 1)
     K, T, D, size_order = size(B)

@@ -4,8 +4,8 @@
 """
     fit_mle_one_R!(θᴿ, B, h, Y, wp, n_pair; n2t, basis, solver, adtype, solve_kwargs) -> θᴿ
 
-Refit in place the range coefficients `θᴿ` of one hidden state, the range at period index `t`
-being `exp(basis[t, :] ⋅ θᴿ)`, by maximizing the weighted pairwise loglikelihood
+Refit in place the spatial range coefficients `θᴿ` of one hidden state. The range at period
+index `t` is `exp(basis[t, :] ⋅ θᴿ)`, and the fit maximizes the weighted pairwise loglikelihood
 ([`pairwise_loglikelihood`](@ref), or [`pairwise_loglikelihood_memory`](@ref) when `B`, the
 `T × D × 2^order` marginal probabilities, has memory). `n_pair` holds the posterior-weighted
 counts of joint outcomes and `wp` the pair weights. `basis`, the `T × length(θᴿ)` design
@@ -44,9 +44,9 @@ end
 """
     update_R!(hmm::ARPeriodicHMMSpatial, θᴿ, γ, wp, Y, SituationIdx; n2t, basis, solver, adtype, maxiters = 10, solve_kwargs)
 
-M-step for the spatial ranges: for each hidden state `k`, weight the joint outcomes of each pair
-of sites by the posteriors `γ[:, k]`, refit `θᴿ[k, :]` with [`fit_mle_one_R!`](@ref), and write
-the resulting ranges into `hmm.R`. `SituationIdx` gives the joint-outcome category of every
+M-step for the spatial ranges of the hidden states. For each state `k`, it weights the joint
+outcomes of each pair of sites by the posteriors `γ[:, k]`, refits `θᴿ[k, :]` with
+[`fit_mle_one_R!`](@ref), and writes the resulting ranges into `hmm.R`. `SituationIdx` gives the joint-outcome category of every
 pair and observation; `basis` is the design matrix of the range, trigonometric by default;
 `maxiters` caps the solver iterations. The states are refitted in parallel threads.
 """

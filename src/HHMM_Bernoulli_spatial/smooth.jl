@@ -6,8 +6,8 @@
 """
     SmoothARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m = 30, basis_A, basis_B, basis_R)
 
-A periodic autoregressive spatial HMM given by its coefficients: `θᴬ` (`K × (K-1) × nA`,
-multinomial logit) for the transitions, `θᴮ` (`K × D × 2^order × nB`, logistic) for the marginal
+A periodic autoregressive spatial HMM given by its coefficients. These are `θᴬ`
+(`K × (K-1) × nA`, multinomial logit) for the transitions, `θᴮ` (`K × D × 2^order × nB`, logistic) for the marginal
 success probabilities, and `θᴿ` (`K × nR`, `exp`) for the spatial range of each state, with the
 bases of the coefficient method of [`ARPeriodicHMMSpatial`](@ref), trigonometric by default.
 `h` is the `D × D` distance matrix between sites and `QMC_m` the number of quasi-Monte-Carlo
@@ -17,7 +17,7 @@ points of the likelihood.
 m  = SmoothARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, distance)
 ps = parameters(m)                 # ComponentArray(A = θᴬ, B = θᴮ, R = θᴿ)
 
-m, history = fit_mle(m, Y, Y_past; n2t)
+m, history = fit_mle(m, Y, Y_past; n2t, solver)
 ARPeriodicHMMSpatial(m)            # the evaluated model
 curve(m, :R)                       # K × T, the spatial range over the period
 ```

@@ -6,7 +6,7 @@
 # driver wants and unpacks the result.
 
 """
-    fit_mle(m::SmoothSeasonalMixture, y[, w]; n2t, kwargs...) -> (m, history)
+    fit_mle(m::SmoothSeasonalMixture, y[, w]; n2t, solver, kwargs...) -> (m, history)
 
 Fit a seasonal mixture by EM: both the mixing weights and the component parameters vary with
 the period index `t = n2t[n]`, each through its own basis expansion.
@@ -21,7 +21,7 @@ Keywords: `maxiter = 100`, `tol = 1e-3`, `rtol`, `robust`, `display` (`:none`, `
 function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
     display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false, method=ClassicEM(),
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     K = ncomponents(m)
     ps = parameters(m)
 
@@ -45,7 +45,7 @@ function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
 end
 
 """
-    fit(SeasonalFit, m::SmoothSeasonalMixture, y, args...; n2t, kwargs...) -> SeasonalFit
+    fit(SeasonalFit, m::SmoothSeasonalMixture, y, args...; n2t, solver, kwargs...) -> SeasonalFit
 
 Fit a seasonal mixture with [`fit_mle`](@ref), same keywords, and return a
 [`SeasonalFit`](@ref), whose `bic` compares numbers of components or degrees.
@@ -65,7 +65,7 @@ end
 function _fit_seasonal_mixture(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix,
     θ_Y::AbstractVector, y::AbstractVecOrMat, n2t::AbstractVector, weights...;
     families, display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false,
-    method=ClassicEM(), solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    method=ClassicEM(), solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck maxiter >= 0
 
     K, T = ncomponents(mix[1]), size(mix, 1)
@@ -154,9 +154,10 @@ end
 """
     update_dist(fam, design, θ, γ, observations, n_in_t; solver, adtype, solve_kwargs)
 
-M-step for one seasonal mixture component: refit the coefficients `θ` of the family `fam` to the
-observations weighted by their posteriors `γ`, and return `(distributions, θ)`, the component's
-`nT` distributions and its coefficients. `design` is the family's bases over the period and
+M-step for one seasonal family: a weighted maximum likelihood fit. It refits the coefficients
+`θ` of the family `fam` to the observations weighted by their posteriors `γ`, and returns
+`(distributions, θ)`, the family's `nT` distributions and its coefficients. A mixture component
+and an emission block of a [`SmoothPeriodicHMM`](@ref) are fitted this way. `design` is the family's bases over the period and
 `n_in_t[t]` lists the observations at period index `t`.
 
 The generic method maximizes the weighted loglikelihood, so any family with a
@@ -173,7 +174,7 @@ end
 ```
 """
 function update_dist(fam::TimeVaryingFamily, design::PeriodicDesign, θ, γ, observations, n_in_t;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck length(γ) == size(observations, 1)
     total = sum(γ)
     θ = collect(float.(θ))
@@ -201,12 +202,12 @@ const SeasonalExponential = TimeVaryingFamily{DistConstructor{Exponential},
 """
     update_dist(fam::SeasonalExponential, design, θ, γ, observations, n_in_t; kwargs...)
 
-M-step for a seasonal `Exponential` component with a `LogLink` scale, through its sufficient
-statistics per period index: the summed posterior weight and the posterior-weighted sum of the
+M-step for a seasonal `Exponential` family with a `LogLink` scale, by sufficient statistics.
+Per period index, these are the summed posterior weight and the posterior-weighted sum of the
 observations.
 """
 function update_dist(fam::SeasonalExponential, design::PeriodicDesign, θ, γ, observations, n_in_t;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck length(γ) == size(observations, 1)
     T = design.nT
     total = sum(γ)
@@ -251,7 +252,7 @@ function update_α!(
     θ::AbstractArray{F},
     s_γ::AbstractMatrix,
     basis::AbstractMatrix;
-    solver=default_solver(), adtype=default_adtype(), solve_kwargs=(;)
+    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;)
 ) where {F}
     T, K = size(s_γ)
     u = solve_unconstrained(multinomial_logit_nll, collect(vec(θ)), (s_γ, basis, K);

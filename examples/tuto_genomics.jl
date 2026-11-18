@@ -5,7 +5,7 @@ Pkg.activate(joinpath(@__DIR__, "..", "docs"))#src
 md"""
 # [Chromatin states along genes](@id TutoGenomics)
 
-The index of a smooth HMM need not be a time in a cycle. Here it is a position along a gene, and
+The period index of a smooth HMM need not be a time in a cycle. Here it is a position along a gene, and
 the data are many short sequences, one per gene, rather than one long series.
 
 Chromatin marks are chemical modifications of the histones that package DNA. Their presence,
@@ -24,17 +24,31 @@ All data below are simulated, from a toy model of three marks and two chromatin 
 """
 
 using SmoothPeriodicStatsModels
-using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff # loads the fitting routines
+using Optimization, SimpleNonlinearSolve # loads the fitting routines
+using OptimizationOptimJL # the optimization algorithm, LBFGS
 using Distributions, Random, Statistics
 using CairoMakie
+
+solver = LBFGS()   # every fit below takes its optimization algorithm explicitly
 
 md"""
 ## A model on a B-spline basis
 
+The model is the one of the [HMM tutorial](@ref TutoHMM): regimes ``z_n`` with initial
+distribution ``a`` and transition probabilities ``A_{kl}(t)``, and marks ``y_{j,n}`` with
+success probabilities ``p_{kjh}(t)``, ``t`` now a position along the gene. Only the curves
+change: each is a combination of B-spline functions ``b_1, \dots, b_{n+2}`` rather than a
+trigonometric polynomial,
+
+```math
+P(t) = \sum_{i=1}^{n+2} c_i\, b_i(t), \qquad
+p_{kjh}(t) = \operatorname{logistic}\big(P^B_{kjh}(t)\big).
+```
+
 Each gene body is rescaled to `T = 40` bins. `BSplineBasis(1, T, n)` is a cubic B-spline basis
 over the positions `1:T` with `n` equally spaced knots, `n + 2` functions. The functions sum to
-one at every position, so constant coefficients give a constant curve, and coefficient `i`
-mostly controls the curve around the `i`-th of `n + 2` points spread over `1:T`.
+one at every position, so constant coefficients give a constant curve, and coefficient ``c_i``
+mostly controls the curve around the ``i``-th of ``n + 2`` points spread over `1:T`.
 """
 
 T = 40
@@ -58,10 +72,11 @@ Two states, *active* (transcribed) and *repressed*, and three marks:
 2. an elongation mark, rising towards the 3' end of active genes;
 3. a repressive mark, broad over repressed genes.
 
-The curves are given on the logit scale, and each coefficient is the curve at the corresponding
+The curves are given on the logit scale, as the coefficients of ``P^B_{kjh}`` in `θᴮ[k, j, h, :]`
+and of ``P^A_{kl}`` in `θᴬ[k, l, :]`; each coefficient is roughly the curve at the corresponding
 point of the basis. Marks persist over neighbouring bins, which a memory of order 1 expresses:
-the success probability is higher after a 1 (`h = 2`) than after a 0 (`h = 1`). Active regions
-are entered more easily near the TSS.
+the success probability is higher after a 1 (``h = 2``) than after a 0 (``h = 1``). The
+probability of entering the active state is higher near the TSS.
 """
 
 K, D, order = 2, 3, 1
@@ -84,7 +99,7 @@ end
 
 θᴬ = zeros(K, K - 1, nb)
 θᴬ[1, 1, :] .= 3.0                 # active → active
-θᴬ[2, 1, :] = @.(-1.0 - 4x)        # repressed → active: likelier near the TSS
+θᴬ[2, 1, :] = @.(-1.0 - 4x)        # repressed → active: higher probability near the TSS
 
 truth = SmoothARPeriodicHMM([0.5, 0.5], θᴬ, θᴮ, T; basis_A=basis, basis_B=basis)
 
@@ -123,9 +138,9 @@ end
 md"""
 ## Fit all genes at once
 
-`fit_mle(m, Ys, Y_pasts; n2t)` takes vectors of sequences. The genes are independent: the
+`fit_mle(m, Ys, Y_pasts; solver, n2t)` takes vectors of sequences. The genes are independent: the
 forward-backward pass restarts at each one, every gene starts from the initial distribution,
-and the M-step pools them. `fit(SeasonalFit, …)` runs the same fit and keeps what the model
+and the M-step pools them. `fit(SeasonalFit, …; solver)` runs the same fit and keeps what the model
 comparison below needs.
 
 The start knows which state is meant to be active but nothing of the positions: all curves are
@@ -141,7 +156,7 @@ flat.
 θᴬ₀[:, 1, :] .= [2.0, -2.0]
 m0 = SmoothARPeriodicHMM([0.5, 0.5], θᴬ₀, θᴮ₀, T; basis_A=basis, basis_B=basis)
 
-f_splines = fit(SeasonalFit, m0, Ys, Y_pasts; n2t, maxiter=300, tol=1e-6)
+f_splines = fit(SeasonalFit, m0, Ys, Y_pasts; solver, n2t, maxiter=300, tol=1e-6)
 m = f_splines.model
 f_splines.history
 
@@ -213,7 +228,7 @@ trig = TrigBasis(T, 2)       # the first coefficient is the constant term
 θᴬₜ, θᴮₜ = zeros(K, K - 1, 5), zeros(K, D, 2^order, 5)
 θᴬₜ[:, :, 1], θᴮₜ[:, :, :, 1] = θᴬ₀[:, :, 1], θᴮ₀[:, :, :, 1]
 mt0 = SmoothARPeriodicHMM([0.5, 0.5], θᴬₜ, θᴮₜ, T; basis_A=trig, basis_B=trig)
-f_trig = fit(SeasonalFit, mt0, Ys, Y_pasts; n2t, maxiter=300, tol=1e-6)
+f_trig = fit(SeasonalFit, mt0, Ys, Y_pasts; solver, n2t, maxiter=300, tol=1e-6)
 
 plot_marks([truth, m, f_trig.model], ["truth", "B-splines", "trigonometric"])
 

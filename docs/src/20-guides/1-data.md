@@ -4,14 +4,14 @@
 CurrentModule = SmoothPeriodicStatsModels
 ```
 
-## Positions in the cycle
+## Period indices
 
-Every model runs over a cycle of `T` positions, and every function that takes data also takes
-the position of each observation: observation `n` sits at position `n2t[n] ∈ 1:T`. The
-default, `n_to_t(N, T)`, is `1, 2, …, T, 1, 2, …`, which suits data that start at position 1
-and have no gap.
+Every model runs over a cycle of `T` steps, and every function that takes data also takes
+the period index of each observation, its position in the cycle: observation `n` has period
+index `n2t[n] ∈ 1:T`. The default, `n_to_t(N, T)`, is `1, 2, …, T, 1, 2, …`, which suits data
+that start at period index 1 and have no gap.
 
-For daily data the position is the day of the year. With `T = 366`, February 29 keeps its own
+For daily data the period index is the day of the year. With `T = 366`, February 29 keeps its own
 index, 60, and non-leap years skip it:
 
 ```@example data
@@ -20,16 +20,18 @@ day_of_cycle(d::Date) = dayofyear(d) + (!isleapyear(d) && month(d) > 2)
 day_of_cycle.([Date(2001, 2, 28), Date(2001, 3, 1), Date(2004, 2, 29), Date(2004, 3, 1)])
 ```
 
-`StochasticWeatherGenerators.jl` calls this function `dayofyear_Leap`. Skipping a position is
-fine: the step from observation `n` to `n + 1` uses the transition probabilities of position
+`StochasticWeatherGenerators.jl` calls this function `dayofyear_Leap`. Skipping an index is
+fine: the step from observation `n` to `n + 1` uses the transition probabilities of period index
 `n2t[n]`, the one the step leaves, whatever `n2t[n + 1]` is. In a non-leap year the step from
 February 28 to March 1 uses the transitions of February 28.
 
 ## Observations
 
 - The AR(1) and the mixture take a vector `y`, one entry per observation.
-- The hidden Markov models take a `D × N` matrix of `Bool`, one column per step and one row per
-  series (a station, a device, a chromatin mark): `Y[j, n]` is series `j` at step `n`.
+- The Bernoulli hidden Markov models take a `D × N` matrix of `Bool`, one column per step and one
+  row per series (a station, a device, a chromatin mark): `Y[j, n]` is series `j` at step `n`.
+- [`SmoothPeriodicHMM`](@ref) takes a `D × N` matrix of real numbers, or a vector when there is a
+  single row. A multivariate emission law covers several consecutive rows.
 
 ## Initial conditions
 
@@ -37,7 +39,7 @@ In the autoregressive HMMs, the emission of series `j` at step `n` depends on it
 previous values, so the first steps need values from before the data. These are `Y_past`, the
 `D × order` observations before `Y` in time order, so that `[Y_past Y]` is the series.
 
-- The fits, the likelihoods and `viterbi` take it as an argument: `fit_mle(m, Y, Y_past; n2t)`.
+- The fits, the likelihoods and `viterbi` take it as an argument: `fit_mle(m, Y, Y_past; n2t, solver)`.
 - `rand(m, n2t; Y_past)` takes it as a keyword, zeros by default, and draws the `Y` that
   follows it.
 
@@ -48,6 +50,8 @@ fitted to `Y[:, order+1:end]` with `n2t[order+1:end]`. A model without memory ta
 In [`SmoothsARPeriodicHMM`](@ref) the series have different orders, so `Y_past` is a vector:
 `Y_past[j]` holds the `order_j` previous values of series `j`.
 
+[`SmoothPeriodicHMM`](@ref) has no memory and takes no `Y_past`: `fit_mle(m, Y; n2t, solver)`.
+
 ## Several sequences
 
 A sequence is a run of consecutive steps of the hidden chain. Data that the chain does not
@@ -57,23 +61,24 @@ connect are several sequences:
 - a series with gaps: a missing day breaks the chain, so each run of consecutive days is a
   sequence.
 
-A position the calendar skips, such as February 29 above, is not a gap.
+A period index the calendar skips, such as February 29 above, is not a gap.
 
 The HMM functions take vectors: `Ys[i]` is the `D × Nᵢ` sequence `i`, `Y_pasts[i]` its initial
-condition and `n2t[i]` its positions.
+condition and `n2ts[i]` its period indices.
 
 ```julia
-m, history = fit_mle(m0, Ys, Y_pasts; n2t)
-loglikelihood(m, Ys, Y_pasts; n2t)       # the sum over the sequences
-viterbi(m, Ys, Y_pasts; n2t)             # one state path per sequence
-fit(SeasonalFit, m0, Ys, Y_pasts; n2t)   # nobs is the total number of steps
+loglikelihood(m, Ys, Y_pasts; n2t=n2ts)       # the sum loglikelihoods over the sequences
+m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver) # maximize the sum of loglikelihoods
+viterbi(m, Ys, Y_pasts; n2t=n2ts)                        # one state path per sequence
+fit(SeasonalFit, m0, Ys, Y_pasts; n2t=n2ts, solver)      # nobs is the total number of steps
 ```
 
 The sequences share all the coefficients. Each starts afresh: its first hidden state is drawn
 from the initial distribution, which the fit estimates from the first step of every sequence,
-and its memory starts from its own `Y_past`. `rand` draws one sequence at a time.
+and its memory starts from its own `Y_past`. `rand` draws one sequence at a time. For
+`SmoothPeriodicHMM`, drop the `Y_pasts`: `fit_mle(m0, Ys; n2t=n2ts, solver)`.
 
-### Splitting a series at its gaps
+### Handling missing data: splitting a series at its gaps
 
 Three years of daily records from three stations, with two gaps:
 
@@ -107,10 +112,10 @@ Each run gives its first `order` days as the initial condition and is fitted on 
 pieces = filter(r -> length(r) > order, runs(dates))
 Y_pasts = [Y[:, r[1:order]] for r in pieces]
 Ys = [Y[:, r[order+1:end]] for r in pieces]
-n2t = [day_of_cycle.(dates[r[order+1:end]]) for r in pieces]
-loglikelihood(m, Ys, Y_pasts; n2t)
+n2ts = [day_of_cycle.(dates[r[order+1:end]]) for r in pieces]
+loglikelihood(m, Ys, Y_pasts; n2t=n2ts)
 ```
 
 ```@example data
-length.(viterbi(m, Ys, Y_pasts; n2t))
+length.(viterbi(m, Ys, Y_pasts; n2t=n2ts))
 ```

@@ -5,8 +5,8 @@ CurrentModule = SmoothPeriodicStatsModels
 ```
 
 The API by task. `fit_mle`, `fit` and the functions of the starting-point and solver sections
-are fitting routines: they need the solver stack, `using Optimization, OptimizationOptimJL,
-SimpleNonlinearSolve, ForwardDiff`.
+are fitting routines: they need `using Optimization, SimpleNonlinearSolve`, and every fit takes
+its optimization algorithm as `solver`.
 
 ```@contents
 Pages = ["95-reference.md"]
@@ -18,16 +18,16 @@ Depth = 2:2
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
 Filter = t -> t in (SmoothAR1, SmoothSeasonalMixture, SmoothARPeriodicHMM, SmoothsARPeriodicHMM,
-    SmoothARPeriodicHMMSpatial, ar1_spec, seasonal_family, mixture_weight_spec)
+    SmoothARPeriodicHMMSpatial, SmoothPeriodicHMM, ar1_spec, seasonal_family, mixture_weight_spec)
 ```
 
 ## Coefficients and curves
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (parameters, nparams, curve, params, coef, degrees, seasonal_params,
-    seasonal_curve, ncolumns, column, component_coefs, component_range, components, ncomponents,
-    mixture_weights, mixtures)
+Filter = t -> t in (parameters, nparams, curve, params, coef, degrees,
+    ncolumns, column, component_coefs, component_range, components, ncomponents,
+    mixture_weights, mixtures, emission_coefs, emission_range)
 ```
 
 ## Evaluated models
@@ -37,8 +37,8 @@ from.
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (AR1, ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpatial, Trig2ARPeriodicHMM,
-    Trig2ARPeriodicHMMSpatial, randARPeriodicHMM, sort_wrt_ref!)
+Filter = t -> t in (AR1, ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpatial, PeriodicHMMDists,
+    Trig2ARPeriodicHMM, Trig2ARPeriodicHMMSpatial, randARPeriodicHMM)
 ```
 
 ## Simulation
@@ -66,14 +66,14 @@ Filter = t -> t in (fit_mle_all_slices, fit_θ, fit_θ!, fit_θᴬ!, fit_θᴮ!,
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (loglikelihood, loglikelihoods, complete_loglikelihood, viterbi)
+Filter = t -> t in (loglikelihood, loglikelihoods, viterbi)
 ```
 
 ## Model selection
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (SeasonalFit, fit, dof, nobs, bic_sel, nb_param)
+Filter = t -> t in (SeasonalFit, fit, dof, nobs)
 ```
 
 ## HiddenMarkovModels.jl interface
@@ -90,16 +90,15 @@ Filter = t -> t in (SeasonalControls, SmoothPeriodicStatsModels.HMMs.transition_
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (default_solver, default_nlls_solver, default_adtype, default_ensemble,
-    solve_unconstrained, solve_nlls, OptimMLE, fit_loss_optim)
+Filter = t -> t in (default_nlls_solver, default_adtype, default_ensemble,
+    solve_unconstrained, solve_nlls, fit_loss_optim)
 ```
 
 ## Trigonometric kernels and objectives
 
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
-Filter = t -> t in (polynomial_trigo, αₜ, μₜ, ρₜ, σₜ, ar1_nll, ar1_sufficient_statistics,
-    norm_cdf_2d_vfast)
+Filter = t -> t in (αₜ, μₜ, ρₜ, σₜ, ar1_nll, ar1_sufficient_statistics)
 ```
 
 ## Re-exported

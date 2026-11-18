@@ -116,3 +116,35 @@ randtransmat(rng::AbstractRNG, K::Integer, α=1.0) = randtransmat(rng, Dirichlet
 randtransmat(prior::MultivariateDistribution) = randtransmat(GLOBAL_RNG, prior)
 randtransmat(K::Integer, args...) = randtransmat(GLOBAL_RNG, K, args...)
 
+
+# ## `robust = true`: observations that no state can produce
+#
+# The loglikelihoods of one observation in every state, made usable by a forward pass.
+#
+# - If every state gives `-Inf`, the observation is impossible in all of them and the forward
+#   pass would divide zero by zero. All states get `log(floatmin())`: the observation then says
+#   nothing about the state, which its neighbours decide, and the loglikelihood of the data stays
+#   finite and still moves with the parameters. `nextfloat(-Inf)` in its place would swamp every
+#   other term of that sum, and a convergence test on the loglikelihood would stop a fit after
+#   one iteration.
+# - `-Inf` in some states only is left as it is: those states get probability zero, which is
+#   right. A finite replacement could rank a state where the observation is impossible above one
+#   where it is merely improbable.
+# - `Inf` is capped at `log(floatmax())`.
+function _clamp_inf!(logb::AbstractVector)
+    T = float(eltype(logb))
+    impossible = true
+    @inbounds for i in eachindex(logb)
+        v = logb[i]
+        v == Inf && (logb[i] = log(floatmax(T)))
+        impossible &= v == -Inf
+    end
+    impossible && fill!(logb, log(floatmin(T)))
+    return logb
+end
+
+# The same for an `N × K` matrix, one observation per row.
+function _clamp_inf!(LL::AbstractMatrix)
+    foreach(_clamp_inf!, eachrow(LL))
+    return LL
+end

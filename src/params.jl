@@ -153,6 +153,11 @@ end
 FitHistory(; converged, iterations, logtots=Float64[], solution=nothing, ps_iters=nothing) =
     FitHistory(converged, Int(iterations), collect(Float64, logtots), solution, ps_iters)
 
+"""
+    loglikelihood(history::FitHistory) -> Float64
+
+The loglikelihood after the last iteration of the fit, `-Inf` when none was recorded.
+"""
 StatsAPI.loglikelihood(h::FitHistory) = isempty(h.logtots) ? -Inf : last(h.logtots)
 
 @inline function Base.getproperty(h::FitHistory, name::Symbol)

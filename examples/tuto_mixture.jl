@@ -11,26 +11,47 @@ A mixture whose weights and component parameters vary smoothly along a cycle of 
 y_n \sim \sum_{k=1}^K \alpha_k(t_n)\, f_k\big(\,\cdot\,;\ \theta_k(t_n)\big),
 ```
 
-with ``t_n \in 1{:}T`` the position of observation ``n`` in the cycle.
+where
+
+- ``t_n \in 1{:}T`` is the period index of observation ``n`` in the cycle (`n2t[n]`, see the
+  [data layout](@ref data-layout));
+- ``f_k(\,\cdot\,; \theta)`` is the density of component ``k``, a law of a given family (here
+  exponential) with parameter ``\theta``;
+- ``\alpha_k(t) \geq 0`` is the weight of component ``k`` at period index ``t``, with
+  ``\sum_k \alpha_k(t) = 1``.
+
+The weights and the component parameters are trigonometric polynomials of degree ``d``,
+``P(t) = c_0 + \sum_{\ell=1}^{d} c_{2\ell-1} \cos(2\pi \ell t/T) + c_{2\ell} \sin(2\pi \ell t/T)``,
+through a link: a softmax for the weights, with component ``K`` as the reference, and a log for
+a scale,
+
+```math
+\alpha_k(t) = \frac{e^{P^\alpha_k(t)}}{\sum_{l=1}^{K} e^{P^\alpha_l(t)}}, \quad P^\alpha_K = 0,
+\qquad \theta_k(t) = \exp\big(P^\theta_k(t)\big).
+```
 
 As a toy example, take waiting times that come from one of two regimes, short or long. How often
 each regime occurs, and how long its waits are, both change along a cycle of 50 steps.
 """
 
 using SmoothPeriodicStatsModels
-using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff # loads the fitting routines
+using Optimization, SimpleNonlinearSolve # loads the fitting routines
+using OptimizationOptimJL # the optimization algorithm, LBFGS
 using Distributions, Random
 using CairoMakie
+
+solver = LBFGS()   # every fit below takes its optimization algorithm explicitly
 
 md"""
 ## A model with known coefficients
 
-`SmoothSeasonalMixture(Exponential, K, d, T; init)` is a mixture of `K` exponential laws whose
-scales, and the mixing weights, are trigonometric polynomials of degree `d` (through a `log` for
-the scales and a softmax for the weights). `init` gives each component's starting scale.
+`SmoothSeasonalMixture(Exponential, K, d, T; init)` is that mixture with exponential
+components, ``f_k(y; \theta) = e^{-y/\theta}/\theta``, ``\theta`` being the scale. `init` gives
+each component's starting scale.
 
-The coefficients sit in `parameters(m)`: `α` for the weights (component `K` is the reference, so
-there is one column per other component), and `component_coefs(m, k)` for component `k`.
+The coefficients sit in `parameters(m)`: `parameters(m).α` holds those of ``P^\alpha_k``, one
+column per component but the reference ``K``, and `component_coefs(m, k)` those of
+``P^\theta_k``.
 """
 
 T = 50
@@ -65,8 +86,8 @@ plot_mixture([truth], ["truth"])
 md"""
 ## Simulate and fit
 
-`rand(m, N)` draws `N` independent observations, observation `n` at position
-`n_to_t(N, T)[n]` in the cycle. `m(t)` is the `MixtureModel` at one position.
+`rand(m, N)` draws `N` independent observations, observation `n` at period index
+`n_to_t(N, T)[n]`. `m(t)` is the `MixtureModel` at one period index.
 """
 
 Random.seed!(2)
@@ -80,7 +101,7 @@ components must differ, here by their scales.
 """
 
 m0 = SmoothSeasonalMixture(Exponential, 2, 1, T; init=[0.5, 3.0])
-m, history = fit_mle(m0, y; maxiter=1000)
+m, history = fit_mle(m0, y; solver, maxiter=1000)
 history
 
 #-
@@ -105,14 +126,14 @@ the long regime is modelled by a `Gamma` law, which contains the exponential as 
 
 m_gamma = SmoothSeasonalMixture([Exponential => 1, Gamma => 1], T;
     init=[0.5, (α=1.5, θ=3.0)])
-f_gamma = fit(SeasonalFit, m_gamma, y; maxiter=1000)
-f_exp = fit(SeasonalFit, m0, y; maxiter=1000)
+f_gamma = fit(SeasonalFit, m_gamma, y; solver, maxiter=1000)
+f_exp = fit(SeasonalFit, m0, y; solver, maxiter=1000)
 [(model="Exponential + Exponential", dof=dof(f_exp), bic=round(bic(f_exp); digits=1)),
     (model="Exponential + Gamma", dof=dof(f_gamma), bic=round(bic(f_gamma); digits=1))]
 
 md"""
 The data are a mixture of exponentials, and the BIC prefers the model without the extra shape
-parameters. `components(m)[k][t]` is component `k` at position `t`; here is the range of the
+parameters. `components(m)[k][t]` is component `k` at period index `t`; here is the range of the
 fitted `Gamma` shape over the cycle:
 """
 
@@ -120,5 +141,6 @@ extrema(shape.(components(f_gamma.model)[2]))
 
 md"""
 `seasonal_family` lists the families available as components (`Exponential`, `Rayleigh`,
-`Gamma`, `Weibull`, `Normal`, `LogNormal`); its docstring shows how to add one.
+`Gamma`, `Weibull`, `Normal`, `LogNormal`, `Bernoulli`, `Poisson`); its docstring shows how to
+add one.
 """

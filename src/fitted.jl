@@ -11,7 +11,7 @@
 
 """
     SeasonalFit(model, history, nobs, loglikelihood)
-    fit(SeasonalFit, model, data...; kwargs...) -> SeasonalFit
+    fit(SeasonalFit, model, data...; solver, kwargs...) -> SeasonalFit
 
 A seasonal fit together with what is needed to judge it.
 
@@ -20,7 +20,7 @@ kwargs...)` and keeps the sample size and the attained loglikelihood, so that `l
 `dof`, `nobs`, `aic`, `aicc` and `bic` are defined.
 
 ```julia
-m, history = fit_mle(m0, y; n2t)
+m, history = fit_mle(m0, y; n2t, solver)
 f = fit(SeasonalFit, m0, y; n2t)        # the same estimator, diagnostics kept
 
 f.model          # the fitted model, as `fit_mle` returns it
@@ -64,6 +64,11 @@ rand(rng::AbstractRNG, f::SeasonalFit, x::AbstractVector, args...; kwargs...) =
 rand(f::SeasonalFit, N::Integer; kwargs...) = rand(GLOBAL_RNG, f, N; kwargs...)
 rand(f::SeasonalFit, x::AbstractVector, args...; kwargs...) = rand(GLOBAL_RNG, f, x, args...; kwargs...)
 
+"""
+    loglikelihood(f::SeasonalFit) -> Real
+
+The loglikelihood the fit attained.
+"""
 StatsAPI.loglikelihood(f::SeasonalFit) = f.loglikelihood
 
 """
@@ -102,7 +107,7 @@ Base.propertynames(f::SeasonalFit) = (fieldnames(SeasonalFit)...,
     throw(ArgumentError("""
     a `SeasonalFit` is not a tuple.
 
-        m, history = fit_mle(m0, y; n2t)   # the two-value return
+        m, history = fit_mle(m0, y; n2t, solver)   # the two-value return
         f          = fit(SeasonalFit, m0, y; n2t)
         f.model, f.history                 # the same two, off the fit
         coef(f, :μ), coef(f, :ρ), coef(f, :σ)

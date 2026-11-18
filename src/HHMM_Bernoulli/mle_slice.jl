@@ -11,6 +11,8 @@ the transition frequencies of the most likely state of each observation
 Returns a copy of `hmm` holding the estimates, and with `history = true` also each slice's EM
 history. Defined for `ARPeriodicHMM` and `sARPeriodicHMM`.
 """
+fit_mle_all_slices(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}; kwargs...) = fit_mle_all_slices(GLOBAL_RNG, hmm, Y, Y_past; kwargs...)
+
 function fit_mle_all_slices(rng::AbstractRNG, hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool};
     n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
     Yₜ_extanted = [0],
@@ -45,7 +47,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::ARPeriodicHMM, Y::AbstractMat
         LL[n, k] += log(α[k, n2t[n]])
     end
 
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+    robust && _clamp_inf!(LL)
 
     fit_mle_A_from_slice!(hmm.a, hmm.A, LL, n2t, robust=robust)
 
@@ -55,9 +57,10 @@ end
 """
     fit_mle_A_from_slice!(a, A, LL, n2t; robust = false)
 
-From the `N × K` matrix `LL` of joint log-weights (log prior weight plus emission
-loglikelihood), set `a` to the posterior of the first observation and each `A[:, :, t]` to the
-transition frequencies, from period index `t`, of the most likely state of each observation.
+The initial distribution and the transition matrices from the most likely state of each
+observation. From the `N × K` matrix `LL` of joint log-weights (log prior weight plus emission
+loglikelihood), it sets `a` to the posterior of the first observation and each `A[:, :, t]` to
+the transition frequencies, from period index `t`, of the most likely states.
 `robust = true` adds `eps()` to every count, so that no row is empty.
 """
 function fit_mle_A_from_slice!(a::AbstractVector, A::AbstractArray{T,3} where {T}, LL, n2t; robust=false)
@@ -83,14 +86,12 @@ function fit_mle_A_from_slice!(a::AbstractVector, A::AbstractArray{T,3} where {T
     end
 end
 
-fit_mle_all_slices(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}; kwargs...) = fit_mle_all_slices(GLOBAL_RNG, hmm, Y, Y_past; kwargs...)
-
 """
     fit_mle_B_slice!([rng, ]α, B, Y, lag_cat; rand_ini = true, n_random_ini = 10, Dirichlet_α = 0.8, display_random = false, ref_station = 1, kwargs...)
 
-Fit in place the weights `α` and the Bernoulli emissions `B` (`K × D × 2^order`, or `K × D`
-vectors for site-dependent memory) of a mixture of product-Bernoulli laws to the observations
-`Y`, site `j` of observation `n` using memory category `lag_cat[j, n]`. With `rand_ini = true` EM
+Fit in place a mixture of product-Bernoulli laws to the observations of one slice. The weights
+`α` and the Bernoulli emissions `B` (`K × D × 2^order`, or `K × D` vectors for site-dependent
+memory) are fitted to `Y`, site `j` of observation `n` using memory category `lag_cat[j, n]`. With `rand_ini = true` EM
 also restarts from `n_random_ini - 1` random points (weights from `Dirichlet(K, Dirichlet_α)`)
 and keeps the best ([`fit_em_multiD_rand`](@ref)); otherwise it runs once from the current
 values ([`fit_em_multiD!`](@ref)), which receives the other keywords. States are then sorted with
@@ -188,7 +189,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
     for k = 1:K
         LL[:, k] .+= log(α[k])
     end
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+    robust && _clamp_inf!(LL)
     # get posterior of each category
     c[:] = logsumexp(LL, dims=2)
     γ[:, :] = exp.(LL .- c)
@@ -222,7 +223,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractArray{F,3} where {F<:Bern
         for k = 1:K
             LL[:, k] .+= log(α[k])
         end
-        robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        robust && _clamp_inf!(LL)
         # get posterior of each category
         c[:] = logsumexp(LL, dims=2)
         γ[:, :] = exp.(LL .- c)
@@ -290,7 +291,7 @@ end
 #         loglikelihoods!(LL, hmm.B, Y, n2t)
 #         [LL[n, k] += log(α[k, n2t[n]]) for k = 1:K, n = 1:N]
 #     end
-#     robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+#     robust && _clamp_inf!(LL)
 
 #     fit_mle_A_from_slice!(hmm.a, hmm.A, LL, n2t, robust=robust)
 

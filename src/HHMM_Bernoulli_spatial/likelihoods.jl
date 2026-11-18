@@ -50,7 +50,7 @@ function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_p
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m)
     if robust
-        replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        _clamp_inf!(LL)
     end
     return LL
 end
@@ -171,7 +171,7 @@ end
 """
     pairwise_loglikelihood_memory(R, B, h, Y, wp, n_pair; n2t, eps = 1e-10, pairwise_indices2) -> Float64
 
-[`pairwise_loglikelihood`](@ref) with memory: `B` is `T × D × 2^order`, and `n_pair` counts the
+[`pairwise_loglikelihood`](@ref) with memory. `B` is `T × D × 2^order`, and `n_pair` counts the
 joint outcomes of each pair separately for every pair of memory categories of the two sites,
 `4 * (2^order)^2` situations.
 """

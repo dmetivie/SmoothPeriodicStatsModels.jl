@@ -73,8 +73,9 @@ end
 """
     conditional_to(Y, Y_past) -> Matrix{Int}
 
-Memory category `lag_cat[j, n]` of every site `j` at every observation `n`, from the `D × N`
-observations `Y` and the `D × order` initial condition `Y_past`: the `order` observations before
+The memory category of every site at every observation. `lag_cat[j, n]` is that of site `j` at
+observation `n`, from the `D × N` observations `Y` and the `D × order` initial condition
+`Y_past`: the `order` observations before
 `Y`, in time order, so that `[Y_past Y]` is the series.
 """
 function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool})
@@ -133,8 +134,8 @@ random_product_Bernoulli(rng::AbstractRNG, args...) = Bernoulli.(rand(rng, args.
     randARPeriodicHMM([rng, ]K, T, D, order; ref_station = 1, ξ = ones(K) / K) -> ARPeriodicHMM
     randARPeriodicHMM([rng, ]K, T, orders::AbstractVector; ref_station = 1, ξ = ones(K) / K) -> sARPeriodicHMM
 
-A random periodic HMM with `K` states, period `T`, and `D` sites of memory `order`, or one site
-per entry of `orders` with its own memory: uniform emission probabilities, uniform Dirichlet
+A random periodic HMM. It has `K` states, period `T`, and `D` sites of memory `order`, or one
+site per entry of `orders` with its own memory, with uniform emission probabilities, uniform Dirichlet
 transition rows, and states sorted with [`sort_wrt_ref!`](@ref). `ξ` is the initial
 distribution.
 """

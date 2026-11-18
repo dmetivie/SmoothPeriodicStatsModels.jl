@@ -32,7 +32,7 @@ function loglikelihoods(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     if robust
-        replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        _clamp_inf!(LL)
     end
     return LL
 end

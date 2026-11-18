@@ -68,8 +68,8 @@ Base.getindex(a::SeasonalWeights, k::Integer) = sum(view(a.α, k, :)) / size(a.�
 """
     SeasonalFamily(dists, θ, fam, design)
 
-One component of a seasonal mixture during an EM fit: the `T` distributions it takes over a
-period, the coefficients `θ` that generate them, its [`seasonal_family`](@ref) `fam`, and
+One component of a seasonal mixture during an EM fit. It holds the `T` distributions it takes
+over a period, the coefficients `θ` that generate them, its [`seasonal_family`](@ref) `fam`, and
 `design`, that family's bases evaluated over the period.
 
 It does not implement the `Distribution` interface itself: `logpdf`, `rand` and `params` apply to
@@ -111,8 +111,9 @@ end
 How the parameters of the distribution `D` vary with the period index: one basis and one link
 per parameter, in the order `D`'s constructor takes them.
 
-`Exponential`, `Rayleigh`, `Gamma`, `Weibull`, `Normal` and `LogNormal` are declared. Any other
-family becomes usable as a mixture component with one method:
+`Exponential`, `Rayleigh`, `Gamma`, `Weibull`, `Normal`, `LogNormal`, `Bernoulli` and `Poisson`
+are declared. Any other family becomes usable as a mixture component or an HMM emission with one
+method:
 
 ```julia
 SmoothPeriodicStatsModels.seasonal_family(::Type{Pareto}, basis) =
@@ -151,6 +152,10 @@ seasonal_family(::Type{Normal}, basis) =
     TimeVaryingFamily(Normal, ParamSpec(μ=basis => IdentityLink(), σ=basis => LogLink()))
 seasonal_family(::Type{LogNormal}, basis) =
     TimeVaryingFamily(LogNormal, ParamSpec(μ=basis => IdentityLink(), σ=basis => LogLink()))
+seasonal_family(::Type{Bernoulli}, basis) =
+    TimeVaryingFamily(Bernoulli, ParamSpec(p=basis => LogitLink()))
+seasonal_family(::Type{Poisson}, basis) =
+    TimeVaryingFamily(Poisson, ParamSpec(λ=basis => LogLink()))
 
 """
     mixture_weight_spec(T, d) -> ParamSpec
@@ -187,7 +192,7 @@ ps = parameters(m)                     # ComponentArray(α = …, Y = …)
 ps.α                                   # (2dα+1) × (K-1) weight coefficients
 component_coefs(m, 2)                  # component 2's coefficients, a writable view
 
-m, history = fit_mle(m, y; n2t)
+m, history = fit_mle(m, y; n2t, solver)
 m(196)                                 # the `MixtureModel` at period index 196
 curve(m, :θ)                           # K × T, each component's scale over the period
 mixture_weights(m)                     # K × T, the mixing weights

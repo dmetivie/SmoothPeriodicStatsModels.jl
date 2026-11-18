@@ -1,7 +1,10 @@
 [deps]
 CairoMakie = "13f3f980-e62b-5c42-98c6-ff1f3baf88f0"
+Copulas = "ae264745-0b69-425e-9d9d-cf662c5eec93"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
+DocumenterCodeBlocks = "b6400b83-267f-4b55-9fd8-bffc853bdfd8"
+DocumenterLandingPage = "1c52b33b-3e2f-4e99-b3b5-a6ad63f0d6d2"
 ForwardDiff = "f6369f11-7733-5829-9624-2563aa707210"
 HiddenMarkovModels = "84ca31d5-effc-45e0-bfda-5a68cd981f47"
 Literate = "98b081ad-f1c9-55d3-8b20-4c87d4299306"
@@ -16,6 +19,7 @@ SmoothPeriodicStatsModels = {path = ".."}
 
 [compat]
 CairoMakie = "0.15"
+Copulas = "0.1, 1"
 Distributions = "0.25"
 Documenter = "1"
 ForwardDiff = "1"

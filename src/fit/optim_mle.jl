@@ -17,5 +17,5 @@ end
 
 `fit_mle(OptimMLE(ℓ, solver, vec(θ0)), y; kwargs...)`: minimize the loss `ℓ(θ, y)` from `θ0`.
 """
-fit_loss_optim(ℓ, y, θ0; solver=default_solver(), kwargs...) =
+fit_loss_optim(ℓ, y, θ0; solver=_required_solver(), kwargs...) =
     fit_mle(OptimMLE(ℓ, solver, vec(θ0)), y; kwargs...)
