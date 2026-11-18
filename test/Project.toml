@@ -13,6 +13,7 @@ SmoothPeriodicStatsModels = "3d8e1505-165e-443f-a184-83a230b5a9e5"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [compat]
+Distributed = "1.11"
 Distributions = "0.25.125"
 ForwardDiff = "1.3.3"
 Ipopt = "1.14.3"
@@ -20,7 +21,9 @@ LineSearches = "7.6.2"
 Optimization = "5.5.1"
 OptimizationMOI = "1.3.1"
 OptimizationOptimJL = "0.4.14"
+Random = "1.11"
 SimpleNonlinearSolve = "2"
 SmoothPeriodicStatsModels = "3"
+Test = "1.11"
 [sources]
 SmoothPeriodicStatsModels = {path = ".."}
