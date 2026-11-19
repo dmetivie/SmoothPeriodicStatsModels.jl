@@ -5,15 +5,24 @@ Pkg.activate(joinpath(@__DIR__, "..", "docs"))#src
 md"""
 # [Seasonal AR(1)](@id TutoAR1)
 
-A periodic autoregressive process of order 1,
+We observe a real series ``Y_1, \dots, Y_N``. Step ``n`` falls at period index
+``t_n \in \{1, \dots, T\}`` of a cycle of ``T`` steps (`n2t[n]`, see the
+[data layout](@ref data-layout)). The series is a periodic autoregressive process of order 1:
+given ``Y_1``,
 
 ```math
-y_n = \mu(t_n) + \rho(t_n)\, y_{n-1} + \sigma(t_n)\, \epsilon_n, \qquad \epsilon_n \sim \mathcal{N}(0, 1),
+Y_n = \mu(t_n) + \rho(t_n)\, Y_{n-1} + \sigma(t_n)\, \epsilon_n, \qquad n = 2, \dots, N,
 ```
 
-where ``t_n \in 1{:}T`` is the period index of step ``n`` in a cycle of ``T`` steps (`n2t[n]`, see
-the [data layout](@ref data-layout)). Each parameter is a trigonometric polynomial of degree
-``d``,
+where
+
+- ``\epsilon_2, \dots, \epsilon_N`` are independent ``\mathcal{N}(0, 1)`` innovations;
+- ``\mu(t) \in \mathbb{R}`` is the intercept at period index ``t``;
+- ``\rho(t) \in (-1, 1)`` is the autoregressive coefficient;
+- ``\sigma(t) > 0`` is the standard deviation of the innovation term.
+
+Each parameter is a trigonometric polynomial of degree ``d`` (any other
+[basis](@ref bases-guide) can replace it),
 
 ```math
 P(t) = c_0 + \sum_{\ell=1}^{d} \left( c_{2\ell-1} \cos\frac{2\pi \ell t}{T} + c_{2\ell} \sin\frac{2\pi \ell t}{T} \right),
@@ -22,12 +31,13 @@ P(t) = c_0 + \sum_{\ell=1}^{d} \left( c_{2\ell-1} \cos\frac{2\pi \ell t}{T} + c_
 pushed through a link that keeps it in its domain:
 
 ```math
-\mu(t) = P_\mu(t), \qquad
-\rho(t) = 2\,\operatorname{logistic}\big(P_\rho(t)\big) - 1 \in (-1, 1), \qquad
-\sigma(t) = \exp\big(P_\sigma(t)\big) > 0,
+\mu(t) = P^\mu(t), \qquad
+\rho(t) = 2\,\operatorname{logistic}\big(P^\rho(t)\big) - 1, \qquad
+\sigma(t) = \exp\big(P^\sigma(t)\big),
 ```
 
-with ``\operatorname{logistic}(x) = 1/(1 + e^{-x})``.
+with ``\operatorname{logistic}(x) = 1/(1 + e^{-x})``. The model has ``3(2d + 1)`` coefficients,
+fitted by maximizing the likelihood of ``Y_2, \dots, Y_N`` given ``Y_1``.
 
 This toy example simulates such a process with a known seasonality, fits it back, and chooses
 the degree of the polynomials.
@@ -47,7 +57,7 @@ md"""
 `SmoothAR1(d, T)` is a model whose three parameters are trigonometric polynomials of degree `d`
 over a cycle of `T` steps. Its coefficients start at zero. `parameters(m)` returns them as a
 `ComponentArray` with one block per parameter: `parameters(m).μ` is ``(c_0, c_1, \dots, c_{2d})``
-of ``P_\mu``, the intercept then a cosine and a sine coefficient per harmonic.
+of ``P^\mu``, the constant term then a cosine and a sine coefficient per harmonic.
 """
 
 T = 40
@@ -137,5 +147,6 @@ f2 = fit(SeasonalFit, SmoothAR1(spec, T), y; solver)
 
 md"""
 The true `ρ` varies over the cycle, and the BIC says so: this model is worse than the degree-1
-fit above.
+fit above. A parameter can also take a basis other than the trigonometric one, such as periodic
+B-splines; the [bases guide](@ref bases-guide) fits this model with several.
 """

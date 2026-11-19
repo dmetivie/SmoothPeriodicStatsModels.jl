@@ -13,31 +13,51 @@ using Markdown#hide
 # [Hidden Markov model with any emission](@id TutoHMMDists)
 
 [`SmoothPeriodicHMM`](@ref) is a hidden Markov model whose emission in each hidden state is any
-`Distributions.jl` law, with parameters that vary smoothly along the cycle. It has no memory: given
-the states, the observations are independent.
+`Distributions.jl` law, with parameters that vary smoothly along the cycle.
 
-The hidden state ``z_n \in 1{:}K`` at step ``n`` is a Markov chain, and ``t_n \in 1{:}T`` is the
-period index of step ``n`` in the cycle (`n2t[n]`, see the [data layout](@ref data-layout)):
+We observe a sequence ``Y_1, \dots, Y_N`` of vectors of ``\mathbb{R}^D``; in the first example
+``D = 1``, a single real series. Step ``n`` falls at period index ``t_n \in \{1, \dots, T\}`` of
+a cycle of ``T`` steps (`n2t[n]`, see the [data layout](@ref data-layout)). The law of ``Y_n``
+depends on ``t_n`` and on a hidden state ``Z_n \in \{1, \dots, K\}``, a Markov chain whose
+transition probabilities also depend on ``t_n``:
 
 ```math
-\mathbb{P}(z_1 = k) = a_k, \qquad
-\mathbb{P}(z_{n+1} = l \mid z_n = k) = A_{kl}(t_n), \qquad
-y_n \mid z_n = k \ \sim\ f\big(\,\cdot\,;\ \theta_k(t_n)\big).
+\mathbb{P}(Z_1 = k) = a_k, \qquad
+\mathbb{P}(Z_{n+1} = l \mid Z_n = k) = A_{kl}(t_n), \qquad
+Y_n \mid Z_n = k \ \sim\ f\big(\,\cdot\,;\ \theta_k(t_n)\big).
 ```
 
-- ``a`` is the initial distribution of the states;
-- ``A(t)`` is the ``K \times K`` transition matrix used when leaving period index ``t``, a softmax of
-  trigonometric polynomials as in the [HMM tutorial](@ref TutoHMM);
-- ``f(\,\cdot\,; \theta)`` is the emission law, here a `Normal` with ``\theta = (\mu, \sigma)``,
-  and ``\theta_k(t)`` its parameters in state ``k`` at period index ``t``.
+Given the hidden states, the ``Y_n`` are independent: the model has no memory. Here
 
-Each parameter is a trigonometric polynomial of degree ``d``,
-``P(t) = c_0 + \sum_{\ell=1}^{d} c_{2\ell-1} \cos(2\pi \ell t/T) + c_{2\ell} \sin(2\pi \ell t/T)``,
-through a link that keeps it in its domain: ``\mu_k(t) = P^\mu_k(t)`` and
-``\sigma_k(t) = \exp(P^\sigma_k(t))``.
+- ``a = (a_1, \dots, a_K)`` is the initial distribution of the hidden states;
+- ``A(t)`` is the ``K \times K`` transition matrix used when leaving period index ``t``, its rows
+  summing to 1;
+- ``f(\,\cdot\,; \theta)`` is the emission law, here a normal law of mean ``\mu`` and standard
+  deviation ``\sigma``, ``\theta = (\mu, \sigma)``;
+- ``\theta_k(t) = \big(\mu_k(t), \sigma_k(t)\big)`` is its parameter in state ``k`` at period
+  index ``t``.
 
-As a toy example, take daily temperatures at one station over twenty years, driven by a *dry* and a
-*wet* weather regime. The data are simulated.
+Each curve is a trigonometric polynomial of degree ``d`` (any other [basis](@ref bases-guide)
+can replace it),
+
+```math
+P(t) = c_0 + \sum_{\ell=1}^{d} \left( c_{2\ell-1} \cos\frac{2\pi \ell t}{T} + c_{2\ell} \sin\frac{2\pi \ell t}{T} \right),
+```
+
+pushed through a link that keeps it in its domain. The transitions go through a softmax, as in
+the [HMM tutorial](@ref TutoHMM), with one polynomial ``P^A_{kl}`` for each
+``k \in \{1, \dots, K\}`` and ``1 \le l < K``, state ``K`` being the reference,
+``P^A_{kK} = 0``. The mean goes through the identity and the standard deviation through a log,
+one polynomial ``P^\mu_k`` and ``P^\sigma_k`` per state:
+
+```math
+A_{kl}(t) = \frac{e^{P^A_{kl}(t)}}{\sum_{l'=1}^{K} e^{P^A_{kl'}(t)}}, \qquad
+\mu_k(t) = P^\mu_k(t), \qquad \sigma_k(t) = \exp\big(P^\sigma_k(t)\big), \qquad
+k, l \in \{1, \dots, K\}.
+```
+
+As a toy example, take daily temperatures at one station over twenty years, in two states: a
+*dry* and a *wet* weather regime. The data are simulated.
 
 ````@example 4-tuto_hmm_dists
 using SmoothPeriodicStatsModels
@@ -97,7 +117,9 @@ end
 
 `fit_mle(m, y; solver, n2t)` runs the Baum–Welch algorithm from the coefficients of `m`. The start
 `SmoothPeriodicHMM(Normal, K, d, T; init)` has flat curves, a starting `(μ, σ)` per state and
-uniform transitions; the states must start apart.
+uniform transitions; the states must start apart. Here the dry state starts at a mean of 15 and
+the wet one at 8, on either side of the mean temperature of the data, about 13.
+[Starting values](@ref starting-values) gives the rule for every family.
 
 ````@example 4-tuto_hmm_dists
 m0 = SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=15.0, σ=3.0), (μ=8.0, σ=3.0)])
@@ -189,23 +211,26 @@ m_from_slices, history_slices = fit_mle(m_slice, y; solver, n2t)
 ## Several series in blocks
 
 The observations can have several rows, split into blocks: each family covers one row if its law
-is univariate, several if it is multivariate. Given the state, the blocks are independent:
+is univariate, several if it is multivariate. Given the state, the blocks are independent: with
+``Y_{b,n}`` the rows of block ``b`` at step ``n``, the law of ``Y_n`` given ``Z_n = k`` has
+density
 
 ```math
-y_n \mid z_n = k \ \sim\ \prod_{b} f_b\big(y_{b,n};\ \theta_{kb}(t_n)\big),
+y \mapsto \prod_{b} f_b\big(y_b;\ \theta_{kb}(t_n)\big),
 ```
 
-where ``y_{b,n}`` are the rows of block ``b`` at step ``n``. A multivariate law fits as long as
-each of its parameters is a scalar. Here the daily minimum and maximum temperatures follow a
+where ``f_b`` is the law of block ``b`` and ``\theta_{kb}(t)`` its parameter in state ``k`` at
+period index ``t``. A multivariate law fits as long as each of its parameters is a scalar. Here
+``D = 3``: the daily minimum and maximum temperatures ``Y_{1,n}`` and ``Y_{2,n}`` follow a
 bivariate normal law whose correlation ``\rho_k(t) \in (-1, 1)`` varies over the year, and rain
-occurrence a Bernoulli law of probability ``p_k(t)``:
+occurrence ``Y_{3,n} \in \{0, 1\}`` a Bernoulli law of probability ``p_k(t)``:
 
 ```math
-\begin{pmatrix} T^{\min}_n \\ T^{\max}_n \end{pmatrix} \Bigm| z_n = k \sim
+\begin{pmatrix} Y_{1,n} \\ Y_{2,n} \end{pmatrix} \Bigm| Z_n = k \sim
 \mathcal{N}\left(\begin{pmatrix} \mu^{\min}_k \\ \mu^{\max}_k \end{pmatrix},
 \begin{pmatrix} (\sigma^{\min}_k)^2 & \rho_k\,\sigma^{\min}_k\sigma^{\max}_k \\
 \rho_k\,\sigma^{\min}_k\sigma^{\max}_k & (\sigma^{\max}_k)^2 \end{pmatrix}\right), \qquad
-\text{rain}_n \mid z_n = k \sim \operatorname{Bernoulli}(p_k),
+Y_{3,n} \mid Z_n = k \sim \operatorname{Bernoulli}(p_k),
 ```
 
 every parameter being evaluated at ``t_n``.
@@ -275,10 +300,10 @@ PeriodicHMMDists(m₂).B[1][1, 30]
 ## Dependence from a copula
 
 A copula separates the marginal laws of a random vector from their dependence. By Sklar's
-theorem, any joint law of ``(y_1, y_2)`` with continuous marginal cdfs ``F_1`` and ``F_2`` is
+theorem, any joint law of ``(X_1, X_2)`` with continuous marginal cdfs ``F_1`` and ``F_2`` is
 
 ```math
-\mathbb{P}(y_1 \le x_1,\ y_2 \le x_2) = C\big(F_1(x_1),\ F_2(x_2)\big),
+\mathbb{P}(X_1 \le x_1,\ X_2 \le x_2) = C\big(F_1(x_1),\ F_2(x_2)\big),
 ```
 
 where the copula ``C`` is a joint cdf on ``[0, 1]^2`` with uniform marginals. The bivariate
@@ -287,16 +312,17 @@ instead. [Copulas.jl](https://github.com/lrnv/Copulas.jl) builds such a law as
 `SklarDist(C, (law₁, law₂))`, an ordinary multivariate `Distribution`, so it can be a block like
 any other.
 
-As a proof of concept, take a normal temperature and an exponential wind speed of mean
-``\lambda_k``, joined in each regime by a Gaussian copula ``C_\rho`` of correlation
-``\rho_k(t)``:
+As a proof of concept, take ``D = 2``: a temperature ``Y_{1,n}``, normal of mean ``\mu_k`` and
+standard deviation ``\sigma_k``, and a wind speed ``Y_{2,n}``, exponential of mean ``\lambda_k``,
+joined in each state by a Gaussian copula ``C_\rho`` of correlation ``\rho_k``:
 
 ```math
-\mathbb{P}(\text{temp}_n \le x_1,\ \text{wind}_n \le x_2 \mid z_n = k) =
+\mathbb{P}(Y_{1,n} \le x_1,\ Y_{2,n} \le x_2 \mid Z_n = k) =
 C_{\rho_k}\big(F_{\mathcal{N}(\mu_k,\, \sigma_k)}(x_1),\ F_{\mathcal{E}(\lambda_k)}(x_2)\big),
 ```
 
-every parameter being evaluated at ``t_n``. Each parameter has its own basis: the mean wind speed
+where ``F_{\mathcal{N}(\mu, \sigma)}`` and ``F_{\mathcal{E}(\lambda)}`` are the normal and
+exponential cdfs, every parameter being evaluated at ``t_n``. Each parameter has its own basis: the mean wind speed
 is constant, a trigonometric polynomial of degree 0.
 
 ````@example 4-tuto_hmm_dists

@@ -5,6 +5,10 @@ Pkg.activate(joinpath(@__DIR__, "..", "docs"))#src
 md"""
 # [Chromatin states along genes](@id TutoGenomics)
 
+!!! note
+    The data and the model are simulated, to illustrate the package. They do not represent any
+    real biological system. Ideally, I'd like to show a real example.
+
 The period index of a smooth HMM need not be a time in a cycle. Here it is a position along a gene, and
 the data are many short sequences, one per gene, rather than one long series.
 
@@ -34,21 +38,41 @@ solver = LBFGS()   # every fit below takes its optimization algorithm explicitly
 md"""
 ## A model on a B-spline basis
 
-The model is the one of the [HMM tutorial](@ref TutoHMM): regimes ``z_n`` with initial
-distribution ``a`` and transition probabilities ``A_{kl}(t)``, and marks ``y_{j,n}`` with
-success probabilities ``p_{kjh}(t)``, ``t`` now a position along the gene. Only the curves
-change: each is a combination of B-spline functions ``b_1, \dots, b_{n+2}`` rather than a
-trigonometric polynomial,
+We observe ``G`` genes, each gene body rescaled to ``T = 40`` bins from the TSS to the 3' end.
+Gene ``g`` gives the binary vectors
+``Y^{(g)}_n = (Y^{(g)}_{1,n}, \dots, Y^{(g)}_{D,n}) \in \{0, 1\}^D``, ``n = 1, \dots, T``, where
+``Y^{(g)}_{j,n} = 1`` when mark ``j`` is present in bin ``n``. The genes are independent, and each
+follows the model of the [HMM tutorial](@ref TutoHMM) with the bin as period index, ``t_n = n``,
+and a memory of order 1. Dropping the gene index,
 
 ```math
-P(t) = \sum_{i=1}^{n+2} c_i\, b_i(t), \qquad
-p_{kjh}(t) = \operatorname{logistic}\big(P^B_{kjh}(t)\big).
+\begin{aligned}
+\mathbb{P}(Z_1 = k) &= a_k, \\
+\mathbb{P}(Z_{n+1} = l \mid Z_n = k) &= A_{kl}(n), \\
+\mathbb{P}(Y_{j,n} = 1 \mid Z_n = k,\ Y_{j,n-1}) &= p_{kjh}(n), \qquad h = 1 + Y_{j,n-1},
+\end{aligned}
 ```
 
-Each gene body is rescaled to `T = 40` bins. `BSplineBasis(1, T, n)` is a cubic B-spline basis
-over the positions `1:T` with `n` equally spaced knots, `n + 2` functions. The functions sum to
-one at every position, so constant coefficients give a constant curve, and coefficient ``c_i``
-mostly controls the curve around the ``i``-th of ``n + 2`` points spread over `1:T`.
+where ``Z_n \in \{1, \dots, K\}`` is the chromatin state of bin ``n``, ``Y_{j,0}`` is the bin
+upstream of the TSS, and, given ``Z_n`` and ``Y_{n-1}``, the ``D`` marks of bin ``n`` are
+independent. ``a``, ``A`` and ``p`` are as in the [HMM tutorial](@ref TutoHMM). Only the curves
+change: each is a combination of B-spline functions ``b_1, \dots, b_{q+2}`` rather than a
+trigonometric polynomial (the [bases guide](@ref bases-guide) lists the others),
+
+```math
+P(t) = \sum_{i=1}^{q+2} c_i\, b_i(t), \qquad
+A_{kl}(t) = \frac{e^{P^A_{kl}(t)}}{\sum_{l'=1}^{K} e^{P^A_{kl'}(t)}}, \qquad
+p_{kjh}(t) = \operatorname{logistic}\big(P^B_{kjh}(t)\big),
+```
+
+with one curve ``P^A_{kl}`` for each ``k \in \{1, \dots, K\}`` and ``1 \le l < K``, the
+reference ``P^A_{kK} = 0``, and one curve ``P^B_{kjh}`` for each state ``k``, mark
+``j \in \{1, \dots, D\}`` and memory category ``h \in \{1, 2\}``.
+
+`BSplineBasis(1, T, q)` is a cubic B-spline basis over the positions `1:T` with `q` equally
+spaced knots, `q + 2` functions. The functions sum to one at every position, so constant
+coefficients give a constant curve, and coefficient ``c_i`` mostly controls the curve around the
+``i``-th of ``q + 2`` points spread over `1:T`.
 """
 
 T = 40

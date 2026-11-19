@@ -21,9 +21,10 @@ components of a [`SmoothSeasonalMixture`](@ref) and the emission laws of a
 | `Poisson` | mean `λ`, log |
 
 In a model constructor, `Normal => 2` stands for `seasonal_family(Normal, TrigBasis(T, 2))`: each
-parameter a trigonometric polynomial of degree 2.
+parameter a trigonometric polynomial of degree 2. `seasonal_family(Normal, basis)` takes any
+other [basis](@ref bases-guide), such as `CyclicBSplineBasis(T, 8)`.
 
-## Declaring a family
+## Declaring a custom family
 
 One method of [`seasonal_family`](@ref) declares a family. For a `Pareto` law with both
 parameters positive:

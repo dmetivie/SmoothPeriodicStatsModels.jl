@@ -136,7 +136,7 @@ fit_mle(m0, Y, Y_past; n2t, solver=LBFGS(), maxiter=500, tol=1e-6, display=:fina
     ensemble=EnsembleThreads(), solve_kwargs=(maxiters=200,))
 ```
 
-### [Impossible observations](@id impossible-observations)
+### [Impossible observations: `robust`](@id impossible-observations)
 
 An observation that the model finds impossible in every state, a negative value for an
 exponential law, makes the forward pass of an HMM fit stop on a `NaN` loglikelihood.
@@ -169,7 +169,8 @@ The EM fits find a local maximum of the likelihood, and the starting point decid
 and with it what each hidden state means. Three ways to choose it:
 
 - from what is known, as in the tutorials: which state is the active or the wet one, with flat
-  curves;
+  curves; [Starting values](@ref starting-values) says how `init` becomes coefficients and what
+  starts at zero;
 - for the HMMs, the slice method: [`fit_mle_all_slices`](@ref) fits a mixture at each period
   index, ignoring the dynamics, and smooth coefficients are then fitted to the result. The
   tutorials show it for the [Bernoulli HMMs](@ref TutoHMMStart) and for the

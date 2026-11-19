@@ -3,40 +3,57 @@ import Pkg#src
 Pkg.activate(joinpath(@__DIR__, "..", "docs"))#src
 
 md"""
-# [Periodic hidden Markov model](@id TutoHMM)
+# [Autoregressive binary periodic hidden Markov model](@id TutoHMM)
 
-We consider ``D`` binary series ``y_{1,n}, \dots, y_{D,n}`` driven by ``K`` hidden regimes. The regime
-``z_n \in 1{:}K`` at step ``n`` is a Markov chain whose transition probabilities depend on the
-period index ``t_n \in 1{:}T`` of step ``n`` in a cycle (`n2t[n]`, see the
-[data layout](@ref data-layout)). Given the regime, the series are independent, and series ``j``
-is a success with a probability that depends on the regime, on ``t_n``, and on its own previous
-value (memory of order 1):
+We observe ``D`` binary series: at step ``n = 1, \dots, N``, the vector
+``Y_n = (Y_{1,n}, \dots, Y_{D,n}) \in \{0, 1\}^D``. Step ``n`` falls at period index
+``t_n \in \{1, \dots, T\}`` of a cycle of ``T`` steps (`n2t[n]`, see the
+[data layout](@ref data-layout)). Each ``Y_{j,n}`` is a Bernoulli variable whose success
+probability depends on ``t_n``, on a hidden state ``Z_n \in \{1, \dots, K\}``, and on the
+previous value ``Y_{j,n-1}`` of the same series (a memory of order 1). The hidden states form a
+Markov chain whose transition probabilities also depend on ``t_n``:
 
 ```math
 \begin{aligned}
-\mathbb{P}(z_1 = k) &= a_k, \\
-\mathbb{P}(z_{n+1} = l \mid z_n = k) &= A_{kl}(t_n), \\
-\mathbb{P}(y_{j,n} = 1 \mid z_n = k,\ y_{j,n-1}) &= p_{kjh}(t_n), \qquad h = 1 + y_{j,n-1}.
+\mathbb{P}(Z_1 = k) &= a_k, \\
+\mathbb{P}(Z_{n+1} = l \mid Z_n = k) &= A_{kl}(t_n), \\
+\mathbb{P}(Y_{j,n} = 1 \mid Z_n = k,\ Y_{j,n-1}) &= p_{kjh}(t_n), \qquad h = 1 + Y_{j,n-1}.
 \end{aligned}
 ```
 
-- ``a`` is the initial distribution of the regimes;
-- ``A(t)`` is the ``K \times K`` transition matrix used when leaving period index ``t``;
-- ``p_{kjh}(t)`` is the success probability of series ``j`` in regime ``k`` at period index ``t``,
-  in memory category ``h``: ``h = 1`` after a 0, ``h = 2`` after a 1. With a memory of order
-  ``m``, ``h \in 1{:}2^m`` indexes the ``m`` previous values.
+Given ``Z_n`` and ``Y_{n-1}``, the ``D`` coordinates of ``Y_n`` are independent, and independent
+of the earlier states and observations. Here
 
-``A`` and ``p`` are built from trigonometric polynomials of degree ``d``,
-``P(t) = c_0 + \sum_{\ell=1}^{d} c_{2\ell-1} \cos(2\pi \ell t/T) + c_{2\ell} \sin(2\pi \ell t/T)``,
-through a softmax, with regime ``K`` as the reference, and a logistic:
+- ``a = (a_1, \dots, a_K)`` is the initial distribution of the hidden states;
+- ``A(t)`` is the ``K \times K`` transition matrix used when leaving period index ``t``, its rows
+  summing to 1;
+- ``p_{kjh}(t) \in (0, 1)`` is the success probability of series ``j`` in state ``k`` at period
+  index ``t``, in memory category ``h``: ``h = 1`` after a 0, ``h = 2`` after a 1. With a memory
+  of order ``m``, ``h = 1 + \sum_{i=1}^{m} 2^{m-i}\, Y_{j,n-i} \in \{1, \dots, 2^m\}`` encodes the
+  ``m`` previous values; the first steps read them from the initial condition `Y_past`.
+
+Each curve is a trigonometric polynomial of degree ``d`` (any other [basis](@ref bases-guide)
+can replace it),
 
 ```math
-A_{kl}(t) = \frac{e^{P^A_{kl}(t)}}{\sum_{l'=1}^{K} e^{P^A_{kl'}(t)}}, \quad P^A_{kK} = 0,
-\qquad p_{kjh}(t) = \frac{1}{1 + e^{-P^B_{kjh}(t)}}.
+P(t) = c_0 + \sum_{\ell=1}^{d} \left( c_{2\ell-1} \cos\frac{2\pi \ell t}{T} + c_{2\ell} \sin\frac{2\pi \ell t}{T} \right).
 ```
 
-As a toy example, take the on/off status of four devices over a cycle of 50 steps, in an *active*
-and a *quiet* regime. Later sections find a starting point from the data, give each series its
+The transitions go through a softmax, with one polynomial ``P^A_{kl}`` for each
+``k \in \{1, \dots, K\}`` and ``1 \le l < K``, state ``K`` being the reference,
+``P^A_{kK} = 0``. The success probabilities go through a logistic, with one polynomial
+``P^B_{kjh}`` for each state ``k``, series ``j \in \{1, \dots, D\}`` and memory category ``h``:
+
+```math
+A_{kl}(t) = \frac{e^{P^A_{kl}(t)}}{\sum_{l'=1}^{K} e^{P^A_{kl'}(t)}}, \quad k, l \in \{1, \dots, K\},
+\qquad p_{kjh}(t) = \operatorname{logistic}\big(P^B_{kjh}(t)\big),
+```
+
+with ``\operatorname{logistic}(x) = 1/(1 + e^{-x})``. The initial distribution ``a`` does not
+depend on ``t``.
+
+As a toy example, take the on/off status of four devices over a cycle of 50 steps, in two
+states: an *active* and a *quiet* regime. Later sections find a starting point from the data, give each series its
 own memory, and, [last](@ref TutoHMMSpatial), let the series be correlated in space.
 """
 
@@ -56,7 +73,7 @@ md"""
 `SmoothARPeriodicHMM(a, θᴬ, θᴮ, T)` takes the initial distribution ``a`` and the coefficients:
 
 - `θᴬ[k, l, :]`, `K × (K-1) × (2d+1)`, the coefficients ``(c_0, \dots, c_{2d})`` of
-  ``P^A_{kl}``. There is no `l = K`, the reference; with two regimes,
+  ``P^A_{kl}``. There is no `l = K`, the reference; with two states,
   ``A_{k1}(t) = \operatorname{logistic}(P^A_{k1}(t))``.
 - `θᴮ[k, j, h, :]`, `K × D × 2^order × (2d+1)`, the coefficients of ``P^B_{kjh}``.
 """
@@ -197,7 +214,7 @@ The two starts reach the same maximum.
 ## Each series its own memory
 
 In `SmoothsARPeriodicHMM` each series ``j`` has its own memory order ``m_j``, so its memory
-category runs over ``h \in 1{:}2^{m_j}``. The emission coefficients `θᴮ[k, j]` are a vector of
+category runs over ``h \in \{1, \dots, 2^{m_j}\}``. The emission coefficients `θᴮ[k, j]` are a vector of
 ``2^{m_j}`` coefficient vectors, `θᴮ[k, j][h]` being those of ``P^B_{kjh}``, and the initial
 condition `Y_past[j]` holds the ``m_j`` previous values of series ``j``.
 Here device 1 has no memory, devices 2 and 3 remember one step, and device 4 two:
@@ -247,13 +264,26 @@ only(logL), loglikelihood(m, Y, Y_past; n2t)
 md"""
 ## [Spatially correlated series](@id TutoHMMSpatial)
 
-In `SmoothARPeriodicHMM` the series are independent given the regime.
-`SmoothARPeriodicHMMSpatial` correlates them: given the regime ``k``, the vector ``y_n`` is a
-[`SpatialBernoulli`](@ref SmoothPeriodicStatsModels.SpatialBernoulli), the thresholded version
-of a latent Gaussian vector whose correlation between series ``i`` and ``j`` is
-``\exp(-\delta_{ij}/R_k(t_n))``. Here ``\delta_{ij}`` is the distance between them and
-``R_k(t) = \exp(P^R_k(t))`` is the range of regime ``k``, a third trigonometric polynomial
-through an exponential. The marginal success probabilities ``p_{kjh}(t)`` are as before.
+In `SmoothARPeriodicHMM` the series are independent given the hidden state.
+`SmoothARPeriodicHMMSpatial` correlates them through a latent Gaussian vector. Here without
+memory, given ``Z_n = k``,
+
+```math
+Y_{j,n} = \mathbf{1}\big\{U_{j,n} < \Phi^{-1}\big(p_{kj}(t_n)\big)\big\}, \qquad
+\operatorname{Corr}(U_{i,n}, U_{j,n}) = \exp\big(-\Delta_{ij}/R_k(t_n)\big),
+```
+
+where
+
+- ``U_n = (U_{1,n}, \dots, U_{D,n})`` is a centred Gaussian vector with unit variances, drawn
+  independently at each step, and ``\Phi`` the standard normal cdf, so that
+  ``\mathbb{P}(Y_{j,n} = 1 \mid Z_n = k) = p_{kj}(t_n)`` as before;
+- ``\Delta_{ij}`` is the distance between series ``i`` and ``j``;
+- ``R_k(t) = \exp\big(P^R_k(t)\big) > 0`` is the range of state ``k`` at period index ``t``, a
+  third trigonometric polynomial through an exponential.
+
+The law of ``Y_n`` given ``Z_n = k`` is a
+[`SpatialBernoulli`](@ref SmoothPeriodicStatsModels.SpatialBernoulli).
 
 Take eight sensors scattered on a 100 × 100 field, observed over a cycle of 20 steps. In the
 active regime the range is long, so sensors switch on together over large areas; in the quiet
@@ -283,16 +313,15 @@ by quasi-Monte Carlo with `D * QMC_m` points: raising `QMC_m` makes it more accu
 Simulation works as before.
 """
 
-Nₛ = 2_000
+Nₛ = 6_000
 n2tₛ = n_to_t(Nₛ, Tₛ)
 Yₛ_past = zeros(Bool, Dₛ, 0)
 zₛ, Yₛ = rand(truth_s, n2tₛ; Y_past=Yₛ_past, z_ini=1, seq=true)
 
 md"""
-The fit is the same call. Because the likelihood is a random estimate, the loglikelihood path is
-noisy: `fit_mle` returns the iterate with the highest loglikelihood, `history.best_iteration`,
-rather than the last, and usually runs to `maxiter`. The range is updated by maximizing a
-pairwise likelihood, whose solver iterations `maxiters_R` caps.
+The model without space gives a start drawn from the data. Its fit is fast, and its transitions
+and success probabilities mean the same as in the spatial model, ``p_{kj}(t)`` being the
+probability of a 1 in both. It starts here from a guess that knows which state is the active one:
 """
 
 θᴬ₀ₛ = zeros(K, K - 1, 2d + 1)
@@ -300,9 +329,24 @@ pairwise likelihood, whose solver iterations `maxiters_R` caps.
 θᴮ₀ₛ = zeros(K, Dₛ, 1, 2d + 1)
 θᴮ₀ₛ[1, :, 1, 1] .= 0.5
 θᴮ₀ₛ[2, :, 1, 1] .= -1.0
-θᴿ₀ = fill(0.0, K, 2d + 1)
-θᴿ₀[:, 1] .= log(40.0)
-m0_s = SmoothARPeriodicHMMSpatial([0.5, 0.5], θᴬ₀ₛ, θᴮ₀ₛ, θᴿ₀, Tₛ, distance; QMC_m=30)
+m_ind, _ = fit_mle(SmoothARPeriodicHMM([0.5, 0.5], θᴬ₀ₛ, θᴮ₀ₛ, Tₛ), Yₛ, Yₛ_past; solver, n2t=n2tₛ)
+
+md"""
+Only the ranges need a guess: the median distance between two sensors, constant over the
+cycle.
+"""
+
+θᴿ₀ = zeros(K, 2d + 1)              # θᴿ₀[k, 1] = log R_k, the harmonics zero
+θᴿ₀[:, 1] .= log(median(distance[distance.>0]))
+m0_s = SmoothARPeriodicHMMSpatial(ARPeriodicHMM(m_ind).a, parameters(m_ind).A, parameters(m_ind).B,
+    θᴿ₀, Tₛ, distance; QMC_m=30)
+
+md"""
+The fit is the same call. Because the likelihood is a random estimate, the loglikelihood path is
+noisy: `fit_mle` returns the iterate with the highest loglikelihood, `history.best_iteration`,
+rather than the last, and usually runs to `maxiter`. The range is updated by maximizing a
+pairwise likelihood, whose solver iterations `maxiters_R` caps.
+"""
 
 m_s, history_s = fit_mle(m0_s, Yₛ, Yₛ_past; solver, n2t=n2tₛ, maxiter=15, maxiters_R=50)
 history_s.best_iteration
@@ -328,8 +372,11 @@ begin
 end
 
 md"""
-The short ranges are recovered well. A range much longer than the distances between sensors
-makes them all strongly correlated, and the data say less about its exact value.
+Both ranges are recovered. A range much longer than the distances between the sensors makes them
+all strongly correlated, and the data then say less about its exact value: with 2,000 steps
+instead of 6,000, the range of the active state at the start of the cycle comes out near 200
+instead of the true 142, whether the fit starts from the model without space, from a guess or
+from the truth.
 
 `viterbi` and `ARPeriodicHMMSpatial(m)` work as for the model without space:
 """

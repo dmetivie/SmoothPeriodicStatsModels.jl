@@ -108,7 +108,8 @@ The bases, links and generic time-varying layer (`ParamSpec`, `TrigBasis`, `Cons
 `IntervalLink`, `paramnames`, `ncoef`, `coefs`, `blockindex`, `blockrange`, `design_matrix`,
 `nbasis`, `TimeVaryingFamily`, `PeriodicDesign`, `distributions`, `PeriodicNLL`,
 `PointwiseNLL`, `group_by_time`, `TimeVaryingFit`) are those of
-[TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl). The links
+[TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl), not
+registered yet; the [bases guide](@ref bases-guide) describes them. The links
 `IdentityLink`, `LogLink` and `LogitLink` come from
 [LinkFunctions.jl](https://github.com/JuliaStats/LinkFunctions.jl), `ClassicEM` and
 `StochasticEM` from [ExpectationMaximization.jl](https://github.com/dmetivie/ExpectationMaximization.jl),

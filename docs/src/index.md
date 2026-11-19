@@ -5,7 +5,7 @@ layout: home
 hero:
     name: SmoothPeriodicStatsModels.jl
     text: A package for statistical models with varying parameters
-    tagline: Rough edges, smooth it!
+    tagline: Day by day, seasons change, and so does your model
     actions:
       - theme: brand
         text: Explore the tutorials
@@ -16,17 +16,24 @@ hero:
       - theme: alt
         text: View on GitHub
         link: https://github.com/dmetivie/SmoothPeriodicStatsModels.jl
+    image:
+      src: /logo.svg
+      alt: SmoothPeriodicStatsModels.jl        
 
 features:
   - icon: 〰️
     title: Smooth by construction
-    details: Each parameter is a few coefficients of a basis, trigonometric polynomials or B-splines, through a link that keeps it in its domain. No jumps from day to day or month to month.
-    link: /20-guides/4-families/
+    details: Each parameter is a few coefficients of a basis, trigonometric polynomials, periodic or plain B-splines, through a link that keeps it in its domain. No jumps from day to day or month to month.
+    link: /20-guides/4-bases/
   - icon: 🌦️
-    title: From AR(1) to hidden Markov models
+    title: From AR(1) to Hidden Markov Models
     details: Seasonal autoregressive processes, mixtures with components of different families, and HMMs with Bernoulli, multivariate or copula emissions.
     link: /10-tutorials/1-tuto_ar1/
-  - icon: 🧩
+  - icon:
+      light: /logo_julia.svg
+      dark: /logo_julia.svg
+      alt: Julia
+      wrap: true
     title: Built on the Julia ecosystem
     details: Laws from `Distributions.jl`, inference from `HiddenMarkovModels.jl`, and any solver or automatic differentiation backend of `Optimization.jl`.
     link: /20-guides/3-hiddenmarkovmodels/
@@ -53,7 +60,7 @@ series for impact studies, and must reproduce their seasonality: the probability
 day, the probability that a dry spell ends, the variance of temperatures and the frequency of
 each weather regime all change over the year.
 
-Take ``p(t)``, the probability that day ``t \in 1{:}366`` of the year is rainy, and 30 years of
+Take ``p(t)``, the probability that day ``t \in \{1, \dots, 366\}`` of the year is rainy, and 30 years of
 data:
 
 - **One estimate per day**: ``\hat p(t)`` is the frequency of rain on day ``t``. Each of the 366
@@ -79,8 +86,8 @@ regimes of a Markov model keep one meaning all year round.
 
 Every parameter of every model is built this way: ``\lambda(t) = g^{-1}\big(P(t)\big)``, with a
 link ``g`` that keeps ``\lambda`` in its domain (logit for a probability, log for a scale,
-softmax for transition probabilities). Other bases, such as B-splines, can replace the
-trigonometric one.
+softmax for transition probabilities). Other [bases](@ref bases-guide), such as periodic
+B-splines, can replace the trigonometric one, parameter by parameter.
 
 ```@example landing
 using SmoothPeriodicStatsModels # hide
@@ -145,7 +152,7 @@ curves and evaluated parameters are.
 
 ## Period indices: `n2t`
 
-Every function that takes data also takes `n2t`: `n2t[n]` is the period index ``t_n \in 1{:}T`` of
+Every function that takes data also takes `n2t`: `n2t[n]` is the period index ``t_n \in \{1, \dots, T\}`` of
 observation ``n``, its position in the cycle, where the model evaluates its parameters. For daily rain
 recorded from 1 January 2003, ``T = 366``, the period index is the day of the year, and 29 February
 keeps index 60:
@@ -198,11 +205,12 @@ The guides cover what the tutorials only use:
 - [Data layout](@ref data-layout): period indices, initial conditions, several sequences and gaps.
 - [Fitting](@ref fitting-guide): solver options, starting points, model selection, saving a fit.
 - [HiddenMarkovModels.jl](@ref hmms-guide): the HMMs as models of that package.
+- [Bases](@ref bases-guide): trigonometric polynomials, periodic and plain B-splines, piecewise
+  constants, and where each model takes them.
 - [Seasonal families](@ref families-guide): the distributions available as mixture components
   and HMM emissions, and how to declare one.
 
-For real data, the tutorials of
-[StochasticWeatherGenerators.jl](https://dmetivie.github.io/StochasticWeatherGenerators.jl/dev/)
+For real data, the tutorials of [StochasticWeatherGenerators.jl](https://dmetivie.github.io/StochasticWeatherGenerators.jl/dev/)
 fit these models to French weather stations.
 
 ## Contributors

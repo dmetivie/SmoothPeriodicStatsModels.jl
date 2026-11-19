@@ -52,6 +52,44 @@ In [`SmoothsARPeriodicHMM`](@ref) the series have different orders, so `Y_past` 
 
 [`SmoothPeriodicHMM`](@ref) has no memory and takes no `Y_past`: `fit_mle(m, Y; n2t, solver)`.
 
+## [Starting values: `init`](@id starting-values)
+
+No model guesses the parameters of its laws: there are no default values. The models built from
+families, [`SmoothSeasonalMixture`](@ref) and [`SmoothPeriodicHMM`](@ref), require `init`, one
+starting value per component or hidden state, in one of three forms:
+
+| `init[k]` | for | meaning |
+|:--|:--|:--|
+| a number | a family with one parameter | that parameter, `1.0` for `Exponential` is the scale ``\theta = 1`` |
+| a `NamedTuple` | any family | every parameter by name, `(α=1.5, θ=3.0)` for `Gamma` |
+| a vector | any family | the coefficients themselves, link scale, in the order of the family's parameters |
+
+A number or a `NamedTuple` gives a *flat* start, the parameter constant over the cycle: the link
+is inverted and the result put on the constant term, the harmonics being zero. For an
+`Exponential` with trigonometric polynomials of degree 1, `init = [1.0, 5.0]` gives the
+coefficients `[log(1.0), 0, 0]` and `[log(5.0), 0, 0]`. On a spline basis, every coefficient
+takes the inverted value instead, the spline functions summing to one (see
+[Bases](@ref bases-guide)).
+
+The starting values must differ: two identical components or states get identical posterior
+probabilities, and EM cannot tell them apart. Their order is the order of the fitted
+components or states, so `init` also says which is which. Values on either side of what the
+data show work well, for example a short and a long scale around the mean waiting time, or a
+dry and a wet state around the mean temperature. In an HMM with blocks, `init[k]` holds one
+value per block.
+
+What `init` does not cover starts from zero coefficients:
+
+| model | starts at | so that |
+|:--|:--|:--|
+| `SmoothSeasonalMixture` | weight coefficients zero | the weights are equal, ``1/K`` |
+| `SmoothPeriodicHMM` | `θᴬ = 0`, `a = fill(1/K, K)` | the transitions and the initial distribution are uniform |
+| `SmoothAR1(d, T)` | all coefficients zero | ``\mu = 0``, ``\rho = 0``, ``\sigma = 1`` |
+
+The Bernoulli HMMs take no `init`: they are built from their coefficients, `θᴬ` and `θᴮ`, which
+are the start of a fit. The [fitting guide](@ref fitting-guide) lists ways to choose a starting
+point, including one from the data.
+
 ## Several sequences
 
 A sequence is a run of consecutive steps of the hidden chain. Data that the chain does not

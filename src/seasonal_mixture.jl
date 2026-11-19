@@ -42,9 +42,9 @@ The seasonal mixing weights of a mixture, as the weight vector the EM algorithm 
 `ExpectationMaximization` works on.
 
 `α` is `K × T`: `α[k, t]` is the weight of component `k` at period index `t`. `θ` holds the
-`(K-1) × (2d+1)` multinomial-logit coefficients that generate it, with component `K` as the
-reference, and `basis` is the `T × (2d+1)` design matrix from [`trig_basis`](@ref). `cfg` holds
-the M-step settings.
+`(K-1) × ncoef` multinomial-logit coefficients that generate it, with component `K` as the
+reference, and `basis` is the `T × ncoef` design matrix of the weights' basis. `cfg` holds the
+M-step settings.
 
 Indexing it returns the time-averaged weight of a component.
 """
@@ -56,7 +56,7 @@ mutable struct SeasonalWeights{T,C} <: AbstractVector{T}
 end
 
 # The three matrices come from different places — the initial mixtures, the caller's coefficients
-# and `trig_basis` — so they are promoted to a common element type rather than assumed to share one.
+# and the weights' basis — so they are promoted to a common element type rather than assumed to share one.
 function SeasonalWeights(α::AbstractMatrix, θ::AbstractMatrix, basis::AbstractMatrix, cfg)
     T = promote_type(eltype(α), eltype(θ), eltype(basis))
     return SeasonalWeights{T,typeof(cfg)}(Matrix{T}(α), Matrix{T}(θ), Matrix{T}(basis), cfg)

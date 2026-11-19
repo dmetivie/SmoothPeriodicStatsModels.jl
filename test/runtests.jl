@@ -173,6 +173,28 @@ end
         init=[1.0, 1.0])
 end
 
+# The weights take any basis, as the components do: the fit must use the basis of `spec_α`, and
+# the loglikelihood it reports must be that of the model it returns.
+@testset "Mixture: weights on a basis other than the trigonometric one" begin
+    T, N = 24, 8000
+    basis = CyclicBSplineBasis(T, 6)
+    fams = [seasonal_family(Exponential, TrigBasis(T, 0)) for _ = 1:2]
+    spec_α = ParamSpec(α=basis => IdentityLink())
+    truth = SmoothSeasonalMixture(fams, spec_α, T; init=[0.5, 4.0])
+    parameters(truth).α[:, 1] .= [-1.5, 0.0, 1.5, 1.0, -0.5, -1.0]
+    y = rand(MersenneTwister(11), truth, N)
+    n2t = n_to_t(N, T)
+
+    m0 = SmoothSeasonalMixture(fams, spec_α, T; init=[0.3, 3.0])
+    m, h = fit_mle(m0, y; solver=SOLVER, n2t, maxiter=500, tol=1e-7)
+    @test h.converged
+    @test all(diff(h.logtots) .>= -1e-8)
+    @test loglikelihood(m, y; n2t) ≈ h.logtots[end]
+    @test h.logtots[end] > loglikelihood(truth, y; n2t)
+    @test size(parameters(m).α) == (6, 1)
+    @test maximum(abs, mixture_weights(m) - mixture_weights(truth)) < 0.1
+end
+
 # The sufficient-statistic override of the README, at top level so that the method exists before
 # any testset runs. Seasonal Rayleigh, scale S(t) = exp(P(t)): logpdf = log y - 2log S - y²/2S².
 rayleigh_nll(theta, (s_pi, s_piy2, basis)) =

@@ -31,8 +31,8 @@ function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
     θ_Y = [collect(float.(component_coefs(m, k))) for k = 1:K]
 
     _, θ_α, θ_Y, h = _fit_seasonal_mixture(mixtures(m), θ_α, θ_Y, y, n2t, weights...;
-        families=m.components, display, maxiter, tol, rtol, robust, method, solver, adtype,
-        solve_kwargs)
+        families=m.components, basis_α=design_matrix(m.spec_α.bases[1], 1:m.nT), display,
+        maxiter, tol, rtol, robust, method, solver, adtype, solve_kwargs)
 
     fitted = SmoothSeasonalMixture(m.components, m.spec_α, m.nT, copy(ps))
     parameters(fitted).α .= permutedims(θ_α)
@@ -64,7 +64,7 @@ end
 # only the narrower second argument makes this strictly more specific than that one.
 function _fit_seasonal_mixture(mix::AbstractArray{<:MixtureModel}, θ_α::AbstractMatrix,
     θ_Y::AbstractVector, y::AbstractVecOrMat, n2t::AbstractVector, weights...;
-    families, display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false,
+    families, basis_α=nothing, display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false,
     method=ClassicEM(), solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     @argcheck maxiter >= 0
 
@@ -84,8 +84,11 @@ function _fit_seasonal_mixture(mix::AbstractArray{<:MixtureModel}, θ_α::Abstra
     comps = [SeasonalFamily(convert(Vector{types[k, 1]}, dists[k, :]),
         collect(float(θ_Y[k])), families[k], designs[k]) for k = 1:K]
 
-    α = SeasonalWeights(hcat(probs.(mix)...), reshape(θ_α, K - 1, :),
-        trig_basis(T, (size(θ_α, 2) - 1) ÷ 2), (; solver, adtype, solve_kwargs))
+    # `basis_α` is the `T × ncoef` design matrix of the weights; trigonometric when not given.
+    basis_α = basis_α === nothing ? trig_basis(T, (size(θ_α, 2) - 1) ÷ 2) : basis_α
+    @argcheck size(basis_α) == (T, size(θ_α, 2)) "the weights' design matrix is $(size(basis_α)), and $T period indices with $(size(θ_α, 2)) coefficients need $((T, size(θ_α, 2)))"
+    α = SeasonalWeights(hcat(probs.(mix)...), reshape(θ_α, K - 1, :), basis_α,
+        (; solver, adtype, solve_kwargs))
 
     sample = SeasonalSample(y, n2t, T)
 
@@ -258,10 +261,19 @@ function update_α!(
     u = solve_unconstrained(multinomial_logit_nll, collect(vec(θ)), (s_γ, basis, K);
         solver, adtype, solve_kwargs)
     θ[:, :] = reshape(u, K - 1, :)
-    [α[k, t] = exp(polynomial_trigo(t / T, θ[k, :])) for k = 1:K-1, t = 1:T]
-    [α[K, t] = 1 for t = 1:T] # last column is 1/normalization (one could do otherwise)
-    normalization_polynomial = [1 + sum(α[k, t] for k = 1:K-1) for t = 1:T]
-    [α[k, t] /= normalization_polynomial[t] for k = 1:K, t = 1:T]
+    P = basis * transpose(θ)   # T × (K-1), the reference K at zero
+    for t = 1:T
+        shift = max(zero(eltype(P)), maximum(view(P, t, :)))
+        α[K, t] = exp(-shift)
+        for k = 1:K-1
+            α[k, t] = exp(P[t, k] - shift)
+        end
+        total = sum(view(α, :, t))
+        for k = 1:K
+            α[k, t] /= total
+        end
+    end
+    return α
 end
 
 # The E-step and the driver loop come from `ExpectationMaximization`; the seasonal part of the
