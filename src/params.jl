@@ -125,7 +125,7 @@ _link_curve(link, B::AbstractMatrix, β::AbstractMatrix) = apply_link.(Ref(link)
 # ## What a fit reports
 
 """
-    FitHistory(; converged, iterations, logtots, solution, ps_iters)
+    FitHistory(; converged, iterations, logtots, solution, ps_iters, best_iteration, loglikelihood)
 
 How a fit went: the second value every `fit_mle` in this package returns.
 
@@ -137,10 +137,14 @@ How a fit went: the second value every `fit_mle` in this package returns.
                 inside every iteration and keep none of those solves
 - `ps_iters`    the coefficients before the first iteration and after each one, as `NamedTuple`s
                 of arrays, when asked for; otherwise `nothing`
+- `best_iteration` the iteration with the highest loglikelihood, `0` for the starting point;
+                by default `argmax(logtots)`
+- `loglikelihood` the loglikelihood of the model the fit returned; by default the last of
+                `logtots`, `-Inf` when there is none
 
 When there is a `solution`, `history.retcode`, `history.objective` and `history.stats` read the
-solver's report, as a vector when there were several problems. `history.best_iteration` is the
-iterate with the highest loglikelihood, and `loglikelihood(history)` the last one.
+solver's report, as a vector when there were several problems. The fits return their last
+iterate, except the spatial HMM's, which returns its best one (see its [`fit_mle`](@ref)).
 """
 struct FitHistory{S,P}
     converged::Bool
@@ -148,28 +152,27 @@ struct FitHistory{S,P}
     logtots::Vector{Float64}
     solution::S
     ps_iters::P
+    best_iteration::Int
+    loglik::Float64
 end
 
-FitHistory(; converged, iterations, logtots=Float64[], solution=nothing, ps_iters=nothing) =
-    FitHistory(converged, Int(iterations), collect(Float64, logtots), solution, ps_iters)
+function FitHistory(; converged, iterations, logtots=Float64[], solution=nothing, ps_iters=nothing,
+    best_iteration=isempty(logtots) ? 0 : argmax(logtots),
+    loglikelihood=isempty(logtots) ? -Inf : last(logtots))
+    return FitHistory(converged, Int(iterations), collect(Float64, logtots), solution, ps_iters,
+        Int(best_iteration), Float64(loglikelihood))
+end
 
 """
     loglikelihood(history::FitHistory) -> Float64
 
-The loglikelihood after the last iteration of the fit, `-Inf` when none was recorded.
+The loglikelihood of the model the fit returned, `-Inf` when none was recorded.
 """
-StatsAPI.loglikelihood(h::FitHistory) = isempty(h.logtots) ? -Inf : last(h.logtots)
+StatsAPI.loglikelihood(h::FitHistory) = h.loglik
 
 @inline function Base.getproperty(h::FitHistory, name::Symbol)
     if name === :retcode || name === :objective || name === :stats
         return _solution_property(getfield(h, :solution), name)
-    elseif name === :best_iteration
-        # Which iterate attained the highest loglikelihood. For every deterministic fit in this
-        # package that is simply the last one, since EM is monotone; it is a real question only
-        # for the spatial HMM, whose emission is a randomized quasi-Monte-Carlo estimate and
-        # whose `fit_mle` therefore returns the best iterate rather than the final one.
-        logtots = getfield(h, :logtots)
-        return isempty(logtots) ? 0 : argmax(logtots)
     end
     return getfield(h, name)
 end
@@ -207,7 +210,7 @@ converged(h::FitHistory) = h.converged
 function Base.show(io::IO, ::MIME"text/plain", h::FitHistory)
     print(io, "FitHistory: ", h.converged ? "converged" : "did NOT converge",
         " in ", h.iterations, " iteration", h.iterations == 1 ? "" : "s")
-    isempty(h.logtots) || print(io, ", loglikelihood ", round(last(h.logtots); digits=4))
+    isfinite(h.loglik) && print(io, ", loglikelihood ", round(h.loglik; digits=4))
     h.ps_iters === nothing || print(io, ", ", length(h.ps_iters), " parameter iterates kept")
     return
 end

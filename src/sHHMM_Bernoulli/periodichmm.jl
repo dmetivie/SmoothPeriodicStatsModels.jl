@@ -62,9 +62,7 @@ function rand(
     D = size(hmm, 2)
     y = Matrix{Bool}(undef, D, length(z))
     orders = Int.(log2.(size(hmm, 4)))
-
-    @argcheck length(Y_past) == D "`Y_past` has $(length(Y_past)) sites instead of $D"
-    @argcheck length.(Y_past) == orders "`Y_past` has lengths $(length.(Y_past)) instead of the memory orders $orders"
+    _check_Y_past(hmm, Y_past)
     for j in 1:D
         order = orders[j]
         for n in eachindex(z)

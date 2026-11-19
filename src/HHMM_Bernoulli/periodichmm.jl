@@ -73,9 +73,8 @@ function rand(
     n2t::AbstractVector{<:Integer};
     Y_past=zeros(Bool, size(hmm, 2), Int(log2(size(hmm, 4))))
 )
-    D, order = size(hmm, 2), Int(log2(size(hmm, 4)))
-    @argcheck size(Y_past) == (D, order) "`Y_past` is $(size(Y_past)) instead of $((D, order)): $D sites, memory $order"
-    y = Matrix{Bool}(undef, D, length(z))
+    _check_Y_past(hmm, Y_past)
+    y = Matrix{Bool}(undef, size(hmm, 2), length(z))
     rand_emissions!(y, rng, hmm.B, z, n2t, Y_past)
     return y
 end

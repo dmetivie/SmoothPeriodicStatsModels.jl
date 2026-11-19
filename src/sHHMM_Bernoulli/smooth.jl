@@ -22,12 +22,17 @@ site `j`, and the sites may differ in order.
 struct SmoothsARPeriodicHMM{A,B,S<:sARPeriodicHMM,BA,BB,C} <: HMMs.AbstractHMM
     θᴬ::A
     θᴮ::B
-    stored::S    # concrete: every accessor reads it, once per observation
+    stored::S    # the evaluated model, a cache (see `_current`); concrete, as every accessor reads it
     nT::Int
     basis_A::BA
     basis_B::BB
     cfg::C
+    stored_from::Base.RefValue{NamedTuple{(:A, :B),Tuple{A,B}}}   # the coefficients `stored` was evaluated from
 end
+
+# `stored` evaluated from `θᴬ` and `θᴮ` as they are now.
+SmoothsARPeriodicHMM(θᴬ, θᴮ, stored, nT, basis_A, basis_B, cfg) =
+    SmoothsARPeriodicHMM(θᴬ, θᴮ, stored, nT, basis_A, basis_B, cfg, Ref(deepcopy((A=θᴬ, B=θᴮ))))
 
 function SmoothsARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     θᴮ::AbstractMatrix, T::Integer;
@@ -49,27 +54,15 @@ nparams(m::SmoothsARPeriodicHMM) =
 
 The `sARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
-sARPeriodicHMM(m::SmoothsARPeriodicHMM) = _current(m)
+sARPeriodicHMM(m::SmoothsARPeriodicHMM) = copy(_current(m))
 
 size(m::SmoothsARPeriodicHMM, dim=:) = size(m.stored, dim)
 
-HMMs.initialization(m::SmoothsARPeriodicHMM) = HMMs.initialization(m.stored)
-HMMs.transition_matrix(m::SmoothsARPeriodicHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
-HMMs.obs_distributions(m::SmoothsARPeriodicHMM, c::Tuple) = HMMs.obs_distributions(m.stored, c)
-HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothsARPeriodicHMM, obs, c::Tuple; kwargs...) =
-    HMMs.obs_logdensities!(logb, m.stored, obs, c; kwargs...)
-
-# Rewrite the evaluated arrays from the current coefficients, in place.
-function _refresh!(m::SmoothsARPeriodicHMM)
-    K, T, D = size(m.stored.B, 1), m.nT, size(m.stored.B, 3)
+# Rewrite the evaluated arrays from the coefficients, in place.
+function _evaluate!(m::SmoothsARPeriodicHMM)
+    T = m.nT
     _transitions!(m.stored.A, m.θᴬ, design_matrix(m.basis_A, 1:T))
-    X = design_matrix(m.basis_B, 1:T)
-    for k = 1:K, t = 1:T, j = 1:D
-        Bt = m.stored.B[k, t, j]
-        for (h, θh) in enumerate(m.θᴮ[k, j])
-            Bt[h] = Bernoulli(logistic(_linear_predictor(X, t, θh)))
-        end
-    end
+    _emissions!(m.stored.B, m.θᴮ, design_matrix(m.basis_B, 1:T))
     return m
 end
 

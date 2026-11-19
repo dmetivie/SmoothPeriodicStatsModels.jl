@@ -35,12 +35,17 @@ m = SmoothARPeriodicHMM(a, θᴬ, θᴮ, T; basis_B = CyclicBSplineBasis(T, 8)) 
 """
 struct SmoothARPeriodicHMM{P<:AbstractVector,S<:ARPeriodicHMM,BA,BB,C} <: HMMs.AbstractHMM
     ps::P
-    stored::S    # concrete: every accessor reads it, once per observation
+    stored::S    # the evaluated model, a cache (see `_current`); concrete, as every accessor reads it
     nT::Int
     basis_A::BA
     basis_B::BB
     cfg::C
+    stored_from::Base.RefValue{P}   # the coefficients `stored` was evaluated from
 end
+
+# `stored` evaluated from `ps` as they are now.
+SmoothARPeriodicHMM(ps, stored, nT, basis_A, basis_B, cfg) =
+    SmoothARPeriodicHMM(ps, stored, nT, basis_A, basis_B, cfg, Ref(deepcopy(ps)))
 
 function SmoothARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     θᴮ::AbstractArray{<:Real,4}, T::Integer;
@@ -58,7 +63,7 @@ parameters(m::SmoothARPeriodicHMM) = m.ps
 
 The `ARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
-ARPeriodicHMM(m::SmoothARPeriodicHMM) = _current(m)
+ARPeriodicHMM(m::SmoothARPeriodicHMM) = copy(_current(m))
 
 """
     degrees(m) -> Tuple
@@ -70,26 +75,11 @@ degrees(m::SmoothARPeriodicHMM) = (_trig_degree(m.basis_A), _trig_degree(m.basis
 
 size(m::SmoothARPeriodicHMM, dim=:) = size(m.stored, dim)
 
-# The three accessors read the cached evaluated model, which the fits keep in step with the
-# coefficients through `_refresh!`. Evaluating `A` and `B` on every call instead would redo the
-# whole period's trigonometry once per observation. The public functions (`rand`, the
-# likelihoods, `viterbi`, HiddenMarkovModels.jl's algorithms) evaluate anew with `_current`.
-HMMs.initialization(m::SmoothARPeriodicHMM) = HMMs.initialization(m.stored)
-HMMs.transition_matrix(m::SmoothARPeriodicHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
-HMMs.obs_distributions(m::SmoothARPeriodicHMM, c::Tuple) = HMMs.obs_distributions(m.stored, c)
-HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothARPeriodicHMM, obs, c::Tuple; kwargs...) =
-    HMMs.obs_logdensities!(logb, m.stored, obs, c; kwargs...)
-
-# Rewrite the evaluated arrays from the current coefficients, in place: the M-step changes `ps`
-# and every accessor reads `stored`.
-function _refresh!(m::SmoothARPeriodicHMM)
-    K, T = size(m.stored.A, 1), m.nT
+# Rewrite the evaluated arrays from the coefficients, in place.
+function _evaluate!(m::SmoothARPeriodicHMM)
+    T = m.nT
     _transitions!(m.stored.A, m.ps.A, design_matrix(m.basis_A, 1:T))
-    X = design_matrix(m.basis_B, 1:T)
-    D, size_order = size(m.ps.B, 2), size(m.ps.B, 3)
-    for k = 1:K, t = 1:T, j = 1:D, h = 1:size_order
-        m.stored.B[k, t, j, h] = Bernoulli(logistic(_linear_predictor(X, t, view(m.ps.B, k, j, h, :))))
-    end
+    _emissions!(m.stored.B, m.ps.B, design_matrix(m.basis_B, 1:T))
     return m
 end
 

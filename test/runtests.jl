@@ -443,6 +443,11 @@ end
     m_out, _ = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=20, tol=1e-6)
     @test parameters(m0) == snapshot
     @test parameters(m_out) != snapshot   # and the fit did move, so the check is not vacuous
+
+    # `n2t` gives every observation a period index in 1:T, for the fit and the loglikelihood
+    @test_throws ArgumentError fit_mle(base(), y; solver=SOLVER, n2t=n2t[1:end-1])
+    @test_throws ArgumentError fit_mle(base(), y; solver=SOLVER, n2t=n2t .+ 1)
+    @test_throws ArgumentError loglikelihood(m_out, y; n2t=n2t[1:end-1])
 end
 
 
@@ -694,6 +699,14 @@ end
     # a state outside 1:K, or a state sequence of another length, is refused rather than dropped
     @test_throws ArgumentError fit_mle(m0, y, [z[1:end-1]; K + 1]; solver=SOLVER, n2t)
     @test_throws ArgumentError fit_mle(m0, y, z[1:end-1]; solver=SOLVER, n2t)
+
+    # the loglikelihood given the states is the one the fit maximized; without them it is refused
+    @test loglikelihood(m, y, z; n2t) ≈ loglikelihood(history)
+    @test_throws ArgumentError loglikelihood(m, y; n2t)
+    @test_throws ArgumentError loglikelihood(m, y, [z[1:end-1]; K + 1]; n2t)
+    m1 = SmoothAR1(d, T)
+    parameters(m1) .= vcat(θμ[:, 1], θρ[:, 1], θσ[:, 1])
+    @test loglikelihood(m1, y, ones(Int, N); n2t) ≈ loglikelihood(m1, y; n2t)
 end
 
 @testset "AR1: the parametrization is the one the kernel assumes" begin
@@ -839,6 +852,10 @@ end
     # function of the observations, so they cannot be fixed before drawing them.
     @test_throws ArgumentError rand(hmm, controls)
     @test_throws ArgumentError rand(SmoothARPeriodicHMM(hmm.a, θᴬ, θᴮ, T), controls)
+
+    # a `Y_past` of the wrong order, or a period index past `T`, is refused, not read out of bounds
+    @test_throws BoundsError HMMs.logdensityof(hmm, obs, SeasonalControls(y, rand(StableRNG(4), Bool, D, 2); n2t))
+    @test_throws BoundsError HMMs.logdensityof(hmm, obs, SeasonalControls(n2t .+ T, lag_cat))
 end
 
 # The site-dependent variant answers the same three accessors. Its emission differs only in
@@ -987,6 +1004,12 @@ end
     @test all(fit_θ!(hmm_ip, basis) .≈ (θᴬ_fit, θᴮ_fit))
     @test maximum(abs, hmm_ip.A - hmm.A) < 1e-6
     @test maximum(abs, succprob.(hmm_ip.B) - succprob.(hmm.B)) < 1e-6
+    # the design matrix of the basis in place of the basis
+    X = design_matrix(basis, 1:T)
+    @test all(fit_θ(hmm, X) .≈ (θᴬ_fit, θᴮ_fit))
+    hmm_X = copy(hmm)
+    @test all(fit_θ!(hmm_X, X) .≈ (θᴬ_fit, θᴮ_fit))
+    @test hmm_X.A ≈ hmm_ip.A && succprob.(hmm_X.B) ≈ succprob.(hmm_ip.B)
 
     # four coefficients: not the 2d + 1 of a trigonometric basis, nor the five of this one
     @test_throws ArgumentError fit_θᴮ!(zeros(4), rand(rng, T))
@@ -1003,6 +1026,9 @@ end
     @test maximum(abs, shmm_ip.A - shmm.A) < 1e-6
     @test maximum(abs(succprob(shmm_ip.B[k, t, j][h]) - succprob(shmm.B[k, t, j][h]))
                   for k = 1:K, t = 1:T, j = 1:3 for h in eachindex(shmm.B[k, t, j])) < 1e-6
+    shmm_X = copy(shmm)
+    fit_θ!(shmm_X, X)
+    @test shmm_X.A ≈ shmm_ip.A && shmm_X.B == shmm_ip.B
 end
 
 @testset "ARPeriodicHMM: rand" begin
@@ -1138,6 +1164,15 @@ end
     # `a` is uniform here, so viterbi maximizes exactly the complete loglikelihood
     @test complete_loglikelihood(hmm_sep, y_sep, y_past_sep, ẑ; n2t=n2t_sep) ≥
           complete_loglikelihood(hmm_sep, y_sep, y_past_sep, z_sep; n2t=n2t_sep)
+
+    # an observation impossible in every state still gives a path of states
+    LL_impossible = copy(LL)
+    LL_impossible[50, :] .= -Inf
+    ẑ_impossible = SPSM.viterbi(hmm.a, hmm.A, LL_impossible; n2t)
+    @test length(ẑ_impossible) == N && all(in(1:K), ẑ_impossible)
+    # `n2t` gives every observation a period index in 1:T
+    @test_throws ArgumentError SPSM.viterbi(hmm.a, hmm.A, LL; n2t=n2t[1:end-1])
+    @test_throws ArgumentError SPSM.viterbi(hmm.a, hmm.A, LL; n2t=n2t .+ T)
 end
 
 @testset "ARPeriodicHMM: Baum-Welch on a small toy model" begin
@@ -1409,6 +1444,13 @@ end
     @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(G * T)
     @test :retcode ∉ propertynames(f)
     @test occursin("coefficients\nFitHistory", sprint(show, MIME"text/plain"(), f))
+
+    # with no iteration the fit returns its start, whose loglikelihood the history keeps
+    _, h0 = fit_mle(m0, Ys, Y_pasts; solver=SOLVER, n2t=n2ts, maxiter=0)
+    @test isempty(h0.logtots) && h0.best_iteration == 0
+    @test loglikelihood(h0) ≈ loglikelihood(m0, Ys, Y_pasts; n2t=n2ts)
+    @test loglikelihood(fit(SeasonalFit, m0, Ys, Y_pasts; solver=SOLVER, n2t=n2ts, maxiter=0)) == loglikelihood(h0)
+    @test loglikelihood(hist) == hist.logtots[end]
 end
 
 # * Any emission law, no memory * #
@@ -1515,7 +1557,41 @@ end
     @test HMMs.forward_backward(m, obs, controls)[1] ≈ HMMs.forward_backward(rebuilt, obs, controls)[1]
     @test HMMs.viterbi(m, obs, controls)[1] == HMMs.viterbi(rebuilt, obs, controls)[1]
 
-    # and so does a fit, from its first E-step on
+    # the accessors read a cache, brought up to date by `initialization`, which HMMs calls at
+    # the start of every sequence, and by `obs_distributions`
+    c5 = controls[5]
+    parameters(m).B[2, 1, 1, 2] = 1.5
+    parameters(m).B[2, 1, 2, 2] = 1.5
+    rebuilt = SmoothARPeriodicHMM(fill(0.5, K), copy(parameters(m).A), copy(parameters(m).B), T)
+    @test logpdf.(HMMs.obs_distributions(m, c5), Ref(obs[5])) ≈
+          logpdf.(HMMs.obs_distributions(rebuilt, c5), Ref(obs[5]))
+    parameters(m).A[2, 1, 3] = -0.5
+    rebuilt = SmoothARPeriodicHMM(fill(0.5, K), copy(parameters(m).A), copy(parameters(m).B), T)
+    HMMs.initialization(m)
+    @test HMMs.transition_matrix(m, c5) ≈ HMMs.transition_matrix(rebuilt, c5)
+    # so the in-place algorithms see the edits too
+    storage = HMMs.initialize_forward_backward(m, obs, controls; seq_ends=(N,))
+    parameters(m).B[1, 2, 2, 1] = 0.7
+    rebuilt = SmoothARPeriodicHMM(fill(0.5, K), copy(parameters(m).A), copy(parameters(m).B), T)
+    HMMs.forward_backward!(storage, m, obs, controls; seq_ends=(N,))
+    @test storage.γ ≈ HMMs.forward_backward(rebuilt, obs, controls)[1]
+    # it is evaluated again only when the coefficients change
+    seen = m.stored_from[]
+    @test SPSM._current(m) === m.stored && m.stored_from[] === seen
+    parameters(m).B[1, 2, 2, 1] = 0.6
+    SPSM._current(m)
+    @test m.stored_from[] !== seen
+    # and the evaluated model handed out is a copy, which later edits leave alone
+    h = ARPeriodicHMM(m)
+    @test h.A !== m.stored.A
+    parameters(m).A[1, 1, 1] = 0.0
+    @test h.A != ARPeriodicHMM(m).A
+    parameters(m).A[1, 1, 1] = 2.0
+
+    # and so does a fit, from its first E-step on: this edit reaches the fit untouched by any
+    # call that would bring the cache up to date
+    parameters(m).B[2, 3, 1, 2] = 0.4
+    rebuilt = SmoothARPeriodicHMM(fill(0.5, K), copy(parameters(m).A), copy(parameters(m).B), T)
     m1, h1 = fit_mle(m, Y, Y_past; solver=SOLVER, maxiter=1)
     r1, hr1 = fit_mle(rebuilt, Y, Y_past; solver=SOLVER, maxiter=1)
     @test h1.logtots == hr1.logtots
@@ -1546,6 +1622,7 @@ end
     parameters(mS).R[1, 1] = log(50.0)
     @test all(curve(mS, :R)[1, :] .≈ 50.0)
     @test ARPeriodicHMMSpatial(mS).R ≈ curve(mS, :R)
+    @test curve(mS, :R) !== mS.stored.R
 end
 
 @testset "PeriodicHMMDists: the HiddenMarkovModels.jl interface" begin

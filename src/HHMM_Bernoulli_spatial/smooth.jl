@@ -26,13 +26,18 @@ curve(m, :R)                       # K × T, the spatial range over the period
 """
 struct SmoothARPeriodicHMMSpatial{P<:AbstractVector,S,BA,BB,BR,C} <: HMMs.AbstractHMM
     ps::P
-    stored::S
+    stored::S    # the evaluated model, a cache (see `_current`)
     nT::Int
     basis_A::BA
     basis_B::BB
     basis_R::BR
     cfg::C
+    stored_from::Base.RefValue{P}   # the coefficients `stored` was evaluated from
 end
+
+# `stored` evaluated from `ps` as they are now.
+SmoothARPeriodicHMMSpatial(ps, stored, nT, basis_A, basis_B, basis_R, cfg) =
+    SmoothARPeriodicHMMSpatial(ps, stored, nT, basis_A, basis_B, basis_R, cfg, Ref(deepcopy(ps)))
 
 function SmoothARPeriodicHMMSpatial(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     θᴮ::AbstractArray{<:Real,4}, θᴿ::AbstractArray{<:Real,2}, T::Integer,
@@ -52,20 +57,12 @@ parameters(m::SmoothARPeriodicHMMSpatial) = m.ps
 
 The `ARPeriodicHMMSpatial` with the `A`, `B` and `R` arrays the coefficients of `m` generate.
 """
-ARPeriodicHMMSpatial(m::SmoothARPeriodicHMMSpatial) = _current(m)
+ARPeriodicHMMSpatial(m::SmoothARPeriodicHMMSpatial) = deepcopy(_current(m))
 
 size(m::SmoothARPeriodicHMMSpatial, dim=:) = size(m.stored, dim)
 
 degrees(m::SmoothARPeriodicHMMSpatial) =
     (_trig_degree(m.basis_A), _trig_degree(m.basis_B), _trig_degree(m.basis_R))
-
-HMMs.initialization(m::SmoothARPeriodicHMMSpatial) = HMMs.initialization(m.stored)
-HMMs.transition_matrix(m::SmoothARPeriodicHMMSpatial, c::Tuple) =
-    HMMs.transition_matrix(m.stored, c)
-HMMs.obs_distributions(m::SmoothARPeriodicHMMSpatial, c::Tuple) =
-    HMMs.obs_distributions(m.stored, c)
-HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothARPeriodicHMMSpatial, obs, c::Tuple; kwargs...) =
-    HMMs.obs_logdensities!(logb, m.stored, obs, c; kwargs...)
 
 """
     curve(m::SmoothARPeriodicHMMSpatial, :R) -> Matrix
@@ -76,11 +73,11 @@ function TimeVaryingParameters.curve(m::SmoothARPeriodicHMMSpatial, name::Symbol
     name === :R || throw(ArgumentError(
         "`$name` is not a curve of this model; `:R` is the spatial range, and the transition " *
         "and emission arrays are `ARPeriodicHMMSpatial(m).A` and `.B`"))
-    return _current(m).R
+    return copy(_current(m).R)
 end
 
-# Rewrite the evaluated arrays from the current coefficients, in place.
-function _refresh!(m::SmoothARPeriodicHMMSpatial)
+# Rewrite the evaluated arrays from the coefficients, in place.
+function _evaluate!(m::SmoothARPeriodicHMMSpatial)
     K, T = size(m.stored.A, 1), m.nT
     _transitions!(m.stored.A, m.ps.A, design_matrix(m.basis_A, 1:T))
     XB, XR = design_matrix(m.basis_B, 1:T), design_matrix(m.basis_R, 1:T)

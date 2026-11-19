@@ -3,14 +3,14 @@
 # Here rather than in the fitting extension: a likelihood needs no solver. The fits take their
 # data through `_sequences` too, so every entry point lays several sequences out the same way.
 
-# The observations of one or several independent sequences, laid end to end: `Y`, the memory
-# categories, the period indices, and `seq_ends`, the last index of each sequence.
-function _sequences(Y::AbstractArray{<:Bool}, Y_past, n2t::AbstractVector{<:Integer})
+# The observations of one or several independent sequences of the model `m`, laid end to end:
+# `Y`, the memory categories, the period indices, and `seq_ends`, the last index of each sequence.
+function _sequences(m, Y::AbstractArray{<:Bool}, Y_past, n2t::AbstractVector{<:Integer})
     @argcheck size(Y, 2) == length(n2t) "`Y` has $(size(Y, 2)) observations and `n2t` $(length(n2t)) entries"
-    return Y, conditional_to(Y, Y_past), n2t, (size(Y, 2),)
+    return Y, _lag_cat(m, Y, Y_past), n2t, (size(Y, 2),)
 end
 
-function _sequences(Ys::AbstractVector{<:AbstractMatrix{<:Bool}}, Y_pasts::AbstractVector,
+function _sequences(m, Ys::AbstractVector{<:AbstractMatrix{<:Bool}}, Y_pasts::AbstractVector,
     n2ts::AbstractVector{<:AbstractVector{<:Integer}})
     @argcheck !isempty(Ys) "no sequence to fit"
     @argcheck length(Ys) == length(Y_pasts) == length(n2ts) "$(length(Ys)) sequences, $(length(Y_pasts)) initial conditions and $(length(n2ts)) period-index vectors"
@@ -18,7 +18,7 @@ function _sequences(Ys::AbstractVector{<:AbstractMatrix{<:Bool}}, Y_pasts::Abstr
         @argcheck size(Y, 2) == length(n2t) "sequence $i has $(size(Y, 2)) observations and its `n2t` $(length(n2t)) entries"
     end
     Y = reduce(hcat, Ys)
-    lag_cat = reduce(hcat, [conditional_to(Yᵢ, Y_pastᵢ) for (Yᵢ, Y_pastᵢ) in zip(Ys, Y_pasts)])
+    lag_cat = reduce(hcat, [_lag_cat(m, Yᵢ, Y_pastᵢ) for (Yᵢ, Y_pastᵢ) in zip(Ys, Y_pasts)])
     return Y, lag_cat, reduce(vcat, n2ts), cumsum([size(Yᵢ, 2) for Yᵢ in Ys])
 end
 
@@ -40,9 +40,31 @@ end
 
 const _SmoothHMM = Union{SmoothARPeriodicHMM,SmoothsARPeriodicHMM,SmoothARPeriodicHMMSpatial}
 
+# `Y_past` holds the observations before `Y`, as many per site as the memory of `hmm`: a
+# `D × order` matrix, or for `sARPeriodicHMM` one vector of `order_j` values per site. Read with
+# another memory, the categories would be silently wrong.
+function _check_Y_past(hmm::Union{ARPeriodicHMM,ARPeriodicHMMSpatial}, Y_past)
+    D, order = size(hmm, 2), Int(log2(size(hmm, 4)))
+    @argcheck size(Y_past) == (D, order) "`Y_past` is $(size(Y_past)) instead of $((D, order)): $D sites, memory $order"
+    return Y_past
+end
+
+function _check_Y_past(hmm::sARPeriodicHMM, Y_past)
+    D, orders = size(hmm, 2), Int.(log2.(size(hmm, 4)))
+    @argcheck length(Y_past) == D "`Y_past` has $(length(Y_past)) sites instead of $D"
+    @argcheck length.(Y_past) == orders "`Y_past` has lengths $(length.(Y_past)) instead of the memory orders $orders"
+    return Y_past
+end
+
+_check_Y_past(m::_SmoothHMM, Y_past) = _check_Y_past(m.stored, Y_past)
+_check_Y_past(::Nothing, Y_past) = Y_past   # no model: the memory is that of `Y_past`
+
+# The memory categories of `Y` after `Y_past`, checked against the memory of `hmm`.
+_lag_cat(hmm, Y, Y_past) = conditional_to(Y, _check_Y_past(hmm, Y_past))
+
 function SeasonalControls(Ys::AbstractVector{<:AbstractMatrix{<:Bool}}, Y_pasts::AbstractVector;
     n2t::AbstractVector{<:AbstractVector{<:Integer}})
-    _, lag_cat, n2t_all, _ = _sequences(Ys, Y_pasts, n2t)
+    _, lag_cat, n2t_all, _ = _sequences(nothing, Ys, Y_pasts, n2t)
     return SeasonalControls(n2t_all, lag_cat)
 end
 
@@ -56,36 +78,40 @@ _evaluated(hmm::_EvaluatedHMM) = hmm
 
 const _AnySmoothHMM = Union{_SmoothHMM,SmoothPeriodicHMM}
 
-# The evaluated model of the coefficients as they are now. `stored` is a cache that the fits keep
-# current; a write into `parameters(m)` does not reach it, so the public functions evaluate anew.
+# ## The evaluated model, a cache
+#
+# `stored` holds the arrays the coefficients generate, so that the accessors, read once per
+# observation, need not evaluate the bases. A write into `parameters(m)` does not reach it:
+# `stored_from` keeps a copy of the coefficients `stored` was evaluated from, and `_current`
+# evaluates it anew when they differ. The lock keeps two threads from rewriting it at once.
+
+const _CACHE_LOCK = ReentrantLock()
+
+# Evaluate `stored` from the coefficients, in place, and record them.
+function _refresh!(m::_AnySmoothHMM)
+    _evaluate!(m)
+    m.stored_from[] = deepcopy(parameters(m))
+    return m
+end
+
+# The evaluated model of the coefficients as they are now: the cache, brought up to date.
 function _current(m::_AnySmoothHMM)
-    fresh = _with_cache(m, m.stored isa ARPeriodicHMMSpatial ? deepcopy(m.stored) : copy(m.stored))
-    return _refresh!(fresh).stored
+    Base.@lock _CACHE_LOCK isequal(m.stored_from[], parameters(m)) || _refresh!(m)
+    return m.stored
 end
 
-_with_cache(m::SmoothARPeriodicHMM, stored) =
-    SmoothARPeriodicHMM(m.ps, stored, m.nT, m.basis_A, m.basis_B, nothing)
-_with_cache(m::SmoothsARPeriodicHMM, stored) =
-    SmoothsARPeriodicHMM(m.θᴬ, m.θᴮ, stored, m.nT, m.basis_A, m.basis_B, nothing)
-_with_cache(m::SmoothARPeriodicHMMSpatial, stored) =
-    SmoothARPeriodicHMMSpatial(m.ps, stored, m.nT, m.basis_A, m.basis_B, m.basis_R, nothing)
-_with_cache(m::SmoothPeriodicHMM, stored) =
-    SmoothPeriodicHMM(m.ps, m.families, stored, m.nT, m.basis_A, nothing)
-
-# HiddenMarkovModels.jl's algorithms run on the evaluated model of the current coefficients. The
-# per-observation accessors read the cache, for the fits.
-for f in (:forward, :forward_backward, :viterbi, :logdensityof)
-    @eval HMMs.$f(m::_AnySmoothHMM, obs_seq::AbstractVector, control_seq::AbstractVector; kwargs...) =
-        HMMs.$f(_current(m), obs_seq, control_seq; kwargs...)
-end
-HMMs.joint_logdensityof(m::_AnySmoothHMM, obs_seq::AbstractVector, state_seq::AbstractVector,
-    control_seq::AbstractVector; kwargs...) =
-    HMMs.joint_logdensityof(_current(m), obs_seq, state_seq, control_seq; kwargs...)
+# `initialization` and `obs_distributions` bring the cache up to date. HiddenMarkovModels.jl's
+# algorithms call `initialization` at the start of every sequence, so `transition_matrix` and
+# `obs_logdensities!`, called once per observation, read the cache without the comparison.
+HMMs.initialization(m::_AnySmoothHMM) = HMMs.initialization(_current(m))
+HMMs.transition_matrix(m::_AnySmoothHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
+HMMs.obs_distributions(m::_AnySmoothHMM, c::Tuple) = HMMs.obs_distributions(_current(m), c)
+HMMs.obs_logdensities!(logb::AbstractVector, m::_AnySmoothHMM, obs, c::Tuple; kwargs...) =
+    HMMs.obs_logdensities!(logb, m.stored, obs, c; kwargs...)
 
 # A fixed control sequence goes to the evaluated twin, which refuses it for the autoregressive
 # models (see `hmm_interface.jl`) and draws from it for `SmoothPeriodicHMM`.
-Base.rand(rng::AbstractRNG, m::_SmoothHMM, c::SeasonalControls{<:Any,<:Tuple}) = rand(rng, m.stored, c)
-Base.rand(rng::AbstractRNG, m::SmoothPeriodicHMM, c::SeasonalControls{<:Any,<:Tuple}) =
+Base.rand(rng::AbstractRNG, m::_AnySmoothHMM, c::SeasonalControls{<:Any,<:Tuple}) =
     rand(rng, _current(m), c)
 
 _ninitial(m::_AnySmoothHMM) = length(HMMs.initialization(m)) - 1
@@ -98,7 +124,7 @@ defined for `ARPeriodicHMM`.
 """
 function StatsAPI.loglikelihood(m::Union{SmoothARPeriodicHMM,ARPeriodicHMM}, Y::AbstractArray{<:Bool},
     Y_past::AbstractArray{<:Bool}; n2t=n_to_t(size(Y, 2), _period(m))::AbstractVector{<:Integer})
-    return _loglikelihood(m, _sequences(Y, Y_past, n2t)...)
+    return _loglikelihood(m, _sequences(m, Y, Y_past, n2t)...)
 end
 
 """
@@ -109,7 +135,7 @@ defined for `sARPeriodicHMM`.
 """
 function StatsAPI.loglikelihood(m::Union{SmoothsARPeriodicHMM,sARPeriodicHMM}, Y::AbstractMatrix{<:Bool},
     Y_past::AbstractVector; n2t=n_to_t(size(Y, 2), _period(m))::AbstractVector{<:Integer})
-    return _loglikelihood(m, _sequences(Y, Y_past, n2t)...)
+    return _loglikelihood(m, _sequences(m, Y, Y_past, n2t)...)
 end
 
 """
@@ -122,7 +148,7 @@ estimate, so repeated calls differ. Raise the model's `QMC_m` to tighten it. Als
 function StatsAPI.loglikelihood(m::Union{SmoothARPeriodicHMMSpatial,ARPeriodicHMMSpatial},
     Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
     n2t=n_to_t(size(Y, 2), _period(m))::AbstractVector{<:Integer})
-    return _loglikelihood(m, _sequences(Y, Y_past, n2t)...)
+    return _loglikelihood(m, _sequences(m, Y, Y_past, n2t)...)
 end
 
 """
@@ -134,7 +160,7 @@ evaluated: the sum of the loglikelihoods of each, with the layout of the multi-s
 """
 function StatsAPI.loglikelihood(m::Union{_SmoothHMM,_EvaluatedHMM}, Ys::AbstractVector{<:AbstractMatrix{<:Bool}},
     Y_pasts::AbstractVector; n2t=[n_to_t(size(Y, 2), _period(m)) for Y in Ys])
-    return _loglikelihood(m, _sequences(Ys, Y_pasts, n2t)...)
+    return _loglikelihood(m, _sequences(m, Ys, Y_pasts, n2t)...)
 end
 
 function _loglikelihood(m::Union{SmoothARPeriodicHMM,SmoothsARPeriodicHMM,ARPeriodicHMM,sARPeriodicHMM},

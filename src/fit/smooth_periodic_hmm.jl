@@ -95,7 +95,7 @@ function _update_emission_blocks!(m::SmoothPeriodicHMM, γ, cfg)
 end
 
 _snapshot(m::SmoothPeriodicHMM) = _plain(m.ps)
-_detach(m::SmoothPeriodicHMM) = SmoothPeriodicHMM(m.ps, m.families, m.stored, m.nT, m.basis_A, nothing)
+_detach(m::SmoothPeriodicHMM) = SmoothPeriodicHMM(m.ps, m.families, m.stored, m.nT, m.basis_A, nothing, m.stored_from)
 
 """
     fit_mle(m::SmoothPeriodicHMM, Y; n2t, solver, kwargs...) -> (m, history)
@@ -147,6 +147,5 @@ selection. `nobs` is the number of observed steps, summed over the sequences.
 """
 function StatsAPI.fit(::Type{SeasonalFit}, m::SmoothPeriodicHMM, Y; kwargs...)
     fitted, history = fit_mle(m, Y; kwargs...)
-    ll = isempty(history.logtots) ? -Inf : history.logtots[history.best_iteration]
-    return SeasonalFit(fitted, history, _nsteps(Y), ll)
+    return SeasonalFit(fitted, history, _nsteps(Y), loglikelihood(history))
 end

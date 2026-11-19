@@ -32,6 +32,27 @@ function _transitions!(A::AbstractArray{<:Real,3}, θᴬ::AbstractArray{<:Real,3
     return A
 end
 
+# `B[k, t, j, h]`, the law of site `j` in state `k` with memory category `h`: a Bernoulli whose
+# success probability is the logistic of `X[t, :] ⋅ θᴮ[k, j, h, :]`.
+function _emissions!(B::AbstractArray{<:Bernoulli,4}, θᴮ::AbstractArray{<:Real,4}, X::AbstractMatrix)
+    K, T, D, size_order = size(B)
+    for k = 1:K, t = 1:T, j = 1:D, h = 1:size_order
+        B[k, t, j, h] = Bernoulli(logistic(_linear_predictor(X, t, view(θᴮ, k, j, h, :))))
+    end
+    return B
+end
+
+# The same with site-dependent memory: `B[k, t, j][h]` from `θᴮ[k, j][h]`.
+function _emissions!(B::AbstractArray{<:AbstractVector{<:Bernoulli},3}, θᴮ::AbstractMatrix, X::AbstractMatrix)
+    K, T, D = size(B)
+    for k = 1:K, t = 1:T, j = 1:D
+        for (h, θh) in enumerate(θᴮ[k, j])
+            B[k, t, j][h] = Bernoulli(logistic(_linear_predictor(X, t, θh)))
+        end
+    end
+    return B
+end
+
 # The degree `d` of a trigonometric polynomial with `n = 2d + 1` coefficients: the default basis
 # of a coefficient array given without one.
 function _trig_order(n::Integer, name)

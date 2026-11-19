@@ -48,7 +48,7 @@ function rand(rng::AbstractRNG,
     order = Int(log2(size(hmm, 4)))
     y = Matrix{Bool}(undef, D, N)
 
-    @argcheck size(Y_past) == (D, order) "`Y_past` is $(size(Y_past)) instead of $((D, order)): $D sites, memory $order"
+    _check_Y_past(hmm, Y_past)
 
     for n in 1:N
         t = n2t[n]

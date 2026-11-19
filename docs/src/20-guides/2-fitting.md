@@ -52,7 +52,8 @@ of OptimizationBBO or `Fminbox`, therefore does not apply.
 | `history.converged` | whether the stopping rule was met |
 | `history.iterations` | the number of iterations |
 | `history.logtots` | the loglikelihood after each iteration |
-| `history.best_iteration` | the iteration with the highest loglikelihood |
+| `history.best_iteration` | the iteration with the highest loglikelihood, `0` for the starting model |
+| `loglikelihood(history)` | the loglikelihood of the returned model |
 | `history.ps_iters` | with `ps_iters = true`, the coefficients before the first iteration and after each one |
 
 ## How the models are fitted

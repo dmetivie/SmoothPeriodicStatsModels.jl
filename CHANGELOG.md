@@ -62,7 +62,7 @@ of version 3 is not kept.
 - The fit of the spatial HMM returns the iterate with the highest loglikelihood,
   `history.best_iteration`, and the model holds its quasi-Monte-Carlo budget `QMC_m`.
 - New dependencies: TimeVaryingParameters.jl, HiddenMarkovModels.jl, LinkFunctions.jl,
-  ComponentArrays.jl and StatsAPI.jl.
+  ComponentArrays.jl and StatsAPI.jl. SciMLBase 3 is required.
 
 ### Removed
 

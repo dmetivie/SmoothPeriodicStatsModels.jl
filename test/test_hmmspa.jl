@@ -182,9 +182,11 @@ end
     # the guess is not modified in place
     @test parameters(m0) == ps0
 
-    # `fit_mle` returns the *best* iterate here, not the last, because of that noise
-    @test 1 <= history.best_iteration <= length(logtots)
-    @test logtots[history.best_iteration] == maximum(logtots)
+    # `fit_mle` returns the *best* iterate here, not the last, because of that noise; the start
+    # (iteration 0) is one of the candidates
+    @test 0 <= history.best_iteration <= length(logtots)
+    @test loglikelihood(history) >= maximum(logtots)
+    history.best_iteration > 0 && @test loglikelihood(history) == logtots[history.best_iteration]
     @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
 
     # the twin, the curves and the accessors all follow from the fitted coefficients
@@ -230,10 +232,21 @@ end
     Ys = [last(rand(ARPeriodicHMMSpatial(m0), n2ts[g]; Y_past=Y_pasts[g], seq=true)) for g = 1:G]
 
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
+    before = copy(Random.default_rng())
     m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=3, maxiters_R=5, ps_iters=true)
     @test m.basis_R === bR
-    @test 1 <= history.best_iteration <= length(history.logtots)
+    @test 0 <= history.best_iteration <= length(history.logtots)
     @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
+    # From the same random state, a fit stopped at the best iteration follows the same path and
+    # returns the same model, initial probabilities included.
+    after = copy(Random.default_rng())
+    copy!(Random.default_rng(), before)
+    m_b, h_b = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=history.best_iteration, maxiters_R=5)
+    copy!(Random.default_rng(), after)
+    @test h_b.logtots == history.logtots[1:history.best_iteration]
+    @test loglikelihood(h_b) == loglikelihood(history)
+    @test parameters(m_b) == parameters(m)
+    @test HMMs.initialization(m_b) == HMMs.initialization(m)
     @test all(>(0), curve(m, :R))
     @test isfinite(loglikelihood(m, Ys, Y_pasts; n2t=n2ts))
     paths = viterbi(m, Ys, Y_pasts; n2t=n2ts)

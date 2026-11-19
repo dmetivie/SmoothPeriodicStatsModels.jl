@@ -304,11 +304,6 @@ function ar1_sufficient_statistics(y::AbstractVector, n2t::AbstractVector{<:Inte
     return (; N, ∑y², ∑y₋², ∑yy₋, ∑y, ∑y₋)
 end
 
-# Out of line, and a `throw` the compiler can see never returns: with a helper that might return,
-# such as one ending in `@argcheck`, the loop above runs 70% slower.
-@noinline _period_index_error(n2t, T) = throw(ArgumentError(
-    "every entry of `n2t` must lie in 1:$T, and they run over $(extrema(n2t))"))
-
 """
     ar1_nll(θ, (stats, design)) -> Number
 
@@ -344,9 +339,28 @@ The loglikelihood of `y` under `m`, conditional on its first observation: a sum 
 """
 function StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    @argcheck ncolumns(m.spec, parameters(m)) == 1 "`m` holds one column of coefficients per hidden state; pass the state sequence `z`"
     stats = ar1_sufficient_statistics(y, n2t, m.nT)
     design = PeriodicDesign(m.spec, 1:m.nT)
     return _ar1_loglikelihood(ar1_nll(parameters(m), (stats, design)), sum(stats.N))
+end
+
+"""
+    loglikelihood(m::SmoothAR1, y, z; n2t) -> Float64
+
+The loglikelihood of `y` given the state sequence `z`, for a model with one column of
+coefficients per hidden state: transition `n` follows the AR(1) of state `z[n]`.
+"""
+function StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    K = ncolumns(m.spec, parameters(m))
+    @argcheck length(z) == length(y) "`z` has $(length(z)) states and `y` $(length(y)) observations"
+    @argcheck all(in(1:K), z) "the states in `z` must lie in 1:$K, the columns of `m`"
+    design = PeriodicDesign(m.spec, 1:m.nT)
+    return sum(1:K) do k
+        stats = ar1_sufficient_statistics(y, n2t, m.nT, [n for n = 2:length(y) if z[n] == k])
+        _ar1_loglikelihood(ar1_nll(column(m.spec, parameters(m), k), (stats, design)), sum(stats.N))
+    end
 end
 
 _ar1_loglikelihood(nll, N::Integer) = -nll - N * log(2π) / 2

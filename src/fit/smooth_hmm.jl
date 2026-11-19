@@ -19,7 +19,7 @@ first step of all of them. Same keywords and return as the single-sequence fit.
 """
 function fit_mle(m::_SmoothHMM, Ys::AbstractVector{<:AbstractMatrix{<:Bool}},
     Y_pasts::AbstractVector; n2t=[n_to_t(size(Y, 2), m.nT) for Y in Ys], kwargs...)
-    return _fit_mle(m, _sequences(Ys, Y_pasts, n2t)...; kwargs...)
+    return _fit_mle(m, _sequences(m, Ys, Y_pasts, n2t)...; kwargs...)
 end
 
 # The Baum-Welch loop of the two Bernoulli models; the spatial one has its own, below.
@@ -29,11 +29,11 @@ _snapshot(m::SmoothsARPeriodicHMM) = (A=copy(m.θᴬ), B=deepcopy(m.θᴮ))
 # The fitted model without its fitting context, which holds the index sets of the data it was
 # fitted to and is no part of the model.
 _detach(m::SmoothARPeriodicHMM) =
-    SmoothARPeriodicHMM(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, nothing)
+    SmoothARPeriodicHMM(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, nothing, m.stored_from)
 _detach(m::SmoothsARPeriodicHMM) =
-    SmoothsARPeriodicHMM(m.θᴬ, m.θᴮ, m.stored, m.nT, m.basis_A, m.basis_B, nothing)
+    SmoothsARPeriodicHMM(m.θᴬ, m.θᴮ, m.stored, m.nT, m.basis_A, m.basis_B, nothing, m.stored_from)
 _detach(m::SmoothARPeriodicHMMSpatial) =
-    SmoothARPeriodicHMMSpatial(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, m.basis_R, nothing)
+    SmoothARPeriodicHMMSpatial(m.ps, m.stored, m.nT, m.basis_A, m.basis_B, m.basis_R, nothing, m.stored_from)
 
 # The Baum-Welch loop, shared by every model whose emission is evaluated one control at a time:
 # the two Bernoulli models and `SmoothPeriodicHMM`. `obs` holds the columns of the observations.
@@ -68,13 +68,16 @@ function _baum_welch!(fitted, obs, controls, seq_ends; maxiter, tol, display, ro
         if abs(logtots[end] - logtot) < tol
             (display in [:iter, :final]) &&
                 println("EM converged in $it iterations, logtot = $(logtots[end])")
-            return _detach(fitted), FitHistory(; converged=true, iterations=it, logtots, ps_iters=trajectory)
+            return _detach(fitted), FitHistory(; converged=true, iterations=it, logtots,
+                ps_iters=trajectory, loglikelihood=logtots[end])
         end
         logtot = logtots[end]
     end
+    # `logtot` is the loglikelihood of the returned model, the starting one when `maxiter = 0`
     (display in [:iter, :final]) &&
-        println("EM has not converged after $maxiter iterations, logtot = $(isempty(logtots) ? NaN : logtots[end])")
-    return _detach(fitted), FitHistory(; converged=false, iterations=maxiter, logtots, ps_iters=trajectory)
+        println("EM has not converged after $maxiter iterations, logtot = $logtot")
+    return _detach(fitted), FitHistory(; converged=false, iterations=maxiter, logtots,
+        ps_iters=trajectory, loglikelihood=logtot)
 end
 
 # The initial distribution: each sequence contributes its first state marginal.
@@ -223,7 +226,7 @@ E-step and keeps the transition probabilities off zero.
 """
 function fit_mle(m::SmoothARPeriodicHMM, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool};
     n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
-    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+    return _fit_mle(m, _sequences(m, Y, Y_past, n2t)...; kwargs...)
 end
 
 function _fit_mle(m::SmoothARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
@@ -335,7 +338,7 @@ return as the dense [`fit_mle`](@ref).
 """
 function fit_mle(m::SmoothsARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector;
     n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
-    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+    return _fit_mle(m, _sequences(m, Y, Y_past, n2t)...; kwargs...)
 end
 
 function _fit_mle(m::SmoothsARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
@@ -446,6 +449,7 @@ function StatsAPI.fit!(m::SmoothARPeriodicHMMSpatial, fb_storage::HMMs.ForwardBa
     update_R!(m.stored, m.ps.R, permutedims(γ), cfg.wp, cfg.Y, cfg.situation_idx;
         n2t=_controls_n2t(control_seq), basis=cfg.basis_R, solver=cfg.solver, adtype=cfg.adtype,
         maxiters=cfg.maxiters_R, solve_kwargs=cfg.solve_kwargs)
+    m.stored_from[] = deepcopy(m.ps)   # `update_R!` writes the range coefficients and their evaluation
     return m
 end
 
@@ -459,8 +463,9 @@ Fit a spatial periodic HMM by Baum-Welch, starting from `m`.
 
 Returns the iterate with the highest loglikelihood, not the last one: the emission likelihood is
 a quasi-Monte-Carlo estimate, so the loglikelihood path is noisy. `history.best_iteration` says
-which iterate was returned; `history.logtots` holds the whole path, and `history.ps_iters` the
-coefficients of every iteration with `ps_iters = true`.
+which iterate was returned, `0` for the starting model, and `loglikelihood(history)` its
+loglikelihood; `history.logtots` holds the whole path, and `history.ps_iters` the coefficients
+of every iteration with `ps_iters = true`.
 
 Keywords beyond those of the other HMM fits: `QMC_E` multiplies the model's `QMC_m` for the
 E-step, `maxiters_R` caps the solver iterations of the range M-step, and `tdist`/`wp` choose the
@@ -469,7 +474,7 @@ pairs of sites in its composite likelihood.
 function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
     Y_past::AbstractArray{<:Bool};
     n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, kwargs...)
-    return _fit_mle(m, _sequences(Y, Y_past, n2t)...; kwargs...)
+    return _fit_mle(m, _sequences(m, Y, Y_past, n2t)...; kwargs...)
 end
 
 function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
@@ -508,7 +513,8 @@ function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
 
     logtot = estep!()
     (display == :iter) && println("Iteration 0: logtot = $logtot")
-    best_logtot, best_ps = logtot, copy(fitted.ps)
+    # The best iterate so far, the start included. `a` is no coefficient, so it is kept apart.
+    best_it, best_logtot, best_ps, best_a = 0, logtot, copy(fitted.ps), copy(fitted.stored.a)
     converged = false
     it_done = 0
 
@@ -524,7 +530,7 @@ function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
         (display == :iter) && println("Iteration $it: logtot = $(round(logtotp, digits=6))")
 
         if logtotp > best_logtot
-            best_logtot, best_ps = logtotp, copy(fitted.ps)
+            best_it, best_logtot, best_ps, best_a = it, logtotp, copy(fitted.ps), copy(fitted.stored.a)
         end
 
         # The original relative-change test on the coefficients, and the loglikelihood test.
@@ -546,10 +552,12 @@ function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
     # Restore the best iterate. With a noisy likelihood the last one is not reliably the best,
     # and this is what the spatial tutorial used to do by hand with `argmax(history["logtots"])`.
     fitted.ps .= best_ps
+    fitted.stored.a .= best_a
     _refresh!(fitted)
     (display in [:iter, :final]) && !converged &&
         println("EM has not converged after $it_done iterations, logtot = $best_logtot")
-    return _detach(fitted), FitHistory(; converged, iterations=it_done, logtots, ps_iters=trajectory)
+    return _detach(fitted), FitHistory(; converged, iterations=it_done, logtots,
+        ps_iters=trajectory, best_iteration=best_it, loglikelihood=best_logtot)
 end
 
 # # Model selection
@@ -564,9 +572,7 @@ is the number of observed steps, summed over the sequences.
 """
 function StatsAPI.fit(::Type{SeasonalFit}, m::_SmoothHMM, Y, Y_past; kwargs...)
     fitted, history = fit_mle(m, Y, Y_past; kwargs...)
-    # the spatial fit returns its best iterate, not its last
-    ll = isempty(history.logtots) ? -Inf : history.logtots[history.best_iteration]
-    return SeasonalFit(fitted, history, _nsteps(Y), ll)
+    return SeasonalFit(fitted, history, _nsteps(Y), loglikelihood(history))
 end
 
 _nsteps(Y::AbstractArray{<:Real}) = _ncols(Y)

@@ -36,7 +36,7 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     OptimMLE, Trig2ARPeriodicHMM, Trig2ARPeriodicHMMSpatial,
     PeriodicDesign, SmoothAR1, SeasonalFit, FitHistory, seasonal_params, _params_like, ncolumns, column,
     SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial,
-    SeasonalControls, CachedEmissions, RobustEmissions, _clamp_inf!, degrees, _refresh!, _linear_predictor, design_matrix,
+    SeasonalControls, CachedEmissions, RobustEmissions, _clamp_inf!, degrees, _refresh!, _linear_predictor, _transitions!, _emissions!, design_matrix,
     _trig_order, _plain, _sequences, _SmoothHMM, _ar1_loglikelihood,
     SmoothPeriodicHMM, PeriodicHMMDists, emission_coefs, group_by_time, _ncols,
     linear_predictors, apply_link, _required_solver,

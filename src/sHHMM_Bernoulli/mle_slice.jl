@@ -11,7 +11,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMa
     @argcheck size(Y, 2) == size(n2t, 1)
 
     # assign category for observation depending in the past Y
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     n_in_t = [findall(n2t .== t) for t = 1:T] #
 

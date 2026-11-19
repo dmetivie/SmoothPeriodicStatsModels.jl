@@ -30,6 +30,7 @@ function viterbilog!(
     @argcheck size(T1) == size(T2) == size(LL)
     @argcheck length(z) == size(LL, 1)
     @argcheck size(LL, 2) == length(a) == size(A, 1) == size(A, 2)
+    _check_n2t(n2t, size(LL, 1), size(A, 3))   # read below under `@inbounds`
 
     N, K = size(LL)
     (N == 0) && return z
@@ -47,7 +48,9 @@ function viterbilog!(
     @inbounds for n = 2:N
         tₙ₋₁ = n2t[n-1]
         for j in OneTo(K)
-            amax = 0
+            # When every score is `-Inf`, state 1, as `argmax` picks below, so the path stays a
+            # valid sequence of states.
+            amax = 1
             vmax = -Inf
 
             for i in OneTo(K)

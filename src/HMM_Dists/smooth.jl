@@ -43,11 +43,16 @@ PeriodicHMMDists(m)                    # the evaluated model
 struct SmoothPeriodicHMM{P<:AbstractVector,F<:Tuple,S<:PeriodicHMMDists,BA,C} <: HMMs.AbstractHMM
     ps::P          # ComponentArray(A = θᴬ, B = the emission coefficients end to end)
     families::F
-    stored::S
+    stored::S      # the evaluated model, a cache (see `_current`)
     nT::Int
     basis_A::BA
     cfg::C
+    stored_from::Base.RefValue{P}   # the coefficients `stored` was evaluated from
 end
+
+# `stored` evaluated from `ps` as they are now.
+SmoothPeriodicHMM(ps, families, stored, nT, basis_A, cfg) =
+    SmoothPeriodicHMM(ps, families, stored, nT, basis_A, cfg, Ref(deepcopy(ps)))
 
 function SmoothPeriodicHMM(families, a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     θᴮ::AbstractMatrix{<:AbstractVector{<:Real}}, T::Integer;
@@ -108,7 +113,7 @@ parameters(m::SmoothPeriodicHMM) = m.ps
 The evaluated model: the transition matrices and the emission laws the coefficients of `m`
 generate at every period index.
 """
-PeriodicHMMDists(m::SmoothPeriodicHMM) = _current(m)
+PeriodicHMMDists(m::SmoothPeriodicHMM) = copy(_current(m))
 
 size(m::SmoothPeriodicHMM, dim=:) = size(m.stored, dim)
 _period(m::SmoothPeriodicHMM) = m.nT
@@ -159,16 +164,8 @@ function TimeVaryingParameters.curve(m::SmoothPeriodicHMM, name::Symbol, times=1
     return permutedims(reduce(hcat, rows))
 end
 
-# The accessors read the cached evaluated model, which the fits keep in step with `ps` through
-# `_refresh!`; the public functions evaluate anew with `_current`.
-HMMs.initialization(m::SmoothPeriodicHMM) = HMMs.initialization(m.stored)
-HMMs.transition_matrix(m::SmoothPeriodicHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
-HMMs.obs_distributions(m::SmoothPeriodicHMM, c::Tuple) = HMMs.obs_distributions(m.stored, c)
-HMMs.obs_logdensities!(logb::AbstractVector, m::SmoothPeriodicHMM, obs, c::Tuple; kwargs...) =
-    HMMs.obs_logdensities!(logb, m.stored, obs, c; kwargs...)
-
 # Rewrite the evaluated arrays from the coefficients, in place.
-function _refresh!(m::SmoothPeriodicHMM)
+function _evaluate!(m::SmoothPeriodicHMM)
     K, T = size(m.stored.A, 1), m.nT
     _transitions!(m.stored.A, m.ps.A, design_matrix(m.basis_A, 1:T))
     for (b, f) in enumerate(m.families)

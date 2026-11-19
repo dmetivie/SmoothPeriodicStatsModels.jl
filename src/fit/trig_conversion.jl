@@ -51,7 +51,8 @@ end
 
 Coefficients on `basis_A` and `basis_B` fitted by least squares to the transition matrices and
 the emission probabilities of `hmm`, an `ARPeriodicHMM` or `sARPeriodicHMM`. An integer `basis`
-is the degree `d` of the trigonometric basis `TrigBasis(T, d)`. The inverse of
+is the degree `d` of the trigonometric basis `TrigBasis(T, d)`, and a matrix the `T × nbasis`
+design matrix of a basis. The inverse of
 `ARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)`: on a model built that way, it returns the
 coefficients it was built from.
 """
@@ -101,9 +102,7 @@ function fit_θ!(hmm::Union{ARPeriodicHMM,sARPeriodicHMM}, basis; basis_A=basis,
     solver=default_nlls_solver(), solve_kwargs=(;))
     T = size(hmm, 3)
     θᴬ, θᴮ = fit_θ(hmm, basis; basis_A, basis_B, solver, solve_kwargs)
-    model = hmm isa ARPeriodicHMM ? ARPeriodicHMM : sARPeriodicHMM
-    h = model(hmm.a, θᴬ, θᴮ, T; basis_A, basis_B)
-    hmm.A[:] = h.A[:]
-    hmm.B[:] = h.B[:]
+    _transitions!(hmm.A, θᴬ, _design(basis_A, T))
+    _emissions!(hmm.B, θᴮ, _design(basis_B, T))
     return θᴬ, θᴮ
 end

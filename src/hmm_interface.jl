@@ -123,11 +123,13 @@ end
 # The inner loop, the same arithmetic as `loglikelihoods!`. This was once a function barrier
 # against `ARPeriodicHMM.B` being abstractly typed; it moved the dynamic dispatch out of the
 # `N·K·D` `logpdf` calls but still paid one per observation. `B`'s type is a parameter of the
-# model now, so the whole path is static.
+# model now, so the whole path is static. The indexing is bounds-checked: `t` and `h` come from
+# the caller's controls, and a `Y_past` of the wrong order gives memory categories past the end
+# of `B`.
 function _obs_logdensities!(logb::AbstractVector{T}, B::AbstractArray{F,4}, obs,
     t::Integer, h) where {T,F<:UnivariateDistribution}
     K, D = size(B, 1), size(B, 3)
-    @inbounds for k in OneTo(K)
+    for k in OneTo(K)
         ll = zero(T)
         for j in OneTo(D)
             ll += logpdf(B[k, t, j, h[j]], obs[j])
@@ -163,7 +165,7 @@ end
 function _obs_logdensities_sites!(logb::AbstractVector{T}, B::AbstractArray{V,3}, obs,
     t::Integer, h) where {T,V<:AbstractVector{<:UnivariateDistribution}}
     K, D = size(B, 1), size(B, 3)
-    @inbounds for k in OneTo(K)
+    for k in OneTo(K)
         ll = zero(T)
         for j in OneTo(D)
             ll += logpdf(B[k, t, j][h[j]], obs[j])
@@ -217,7 +219,7 @@ function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMMSpati
     K, D = size(hmm.B, 1), size(hmm.B, 3)
     zerosvec = zeros(D)
     finite_bounds = zeros(D)
-    @inbounds for k in OneTo(K)
+    for k in OneTo(K)
         finite_bounds .= quantile.(Normal(), hmm.B[CartesianIndex.(k, t, 1:D, h)])
         a = ifelse.(obs .== 0, finite_bounds, -Inf)
         b = ifelse.(obs .== 1, finite_bounds, Inf)
@@ -258,7 +260,7 @@ end
 
 function _add_block_logdensities!(logb, Bb, r, obs, t)
     x = _block_obs(Bb, obs, r)
-    @inbounds for k in eachindex(logb)
+    for k in eachindex(logb)
         logb[k] += logpdf(Bb[k, t], x)
     end
     return logb

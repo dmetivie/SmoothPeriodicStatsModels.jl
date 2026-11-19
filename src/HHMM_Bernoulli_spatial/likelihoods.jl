@@ -46,7 +46,7 @@ function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_p
     N, K = size(Y, 2), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m)
     if robust
@@ -77,7 +77,7 @@ a quasi-Monte-Carlo estimate with `D * QMC_m` points; the observations are split
 """
 function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
     D, N = size(y)
-    lag_cat = conditional_to(y, y_past)
+    lag_cat = _lag_cat(hmm, y, y_past)
 
     log_A_sum = sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:(N-1); init=0.0)
 

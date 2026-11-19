@@ -90,7 +90,7 @@ function loglikelihoods(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::A
     N, K = size(Y, 2), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     if robust
@@ -109,7 +109,7 @@ terms `log A[z[n], z[n+1], n2t[n]]` and the emission terms, given the `D × orde
 `y_past`. Defined for `ARPeriodicHMM`, `ARPeriodicHMMSpatial` and their smooth versions.
 """
 function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractMatrix, y_past::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
-    lag_cat = conditional_to(y, y_past)
+    lag_cat = _lag_cat(hmm, y, y_past)
     N = size(y, 2)
 
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) +

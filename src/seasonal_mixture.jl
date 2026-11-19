@@ -29,8 +29,10 @@ end
 
 # `n2t` and `n_in_t` are deliberately not parametric: they are period indices, built here rather
 # than taken from the caller, so there is nothing for a type parameter to vary over.
-SeasonalSample(y::AbstractVector, n2t::AbstractVector, nT::Integer) =
-    SeasonalSample{eltype(y),typeof(y)}(y, collect(Int, n2t), [findall(==(t), n2t) for t = 1:nT])
+function SeasonalSample(y::AbstractVector, n2t::AbstractVector, nT::Integer)
+    _check_n2t(n2t, length(y), nT)   # the E-step reads `n2t` under `@inbounds`
+    return SeasonalSample{eltype(y),typeof(y)}(y, collect(Int, n2t), [findall(==(t), n2t) for t = 1:nT])
+end
 
 Base.size(s::SeasonalSample) = size(s.y)
 Base.getindex(s::SeasonalSample, n) = s.y[n]
@@ -359,6 +361,7 @@ period index `n2t[n]`.
 """
 function StatsAPI.loglikelihood(m::SmoothSeasonalMixture, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    _check_n2t(n2t, length(y), m.nT)
     mix = mixtures(m)
     return sum(logpdf(mix[t], y[n]) for (n, t) in enumerate(n2t))
 end
