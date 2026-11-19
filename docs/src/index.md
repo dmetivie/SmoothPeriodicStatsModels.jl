@@ -213,6 +213,8 @@ The guides cover what the tutorials only use:
 For real data, the tutorials of [StochasticWeatherGenerators.jl](https://dmetivie.github.io/StochasticWeatherGenerators.jl/dev/)
 fit these models to French weather stations.
 
+[Related approaches](@ref related-approaches) compares the package with GLMs, GAMs and GAMLSS, and lists R packages for hidden Markov models and mixtures with covariates.
+
 ## Contributors
 
 ```@raw html
