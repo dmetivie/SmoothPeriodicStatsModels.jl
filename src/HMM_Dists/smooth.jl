@@ -108,7 +108,7 @@ parameters(m::SmoothPeriodicHMM) = m.ps
 The evaluated model: the transition matrices and the emission laws the coefficients of `m`
 generate at every period index.
 """
-PeriodicHMMDists(m::SmoothPeriodicHMM) = m.stored
+PeriodicHMMDists(m::SmoothPeriodicHMM) = _current(m)
 
 size(m::SmoothPeriodicHMM, dim=:) = size(m.stored, dim)
 _period(m::SmoothPeriodicHMM) = m.nT
@@ -132,7 +132,7 @@ end
     emission_coefs(m::SmoothPeriodicHMM, k, b) -> SubArray
 
 The coefficients of block `b` in state `k`: a view into `parameters(m).B`, so writing through it
-sets them (call `fit_mle` or rebuild the model to re-evaluate).
+sets them.
 """
 emission_coefs(m::SmoothPeriodicHMM, k::Integer, b::Integer) = view(m.ps.B, emission_range(m, k, b))
 
@@ -159,7 +159,8 @@ function TimeVaryingParameters.curve(m::SmoothPeriodicHMM, name::Symbol, times=1
     return permutedims(reduce(hcat, rows))
 end
 
-# The accessors forward to the evaluated twin, which `_refresh!` keeps in step with `ps`.
+# The accessors read the cached evaluated model, which the fits keep in step with `ps` through
+# `_refresh!`; the public functions evaluate anew with `_current`.
 HMMs.initialization(m::SmoothPeriodicHMM) = HMMs.initialization(m.stored)
 HMMs.transition_matrix(m::SmoothPeriodicHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
 HMMs.obs_distributions(m::SmoothPeriodicHMM, c::Tuple) = HMMs.obs_distributions(m.stored, c)
@@ -180,19 +181,19 @@ function _refresh!(m::SmoothPeriodicHMM)
     return m
 end
 
-rand(rng::AbstractRNG, m::SmoothPeriodicHMM, N::Integer; kwargs...) = rand(rng, m.stored, N; kwargs...)
-rand(rng::AbstractRNG, m::SmoothPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(rng, m.stored, n2t; kwargs...)
-rand(rng::AbstractRNG, m::SmoothPeriodicHMM, z::_IndexVector, n2t::_IndexVector) = rand(rng, m.stored, z, n2t)
+rand(rng::AbstractRNG, m::SmoothPeriodicHMM, N::Integer; kwargs...) = rand(rng, _current(m), N; kwargs...)
+rand(rng::AbstractRNG, m::SmoothPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(rng, _current(m), n2t; kwargs...)
+rand(rng::AbstractRNG, m::SmoothPeriodicHMM, z::_IndexVector, n2t::_IndexVector) = rand(rng, _current(m), z, n2t)
 rand(m::SmoothPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
 rand(m::SmoothPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
 rand(m::SmoothPeriodicHMM, z::_IndexVector, n2t::_IndexVector) = rand(GLOBAL_RNG, m, z, n2t)
 
 loglikelihoods(m::SmoothPeriodicHMM, Y::AbstractVecOrMat{<:Real}; n2t=n_to_t(_ncols(Y), m.nT), kwargs...) =
-    loglikelihoods(m.stored, Y; n2t, kwargs...)
+    loglikelihoods(_current(m), Y; n2t, kwargs...)
 viterbi(m::SmoothPeriodicHMM, Y::AbstractVecOrMat{<:Real}; n2t=n_to_t(_ncols(Y), m.nT), kwargs...) =
-    viterbi(m.stored, Y; n2t, kwargs...)
+    viterbi(_current(m), Y; n2t, kwargs...)
 viterbi(m::SmoothPeriodicHMM, Ys::AbstractVector{<:AbstractVecOrMat{<:Real}};
-    n2t=[n_to_t(_ncols(Y), m.nT) for Y in Ys], kwargs...) = viterbi(m.stored, Ys; n2t, kwargs...)
+    n2t=[n_to_t(_ncols(Y), m.nT) for Y in Ys], kwargs...) = viterbi(_current(m), Ys; n2t, kwargs...)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothPeriodicHMM)
     K, D, T = size(m)

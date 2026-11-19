@@ -51,8 +51,44 @@ const _EvaluatedHMM = Union{ARPeriodicHMM,sARPeriodicHMM,ARPeriodicHMMSpatial}
 
 _period(m::_SmoothHMM) = m.nT
 _period(hmm::_EvaluatedHMM) = size(hmm.B, 2)
-_evaluated(m::_SmoothHMM) = m.stored
+_evaluated(m::_SmoothHMM) = _current(m)
 _evaluated(hmm::_EvaluatedHMM) = hmm
+
+const _AnySmoothHMM = Union{_SmoothHMM,SmoothPeriodicHMM}
+
+# The evaluated model of the coefficients as they are now. `stored` is a cache that the fits keep
+# current; a write into `parameters(m)` does not reach it, so the public functions evaluate anew.
+function _current(m::_AnySmoothHMM)
+    fresh = _with_cache(m, m.stored isa ARPeriodicHMMSpatial ? deepcopy(m.stored) : copy(m.stored))
+    return _refresh!(fresh).stored
+end
+
+_with_cache(m::SmoothARPeriodicHMM, stored) =
+    SmoothARPeriodicHMM(m.ps, stored, m.nT, m.basis_A, m.basis_B, nothing)
+_with_cache(m::SmoothsARPeriodicHMM, stored) =
+    SmoothsARPeriodicHMM(m.θᴬ, m.θᴮ, stored, m.nT, m.basis_A, m.basis_B, nothing)
+_with_cache(m::SmoothARPeriodicHMMSpatial, stored) =
+    SmoothARPeriodicHMMSpatial(m.ps, stored, m.nT, m.basis_A, m.basis_B, m.basis_R, nothing)
+_with_cache(m::SmoothPeriodicHMM, stored) =
+    SmoothPeriodicHMM(m.ps, m.families, stored, m.nT, m.basis_A, nothing)
+
+# HiddenMarkovModels.jl's algorithms run on the evaluated model of the current coefficients. The
+# per-observation accessors read the cache, for the fits.
+for f in (:forward, :forward_backward, :viterbi, :logdensityof)
+    @eval HMMs.$f(m::_AnySmoothHMM, obs_seq::AbstractVector, control_seq::AbstractVector; kwargs...) =
+        HMMs.$f(_current(m), obs_seq, control_seq; kwargs...)
+end
+HMMs.joint_logdensityof(m::_AnySmoothHMM, obs_seq::AbstractVector, state_seq::AbstractVector,
+    control_seq::AbstractVector; kwargs...) =
+    HMMs.joint_logdensityof(_current(m), obs_seq, state_seq, control_seq; kwargs...)
+
+# A fixed control sequence goes to the evaluated twin, which refuses it for the autoregressive
+# models (see `hmm_interface.jl`) and draws from it for `SmoothPeriodicHMM`.
+Base.rand(rng::AbstractRNG, m::_SmoothHMM, c::SeasonalControls{<:Any,<:Tuple}) = rand(rng, m.stored, c)
+Base.rand(rng::AbstractRNG, m::SmoothPeriodicHMM, c::SeasonalControls{<:Any,<:Tuple}) =
+    rand(rng, _current(m), c)
+
+_ninitial(m::_AnySmoothHMM) = length(HMMs.initialization(m)) - 1
 
 """
     loglikelihood(m::SmoothARPeriodicHMM, Y, Y_past; n2t) -> Float64

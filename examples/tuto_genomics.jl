@@ -245,7 +245,8 @@ A trigonometric polynomial joins the two ends of the gene body smoothly, as if p
 followed by position 1. Fitted with `TrigBasis(T, 2)`, five coefficients per curve, the promoter
 mark drops at the TSS and comes back at the 3' end, and the elongation mark falls before the
 end. The two models are compared by BIC, `-2 loglikelihood + dof × log(nobs)`, lower being
-better, where `dof` counts the coefficients and `nobs` the bins, `G × T`.
+better, where `dof` counts the coefficients and the ``K - 1`` free initial probabilities, and
+`nobs` the bins, `G × T`.
 """
 
 trig = TrigBasis(T, 2)       # the first coefficient is the constant term

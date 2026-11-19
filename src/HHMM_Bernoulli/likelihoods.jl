@@ -77,7 +77,7 @@ function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,4} where {F<:Uni
 end
 """
     loglikelihoods(hmm, Y, Y_past; n2t, robust = false) -> Matrix
-    loglikelihoods(hmm::ARPeriodicHMMSpatial, Y, Y_past; n2t, robust = false, QMC_m) -> Matrix
+    loglikelihoods(hmm::ARPeriodicHMMSpatial, Y, Y_past; n2t, robust = false, QMC_m = hmm.QMC_m) -> Matrix
 
 The `N × K` matrix of emission loglikelihoods of the `D × N` observations `Y`, given the `D ×
 order` initial observations `Y_past`: entry `[n, k]` is that of observation `n` in state `k`.

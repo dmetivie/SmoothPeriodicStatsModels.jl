@@ -137,6 +137,16 @@ end
     @test HMMs.transition_matrix(model, controls[5]) == model.A[:, :, n2t[4]]
     @test_throws ArgumentError rand(model, controls)
 
+    # the model's own QMC budget is the default; the estimate is reproducible under a seed, and
+    # the state of the global generator is restored so the draws below do not change
+    let state = copy(Random.default_rng())
+        Random.seed!(3)
+        LL_default = SPSM.loglikelihoods(model, Y, Y_past; n2t=n2t)
+        Random.seed!(3)
+        @test LL_default == SPSM.loglikelihoods(model, Y, Y_past; n2t=n2t, QMC_m=model.QMC_m)
+        copy!(Random.default_rng(), state)
+    end
+
     let n = 11, k = 1, t = n2t[n], obs = view(Y, :, n)
         d = HMMs.obs_distributions(model, controls[n])[k]
         val, err = pdf(d, obs; m=length(d) * 400, return_error=true)
@@ -157,6 +167,7 @@ end
     m0 = SmoothARPeriodicHMMSpatial(fill(1 / K, K), trans_θ, Bernoulli_θ, Range_θ, T,
         distance; QMC_m=10)
     ps0 = copy(parameters(m0))
+    @test_throws ArgumentError rand(m0, controls)
 
     m, history = fit_mle(m0, Y, Y_past; solver, n2t=n2t, maxiter=10, tol=1e-4, ps_iters=true,
         maxiters_R=20, display=:none, tdist=1.1)

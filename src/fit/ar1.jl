@@ -63,6 +63,8 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
     K=_nstates(m, z),
     solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    @argcheck length(z) == length(y) "`z` has $(length(z)) states and `y` $(length(y)) observations"
+    @argcheck all(in(1:K), z) "the states in `z` must lie in 1:$K"
     spec, T = m.spec, m.nT
     design = PeriodicDesign(spec, 1:T)
     stats = [ar1_sufficient_statistics(y, n2t, T, [n for n = 2:length(y) if z[n] == k]) for k = 1:K]

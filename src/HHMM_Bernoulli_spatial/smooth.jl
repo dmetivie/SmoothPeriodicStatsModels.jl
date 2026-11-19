@@ -52,7 +52,7 @@ parameters(m::SmoothARPeriodicHMMSpatial) = m.ps
 
 The `ARPeriodicHMMSpatial` with the `A`, `B` and `R` arrays the coefficients of `m` generate.
 """
-ARPeriodicHMMSpatial(m::SmoothARPeriodicHMMSpatial) = m.stored
+ARPeriodicHMMSpatial(m::SmoothARPeriodicHMMSpatial) = _current(m)
 
 size(m::SmoothARPeriodicHMMSpatial, dim=:) = size(m.stored, dim)
 
@@ -76,7 +76,7 @@ function TimeVaryingParameters.curve(m::SmoothARPeriodicHMMSpatial, name::Symbol
     name === :R || throw(ArgumentError(
         "`$name` is not a curve of this model; `:R` is the spatial range, and the transition " *
         "and emission arrays are `ARPeriodicHMMSpatial(m).A` and `.B`"))
-    return m.stored.R
+    return _current(m).R
 end
 
 # Rewrite the evaluated arrays from the current coefficients, in place.
@@ -96,21 +96,21 @@ end
 
 # One method per signature, as for `SmoothARPeriodicHMM`.
 rand(rng::AbstractRNG, m::SmoothARPeriodicHMMSpatial, N::Integer; kwargs...) =
-    rand(rng, m.stored, N; kwargs...)
+    rand(rng, _current(m), N; kwargs...)
 rand(rng::AbstractRNG, m::SmoothARPeriodicHMMSpatial, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, n2t; kwargs...)
+    rand(rng, _current(m), n2t; kwargs...)
 rand(rng::AbstractRNG, m::SmoothARPeriodicHMMSpatial, z::_IndexVector, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, z, n2t; kwargs...)
+    rand(rng, _current(m), z, n2t; kwargs...)
 rand(m::SmoothARPeriodicHMMSpatial, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
 rand(m::SmoothARPeriodicHMMSpatial, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
 rand(m::SmoothARPeriodicHMMSpatial, z::_IndexVector, n2t::_IndexVector; kwargs...) =
     rand(GLOBAL_RNG, m, z, n2t; kwargs...)
 
 loglikelihoods(m::SmoothARPeriodicHMMSpatial, args...; kwargs...) =
-    loglikelihoods(m.stored, args...; kwargs...)
-viterbi(m::SmoothARPeriodicHMMSpatial, args...; kwargs...) = viterbi(m.stored, args...; kwargs...)
+    loglikelihoods(_current(m), args...; kwargs...)
+viterbi(m::SmoothARPeriodicHMMSpatial, args...; kwargs...) = viterbi(_current(m), args...; kwargs...)
 complete_loglikelihood(m::SmoothARPeriodicHMMSpatial, args...; kwargs...) =
-    complete_loglikelihood(m.stored, args...; kwargs...)
+    complete_loglikelihood(_current(m), args...; kwargs...)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothARPeriodicHMMSpatial)
     K, D, T, size_order = size(m.stored)

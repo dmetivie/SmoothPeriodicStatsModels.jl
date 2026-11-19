@@ -188,7 +188,8 @@ fits = [fit(SeasonalFit, start(K), Y, Y_past; n2t, solver=LBFGS()) for K in 2:5]
 bic.(fits)
 ```
 
-`dof` is the number of coefficients. `nobs` is the number of terms of the likelihood: the
+`dof` is the number of coefficients, plus the `K - 1` free initial probabilities for the HMMs.
+`nobs` is the number of terms of the likelihood: the
 transitions for the AR(1), the observations for the mixture, and the observed steps, summed over
 the sequences, for the HMMs.
 

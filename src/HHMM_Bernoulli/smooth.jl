@@ -58,7 +58,7 @@ parameters(m::SmoothARPeriodicHMM) = m.ps
 
 The `ARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
-ARPeriodicHMM(m::SmoothARPeriodicHMM) = m.stored
+ARPeriodicHMM(m::SmoothARPeriodicHMM) = _current(m)
 
 """
     degrees(m) -> Tuple
@@ -70,9 +70,10 @@ degrees(m::SmoothARPeriodicHMM) = (_trig_degree(m.basis_A), _trig_degree(m.basis
 
 size(m::SmoothARPeriodicHMM, dim=:) = size(m.stored, dim)
 
-# The three accessors forward to the evaluated twin, which `_refresh!` keeps in step with the
-# coefficients. Evaluating `A` and `B` on every call instead would redo the whole period's
-# trigonometry once per observation.
+# The three accessors read the cached evaluated model, which the fits keep in step with the
+# coefficients through `_refresh!`. Evaluating `A` and `B` on every call instead would redo the
+# whole period's trigonometry once per observation. The public functions (`rand`, the
+# likelihoods, `viterbi`, HiddenMarkovModels.jl's algorithms) evaluate anew with `_current`.
 HMMs.initialization(m::SmoothARPeriodicHMM) = HMMs.initialization(m.stored)
 HMMs.transition_matrix(m::SmoothARPeriodicHMM, c::Tuple) = HMMs.transition_matrix(m.stored, c)
 HMMs.obs_distributions(m::SmoothARPeriodicHMM, c::Tuple) = HMMs.obs_distributions(m.stored, c)
@@ -95,20 +96,20 @@ end
 # One method per signature: a single `args...` method would be ambiguous with the `rand` methods
 # of `Random` and of `HiddenMarkovModels`.
 const _IndexVector = AbstractVector{<:Integer}
-rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, N::Integer; kwargs...) = rand(rng, m.stored, N; kwargs...)
+rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, N::Integer; kwargs...) = rand(rng, _current(m), N; kwargs...)
 rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, n2t; kwargs...)
+    rand(rng, _current(m), n2t; kwargs...)
 rand(rng::AbstractRNG, m::SmoothARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, z, n2t; kwargs...)
+    rand(rng, _current(m), z, n2t; kwargs...)
 rand(m::SmoothARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
 rand(m::SmoothARPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
 rand(m::SmoothARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
     rand(GLOBAL_RNG, m, z, n2t; kwargs...)
 
-loglikelihoods(m::SmoothARPeriodicHMM, args...; kwargs...) = loglikelihoods(m.stored, args...; kwargs...)
-viterbi(m::SmoothARPeriodicHMM, args...; kwargs...) = viterbi(m.stored, args...; kwargs...)
+loglikelihoods(m::SmoothARPeriodicHMM, args...; kwargs...) = loglikelihoods(_current(m), args...; kwargs...)
+viterbi(m::SmoothARPeriodicHMM, args...; kwargs...) = viterbi(_current(m), args...; kwargs...)
 complete_loglikelihood(m::SmoothARPeriodicHMM, args...; kwargs...) =
-    complete_loglikelihood(m.stored, args...; kwargs...)
+    complete_loglikelihood(_current(m), args...; kwargs...)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothARPeriodicHMM)
     K, D, T, size_order = size(m.stored)

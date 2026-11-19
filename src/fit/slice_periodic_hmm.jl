@@ -97,8 +97,9 @@ function _fit_slices(rng::AbstractRNG, m::SmoothPeriodicHMM, Y, n2t, seq_ends;
     # the estimates at every period index; where there is none, the laws of `m`
     α = fill(1 / K, K, T)
     foreach(t -> α[:, t] = fits[t].α, fitted)
+    laws_m = PeriodicHMMDists(m).B
     B = map(eachindex(fams)) do b
-        [fits[t] === nothing ? m.stored.B[b][k, t] : fits[t].laws[k, b] for k = 1:K, t = 1:T]
+        [fits[t] === nothing ? laws_m[b][k, t] : fits[t].laws[k, b] for k = 1:K, t = 1:T]
     end
 
     # transitions: the frequencies of the most likely state of each observation

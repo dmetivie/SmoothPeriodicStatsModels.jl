@@ -49,7 +49,7 @@ nparams(m::SmoothsARPeriodicHMM) =
 
 The `sARPeriodicHMM` with the `A` and `B` arrays the coefficients of `m` generate.
 """
-sARPeriodicHMM(m::SmoothsARPeriodicHMM) = m.stored
+sARPeriodicHMM(m::SmoothsARPeriodicHMM) = _current(m)
 
 size(m::SmoothsARPeriodicHMM, dim=:) = size(m.stored, dim)
 
@@ -74,20 +74,20 @@ function _refresh!(m::SmoothsARPeriodicHMM)
 end
 
 # One method per signature, as for `SmoothARPeriodicHMM`.
-rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, N::Integer; kwargs...) = rand(rng, m.stored, N; kwargs...)
+rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, N::Integer; kwargs...) = rand(rng, _current(m), N; kwargs...)
 rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, n2t; kwargs...)
+    rand(rng, _current(m), n2t; kwargs...)
 rand(rng::AbstractRNG, m::SmoothsARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
-    rand(rng, m.stored, z, n2t; kwargs...)
+    rand(rng, _current(m), z, n2t; kwargs...)
 rand(m::SmoothsARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, m, N; kwargs...)
 rand(m::SmoothsARPeriodicHMM, n2t::_IndexVector; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
 rand(m::SmoothsARPeriodicHMM, z::_IndexVector, n2t::_IndexVector; kwargs...) =
     rand(GLOBAL_RNG, m, z, n2t; kwargs...)
 
-loglikelihoods(m::SmoothsARPeriodicHMM, args...; kwargs...) = loglikelihoods(m.stored, args...; kwargs...)
-viterbi(m::SmoothsARPeriodicHMM, args...; kwargs...) = viterbi(m.stored, args...; kwargs...)
+loglikelihoods(m::SmoothsARPeriodicHMM, args...; kwargs...) = loglikelihoods(_current(m), args...; kwargs...)
+viterbi(m::SmoothsARPeriodicHMM, args...; kwargs...) = viterbi(_current(m), args...; kwargs...)
 complete_loglikelihood(m::SmoothsARPeriodicHMM, args...; kwargs...) =
-    complete_loglikelihood(m.stored, args...; kwargs...)
+    complete_loglikelihood(_current(m), args...; kwargs...)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothsARPeriodicHMM)
     K, D, T, size_orders = size(m.stored)

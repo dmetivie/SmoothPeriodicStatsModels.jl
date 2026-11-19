@@ -134,6 +134,7 @@ function _fit_mle(m::SmoothPeriodicHMM, Y, n2t, seq_ends;
     @argcheck size(Y, 1) == size(m, 2) "the observations have $(size(Y, 1)) rows and the emission blocks cover $(size(m, 2))"
     cfg = DistHMMContext(m, Y, n2t; solver, adtype, ensemble, solve_kwargs)
     fitted = SmoothPeriodicHMM(copy(m.ps), m.families, copy(m.stored), m.nT, m.basis_A, cfg)
+    _refresh!(fitted)   # the coefficients may have been edited in place since `m` was built
     return _baum_welch!(fitted, _columns(Y), SeasonalControls(n2t), seq_ends;
         maxiter, tol, display, robust, ps_iters)
 end

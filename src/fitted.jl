@@ -50,8 +50,8 @@ StatsAPI.coef(f::SeasonalFit, name::Symbol) = getproperty(parameters(f.model), n
 
 parameters(f::SeasonalFit) = parameters(f.model)
 
-TimeVaryingParameters.curve(f::SeasonalFit, name::Symbol, times...) =
-    curve(f.model, name, times...)
+TimeVaryingParameters.curve(f::SeasonalFit, name::Symbol, times...; kwargs...) =
+    curve(f.model, name, times...; kwargs...)
 
 StatsAPI.params(f::SeasonalFit, t) = params(f.model, t)
 (f::SeasonalFit)(t) = f.model(t)
@@ -82,11 +82,15 @@ StatsAPI.nobs(f::SeasonalFit) = f.nobs
 """
     dof(f::SeasonalFit) -> Int
 
-The number of fitted coefficients — `3(2d+1)` for a periodic AR(1), `K` times that when one is
-fitted per hidden state. Parameters of a process the fit conditions on rather than estimates,
-such as a given state sequence, are not counted.
+The number of fitted parameters: the coefficients, plus the `K - 1` free initial probabilities of
+a hidden Markov model. A periodic AR(1) has `3(2d+1)`, `K` times that when one is fitted per
+hidden state. Parameters of a process the fit conditions on rather than estimates, such as a
+given state sequence, are not counted.
 """
-StatsAPI.dof(f::SeasonalFit) = nparams(f.model)
+StatsAPI.dof(f::SeasonalFit) = nparams(f.model) + _ninitial(f.model)
+
+# The free initial probabilities a fit estimates besides the coefficients; the HMMs have `K - 1`.
+_ninitial(m) = 0
 
 converged(f::SeasonalFit) = converged(f.history)
 

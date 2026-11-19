@@ -691,6 +691,9 @@ end
     @test_throws ArgumentError params(m, 3)          # ambiguous with K columns
     @test_throws ArgumentError fit_mle(m0, y; solver=SOLVER, n2t)   # the single-model method
     @test_throws ArgumentError fit_mle(SmoothAR1(d, T; K=K + 3), y, z; solver=SOLVER, n2t, K=K)
+    # a state outside 1:K, or a state sequence of another length, is refused rather than dropped
+    @test_throws ArgumentError fit_mle(m0, y, [z[1:end-1]; K + 1]; solver=SOLVER, n2t)
+    @test_throws ArgumentError fit_mle(m0, y, z[1:end-1]; solver=SOLVER, n2t)
 end
 
 @testset "AR1: the parametrization is the one the kernel assumes" begin
@@ -835,6 +838,7 @@ end
     # Simulation stays this package's: the memory categories in a control sequence are a
     # function of the observations, so they cannot be fixed before drawing them.
     @test_throws ArgumentError rand(hmm, controls)
+    @test_throws ArgumentError rand(SmoothARPeriodicHMM(hmm.a, θᴬ, θᴮ, T), controls)
 end
 
 # The site-dependent variant answers the same three accessors. Its emission differs only in
@@ -880,6 +884,7 @@ end
     @test HMMs.viterbi(hmm, obs, controls; seq_ends=(N,))[1] ==
           SPSM.viterbi(hmm, y, y_past; n2t=n2t)
     @test_throws ArgumentError rand(hmm, controls)
+    @test_throws ArgumentError rand(SmoothsARPeriodicHMM(hmm.a, θᴬ, θᴮ, T), controls)
 end
 
 @testset "ARPeriodicHMM: constructor invariants" begin
@@ -1400,7 +1405,7 @@ end
     f = fit(SeasonalFit, m0, Ys, Y_pasts; solver=SOLVER, n2t=n2ts, maxiter=200, tol=1e-6)
     @test loglikelihood(f) ≈ hist.logtots[end]
     @test nobs(f) == G * T
-    @test dof(f) == SPSM.nparams(m0)
+    @test dof(f) == SPSM.nparams(m0) + K - 1    # the coefficients and the initial probabilities
     @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(G * T)
     @test :retcode ∉ propertynames(f)
     @test occursin("coefficients\nFitHistory", sprint(show, MIME"text/plain"(), f))
@@ -1481,11 +1486,66 @@ end
 
     f = fit(SeasonalFit, m0, y; solver=SOLVER, n2t, maxiter=200)
     @test nobs(f) == N
-    @test dof(f) == nparams(m) == 18
+    @test nparams(m) == 18
+    @test dof(f) == nparams(m) + K - 1
     @test loglikelihood(f) ≈ history.logtots[end]
     @test bic(f) ≈ -2loglikelihood(f) + dof(f) * log(N)
     @test :retcode ∉ propertynames(f)
+    @test curve(f, :μ; block=1) == curve(f.model, :μ; block=1)
     @test occursin("row 1", sprint(show, MIME"text/plain"(), m))
+end
+
+@testset "HMMs use coefficients edited after construction" begin
+    K, D, T, N = 2, 3, 10, 200
+    rng = StableRNG(3)
+    n2t = n_to_t(N, T)
+    Y, Y_past = rand(rng, Bool, D, N), rand(rng, Bool, D, 1)
+    m = SmoothARPeriodicHMM(fill(0.5, K), zeros(K, K - 1, 3), zeros(K, D, 2, 3), T)
+    parameters(m).A[1, 1, 1] = 2.0
+    parameters(m).B[2, 1, 1, 1] = -1.0
+    rebuilt = SmoothARPeriodicHMM(fill(0.5, K), copy(parameters(m).A), copy(parameters(m).B), T)
+
+    # the public functions read the coefficients as they are now
+    @test ARPeriodicHMM(m).A ≈ ARPeriodicHMM(rebuilt).A
+    @test loglikelihood(m, Y, Y_past) ≈ loglikelihood(rebuilt, Y, Y_past)
+    @test viterbi(m, Y, Y_past) == viterbi(rebuilt, Y, Y_past)
+    @test rand(StableRNG(1), m, n2t; Y_past, seq=true) == rand(StableRNG(1), rebuilt, n2t; Y_past, seq=true)
+    obs, controls = [view(Y, :, n) for n = 1:N], SeasonalControls(n2t, SPSM.conditional_to(Y, Y_past))
+    @test HMMs.logdensityof(m, obs, controls) ≈ HMMs.logdensityof(rebuilt, obs, controls)
+    @test HMMs.forward_backward(m, obs, controls)[1] ≈ HMMs.forward_backward(rebuilt, obs, controls)[1]
+    @test HMMs.viterbi(m, obs, controls)[1] == HMMs.viterbi(rebuilt, obs, controls)[1]
+
+    # and so does a fit, from its first E-step on
+    m1, h1 = fit_mle(m, Y, Y_past; solver=SOLVER, maxiter=1)
+    r1, hr1 = fit_mle(rebuilt, Y, Y_past; solver=SOLVER, maxiter=1)
+    @test h1.logtots == hr1.logtots
+    @test parameters(m1) ≈ parameters(r1)
+    m_zero, _ = fit_mle(m, Y, Y_past; solver=SOLVER, maxiter=0)
+    @test m_zero.stored.A ≈ ARPeriodicHMM(rebuilt).A    # the cache of the returned model too
+
+    # any emission law
+    mN = SmoothPeriodicHMM(Normal, K, 1, T; init=[(μ=0.0, σ=1.0), (μ=2.0, σ=1.0)])
+    emission_coefs(mN, 2, 1)[1] = 3.0      # the mean of state 2 becomes 3
+    rebuiltN = SmoothPeriodicHMM([Normal => 1], fill(0.5, K), copy(parameters(mN).A),
+        reshape([copy(emission_coefs(mN, k, 1)) for k = 1:K], K, 1), T)
+    y = randn(rng, N)
+    @test all(mean.(PeriodicHMMDists(mN).B[1][2, :]) .≈ 3.0)
+    @test loglikelihood(mN, y) ≈ loglikelihood(rebuiltN, y)
+    @test rand(StableRNG(1), mN, SeasonalControls(n2t)) == rand(StableRNG(1), rebuiltN, SeasonalControls(n2t))
+    mN1, _ = fit_mle(mN, y; solver=SOLVER, maxiter=1)
+    rN1, _ = fit_mle(rebuiltN, y; solver=SOLVER, maxiter=1)
+    @test parameters(mN1) ≈ parameters(rN1)
+
+    # the site-dependent and spatial models
+    θᴮs = [[zeros(3) for _ = 1:2] for k = 1:K, j = 1:D]
+    ms = SmoothsARPeriodicHMM(fill(0.5, K), zeros(K, K - 1, 3), θᴮs, T)
+    parameters(ms).A[1, 1, 1] = 2.0
+    @test sARPeriodicHMM(ms).A ≈ sARPeriodicHMM(SmoothsARPeriodicHMM(fill(0.5, K), copy(parameters(ms).A), θᴮs, T)).A
+    mS = SmoothARPeriodicHMMSpatial(fill(0.5, K), zeros(K, K - 1, 3), zeros(K, 2, 2, 3), zeros(K, 3), T,
+        [0.0 10.0; 10.0 0.0])
+    parameters(mS).R[1, 1] = log(50.0)
+    @test all(curve(mS, :R)[1, :] .≈ 50.0)
+    @test ARPeriodicHMMSpatial(mS).R ≈ curve(mS, :R)
 end
 
 @testset "PeriodicHMMDists: the HiddenMarkovModels.jl interface" begin

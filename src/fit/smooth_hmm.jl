@@ -234,6 +234,7 @@ function _fit_mle(m::SmoothARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
     @argcheck maxiter >= 0
     cfg = SmoothHMMContext(m, Y, lag_cat, n2t; solver, adtype, ensemble, solve_kwargs)
     fitted = SmoothARPeriodicHMM(copy(m.ps), copy(m.stored), m.nT, m.basis_A, m.basis_B, cfg)
+    _refresh!(fitted)   # the coefficients may have been edited in place since `m` was built
     return _baum_welch!(fitted, _columns(Y), SeasonalControls(n2t, lag_cat), seq_ends;
         maxiter, tol, display, robust, ps_iters)
 end
@@ -346,6 +347,7 @@ function _fit_mle(m::SmoothsARPeriodicHMM, Y, lag_cat, n2t, seq_ends;
     cfg = SmoothsHMMContext(m, Y, lag_cat, n2t; solver, adtype, ensemble, solve_kwargs)
     fitted = SmoothsARPeriodicHMM(copy(m.θᴬ), deepcopy(m.θᴮ), copy(m.stored), m.nT,
         m.basis_A, m.basis_B, cfg)
+    _refresh!(fitted)   # the coefficients may have been edited in place since `m` was built
     return _baum_welch!(fitted, _columns(Y), SeasonalControls(n2t, lag_cat), seq_ends;
         maxiter, tol, display, robust, ps_iters)
 end
@@ -487,6 +489,7 @@ function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
         solver, adtype, ensemble, solve_kwargs)
     fitted = SmoothARPeriodicHMMSpatial(copy(m.ps), deepcopy(m.stored), m.nT,
         m.basis_A, m.basis_B, m.basis_R, cfg)
+    _refresh!(fitted)   # the coefficients may have been edited in place since `m` was built
 
     K = size(fitted.stored.A, 1)
     cached = CachedEmissions(fitted, zeros(N, K))
