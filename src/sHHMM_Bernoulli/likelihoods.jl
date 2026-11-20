@@ -2,10 +2,10 @@ function likelihoods!(L::AbstractMatrix, hmm::sARPeriodicHMM, Y::AbstractMatrix,
     N, K, D = size(Y, 2), size(hmm, 1), size(hmm, 2)
     @argcheck size(L) == (N, K)
 
-    for i in OneTo(K)
+    for k in OneTo(K)
         for n in OneTo(N)
             t = n2t[n] # periodic t
-            L[n, i] = pdf(product_distribution([hmm.B[k, t, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
+            L[n, k] = pdf(product_distribution([hmm.B[k, t, j][lag_cat[j, n]] for j in 1:D]), view(Y, :, n))
         end
     end
 end
@@ -28,11 +28,11 @@ function loglikelihoods(hmm::sARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::
     N, K = size(Y, 2), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     if robust
-        replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        _clamp_inf!(LL)
     end
     return LL
 end
@@ -41,7 +41,7 @@ end
 
 function complete_loglikelihood(hmm::sARPeriodicHMM, y::AbstractMatrix, y_past::AbstractVector, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
     D, N = size(y)
-    lag_cat = conditional_to(y, y_past)
+    lag_cat = _lag_cat(hmm, y, y_past)
 
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution([hmm.B[z[n], n2t[n], j][lag_cat[j, n]] for j in 1:D]), view(y, :, n)) for n = 1:N)
 end

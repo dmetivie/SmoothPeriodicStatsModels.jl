@@ -1,19 +1,17 @@
 """
-    fit_mle_RO(Y::AbstractMatrix{<:Bool}[, Y_past::AbstractMatrix{<:Bool}], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); solver, adtype, ensemble, solve_kwargs)
+    fit_mle_RO(Y[, Y_past], z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t)); solver, adtype, ensemble, solve_kwargs) -> (B, θᴮ)
 
-`Y` is `D × N` and the optional `Y_past` is `D × order`.
-This function fits at one location the observed rain occurrences (RO) `Y` with a (smooth) periodic Bernoulli distribution. 
-The autoregressive order is determined by the size of the initial (past) input `Y_past`. If not provided, autoregressive order is `0`.
-`K` and `T` can be provided if different from `K = length(unique(z))` and `T = length(unique(n2t))`.
-# Output
-Matrix of Bernoulli `[Bernoulli(pₖₛₕ(t)) for k = 1:K, t = 1:T, s = 1:D, h = 1:size_order]` and coefficients `θᴮ` of the trigonometric expansion of `pₖₛₕ(t) = αₜ(t, θᴮ)`
+Fit the periodic autoregressive Bernoulli emissions of `D` sites given a known state sequence
+`z`. The success probability of site `j` in state `k` with memory category `h` is
+`logistic(P(t))`, a trigonometric polynomial of degree `deg_θᴮ`. Use it to add sites to an HMM
+whose hidden states are already estimated.
 
-Currently, the station Rain Occurrences are only dependent on the hidden states (conditional independence) and time of the year. 
-TODO: possibility to add stations with a conditional dependence to pre-existing stations (useful for close stations).
+`Y` is `D × N`; the optional `Y_past` is `D × order` and sets the memory order (`0` without it).
+Returns the `K × T × D × 2^order` array of `Bernoulli` and the coefficients
+`θᴮ[k, j, h, :]`.
 """
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), silence=nothing, warm_start=nothing)
-    _warn_legacy_solver_kwargs(silence, warm_start)
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     @assert K ≥ length(unique(z)) "The provided `K` is smaller than the number of states in the provided sequence `z`"
     @assert T ≥ length(unique(n2t)) "The provided `T` is smaller than the number of days in the provided sequence `n2t`"
 
@@ -38,8 +36,7 @@ function fit_mle_RO(Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}, z
 end
 
 function fit_mle_RO(Y::AbstractMatrix{<:Bool}, z, n2t, deg_θᴮ, K = length(unique(z)), T = length(unique(n2t));
-    solver=default_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), silence=nothing, warm_start=nothing)
-    _warn_legacy_solver_kwargs(silence, warm_start)
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
     D, N = size(Y)
     Y_past = falses(D, 0)
     order = size(Y_past, 2)

@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+title: SmoothPeriodicStatsModels.jl
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - family-names: Métivier
+    given-names: David
+    email: david.metivier@inrae.fr
+  - family-names: Cognot
+    given-names: Caroline
+abstract: >-
+  Statistical models whose parameters change smoothly along a cycle, such as
+  the days of a year, fitted by maximum likelihood: autoregressive processes,
+  mixtures and hidden Markov models.
+keywords:
+  - Julia
+  - seasonal models
+  - hidden Markov models
+  - mixture models
+  - maximum likelihood
+repository-code: "https://github.com/dmetivie/SmoothPeriodicStatsModels.jl"
+url: "https://dmetivie.github.io/SmoothPeriodicStatsModels.jl"
+license: MIT
+version: 4.0.0

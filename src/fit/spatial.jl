@@ -1,174 +1,17 @@
-# A and B are updated using the code from HHMM - update_A_B_jump.jl.
+# The spatial range M-step. The transitions and marginal probabilities are refitted by the
+# M-steps shared with the other HMMs, in `src/fit/smooth_hmm.jl`.
 
-function fit_mle!(
-    hmm::ARPeriodicHMMSpatial,
-    thetaA::AbstractArray{<:AbstractFloat,3},
-    thetaB::AbstractArray{<:AbstractFloat,4},
-    thetaR::AbstractArray{<:AbstractFloat,2}, Y::AbstractArray{<:Bool},
-    Y_past::AbstractArray{<:Bool};
-    solver=default_solver(),
-    adtype=default_adtype(),
-    ensemble=default_ensemble(),
-    solve_kwargs=(;),
-    n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer},
-    display=:iter,
-    maxiter=100,
-    tol=1e-3,
-    robust=false,
-    silence=nothing,
-    warm_start=nothing,
-    tdist=1,
-    QMC_m=30,
-    maxiters_R=10, QMC_E=1, wp=1.0 .* (hmm.h .< maximum(hmm.h) * tdist)
-)
-    @argcheck display in [:none, :iter, :final]
-    @argcheck maxiter >= 0
-    _warn_legacy_solver_kwargs(silence, warm_start)
-    # println("tdist = ",tdist)
-    N, K, T, size_order, D = size(Y, 2), size(hmm, 1), size(hmm, 3), size(hmm, 4), size(hmm, 2)
-    # @show N, K, T, size_order, D  # debug
+"""
+    fit_mle_one_R!(θᴿ, B, h, Y, wp, n_pair; n2t, basis, solver, adtype, solve_kwargs) -> θᴿ
 
-    deg_A = (size(thetaA, 3) - 1) ÷ 2
-    deg_B = (size(thetaB, 4) - 1) ÷ 2
-    # println("wp= ",wp)
-    rain_cat = 2 # dry or wet
-    @argcheck T == size(hmm.B, 2)
-    history = Dict("converged" => false, "iterations" => 0, "logtots" => Float64[])
-
-    all_thetaA_iterations = [copy(thetaA)]
-    all_thetaB_iterations = [copy(thetaB)]
-
-    # add new param : range !
-
-    all_thetaR_iterations = [copy(thetaR)]
-
-    # Allocate order for in-place updates
-    c = zeros(N)
-    α = zeros(N, K) #forward ?
-    β = zeros(N, K) #backward ?
-    γ = zeros(N, K) # regular smoothing proba
-    γₛ = zeros(K, D, size_order, T, rain_cat) # summed smoothing proba
-    ξ = zeros(N, K, K) # pi_kl(t) ?
-    s_ξ = zeros(T, K, K) #? somme pi_kl(t) pour t de même périodicité
-    LL = zeros(N, K) # stock the loglikelihoods for each state at each time ? (completely unwanted in the M step)
-
-    # assign category for observation depending in the Y_past Y
-    order = Int(log2(size_order))
-    lag_cat = conditional_to(Y, Y_past)
-
-    n_in_t = [findall(n2t .== t) for t = 1:T]
-    n_occurence_history = [findall(.&(view(Y, j, :) .== y, view(lag_cat, j, :) .== h)) for j = 1:D, h = 1:size_order, y = 0:1] # dry or wet
-    n_all = [n_per_category(tup..., n_in_t, n_occurence_history) for tup in Iterators.product(1:D, 1:size_order, 1:T, 1:rain_cat)]
-
-    basis_A = K ≥ 2 ? trig_basis(T, deg_A) : nothing
-
-    #Done check  model_B
-    basis_B = trig_basis(T, deg_B)
-
-
-    # Precompute situation bucket index for each (n, i, j), computed once and reused across EM iterations.
-    # Encoding: block = (size_order - lag_cat_i) * size_order * 4 + (size_order - lag_cat_j) * 4
-    #           within block: 1=(1,1), 2=(1,0), 3=(0,1), 4=(0,0)
-    # For size_order == 1, lag_cat is all-ones, so the block offset is 0 and only the current-obs index (1..4) matters.
-    SituationIdx = zeros(Int, N, D, D)
-    for n in 1:N
-        for i in 1:D
-            for j in 1:D
-                lci = lag_cat[i, n]
-                lcj = lag_cat[j, n]
-                cur_idx = 2 * (1 - Int(Y[i, n])) + (1 - Int(Y[j, n])) + 1
-                SituationIdx[n, i, j] = (size_order - lci) * size_order * 4 + (size_order - lcj) * 4 + cur_idx
-            end
-        end
-    end
-    println("Situations generated")
-
-    loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m * QMC_E)
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
-
-    forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
-    backwardlog!(β, c, hmm.a, hmm.A, LL; n2t=n2t)
-    posteriors!(γ, α, β)
-
-    logtot = sum(c)
-    (display == :iter) && println("Iteration 0: logtot = $logtot")
-
-
-    for it = 1:maxiter
-        update_a!(hmm.a, α, β)
-
-        # DONE :need to check update_A
-        update_A!(hmm.A, thetaA, ξ, s_ξ, α, β, LL, n2t, n_in_t, basis_A; solver, adtype, ensemble, solve_kwargs)
-
-        update_B!(hmm.B, thetaB, γ, γₛ, Y, n_all, basis_B; solver, adtype, ensemble, solve_kwargs)
-
-        update_R!(hmm, thetaR, γ, wp, Y, SituationIdx; n2t=n2t, solver, maxiters=maxiters_R)
-
-        push!(all_thetaA_iterations, copy(thetaA))
-        push!(all_thetaB_iterations, copy(thetaB))
-       
-        robust && (hmm.A .+= eps())
-
-        @check isprobvec(hmm.a)
-        @check all(t -> istransmat(hmm.A[:, :, t]), 1:T)
-
-        push!(all_thetaR_iterations, copy(thetaR))
-
-        # loglikelihoods!(LL, hmm, Y, n2t)
-        loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m * QMC_E)
-
-        robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
-
-        forwardlog!(α, c, hmm.a, hmm.A, LL; n2t=n2t)
-        backwardlog!(β, c, hmm.a, hmm.A, LL; n2t=n2t)
-        posteriors!(γ, α, β)
-
-        logtotp = sum(c)
-
-        ΔmaxA = round(maximum(abs, (all_thetaA_iterations[it+1] - all_thetaA_iterations[it]) ./ all_thetaA_iterations[it]), digits=5)
-        ΔmaxB = round(maximum(abs, (all_thetaB_iterations[it+1] - all_thetaB_iterations[it]) ./ all_thetaB_iterations[it]), digits=5)
-        ΔmaxR = round(maximum(abs, (all_thetaR_iterations[it+1] - all_thetaR_iterations[it]) ./ all_thetaR_iterations[it]), digits=5)
-   
-        if display == :iter
-                println("Iteration $it: logtot = $(round(logtotp, digits = 6)), max(|θᴬᵢ-θᴬᵢ₋₁|/|θᴬᵢ₋₁|) = ", ΔmaxA, " & max(|θᴮᵢ-θᴮᵢ₋₁|/|θᴮᵢ₋₁|) = ", ΔmaxB, " & max(|θRᵢ-θRᵢ₋₁|/|θRᵢ₋₁|) = ", ΔmaxR)
-            # flush(stdout)
-        end
-
-        push!(history["logtots"], logtotp)
-        history["iterations"] += 1
-
-        if (ΔmaxA < tol && ΔmaxB < tol && ΔmaxR < tol)
-            (display in [:iter, :final]) &&
-                println("EM converged in $it iterations, logtot = $logtotp")
-            history["converged"] = true
-            break
-        end
-
-        if abs(logtotp - logtot) < tol
-            (display in [:iter, :final]) &&
-                println("EM converged in $it iterations, logtot = $logtotp")
-            history["converged"] = true
-            break
-        end
-        if abs((logtotp - logtot) / logtotp) > tol && logtotp < logtot
-            (display in [:iter, :final]) &&
-                println("stop the loglikelihood has deacreased dramatically")
-            history["converged"] = false
-            break
-        end
-        logtot = logtotp
-    end
-
-    if !history["converged"]
-        if display in [:iter, :final]
-            println("EM has not converged after $(history["iterations"]) iterations, logtot = $logtot")
-        end
-    end
-    history, all_thetaA_iterations, all_thetaB_iterations, all_thetaR_iterations
-
-end
-
-function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(B, 1))::AbstractVector{<:Integer}, solver, return_sol=false, solkwargs...)
+Refit in place the spatial range coefficients `θᴿ` of one hidden state. The range at period
+index `t` is `exp(basis[t, :] ⋅ θᴿ)`, and the fit maximizes the weighted pairwise loglikelihood
+([`pairwise_loglikelihood`](@ref), or [`pairwise_loglikelihood_memory`](@ref) when `B`, the
+`T × D × 2^order` marginal probabilities, has memory). `n_pair` holds the posterior-weighted
+counts of joint outcomes and `wp` the pair weights. `basis`, the `T × length(θᴿ)` design
+matrix, defaults to the trigonometric one.
+"""
+function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMatrix{<:Real}, n_pair::AbstractArray{<:Real}; n2t=n_to_t(size(Y, 2), size(B, 1))::AbstractVector{<:Integer}, basis=trig_basis(size(B, 1), (length(theta_R) - 1) ÷ 2), solver, adtype=default_adtype(), return_sol=false, solve_kwargs=(;))
     T = size(B, 1)
     pairwise_indices2 = Tuple.(findall(wp .> 0))
     size_order = size(B, 3)  # 1 for no memory, 2^order for memory >= 1
@@ -176,7 +19,7 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
     function optimfunction2(u, p)
         Rt = similar(u, T)
         for t in 1:T
-            Rt[t] = exp(polynomial_trigo(t / T, u))
+            Rt[t] = exp(_linear_predictor(basis, t, u))
         end
         if size_order == 1
             return -pairwise_loglikelihood(Rt, B[:, :, 1], p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
@@ -184,12 +27,12 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
             return -pairwise_loglikelihood_memory(Rt, B, p[3], p[1], p[4], p[2]; n2t=n2t, pairwise_indices2=pairwise_indices2)
         end
     end
-    optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), Optimization.AutoForwardDiff())
+    optf2 = OptimizationFunction((u, p) -> optimfunction2(u, p), adtype)
     u0 = collect(theta_R)
 
     prob = OptimizationProblem(optf2, u0, [Y, n_pair, h, wp])
 
-    sol = solve(prob, solver; solkwargs...)
+    sol = solve(prob, solver; solve_kwargs...)
 
     if !successful_retcode(sol.retcode)
         @warn "sol.retcode = $(sol.retcode)"
@@ -198,9 +41,18 @@ function fit_mle_one_R!(theta_R, B, h, Y::AbstractArray{<:Real}, wp::AbstractMat
     theta_R[:] .= view(sol.u, :)
 end
 
+"""
+    update_R!(hmm::ARPeriodicHMMSpatial, θᴿ, γ, wp, Y, SituationIdx; n2t, basis, solver, adtype, maxiters = 10, solve_kwargs)
+
+M-step for the spatial ranges of the hidden states. For each state `k`, it weights the joint
+outcomes of each pair of sites by the posteriors `γ[:, k]`, refits `θᴿ[k, :]` with
+[`fit_mle_one_R!`](@ref), and writes the resulting ranges into `hmm.R`. `SituationIdx` gives the joint-outcome category of every
+pair and observation; `basis` is the design matrix of the range, trigonometric by default;
+`maxiters` caps the solver iterations. The states are refitted in parallel threads.
+"""
 function update_R!(hmm::ARPeriodicHMMSpatial,
     Range_θ::AbstractArray{N,2} where {N},
-    γ::AbstractMatrix, wp, Y, SituationIdx::AbstractArray{<:Integer,3}; n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer}, solver, maxiters=10)
+    γ::AbstractMatrix, wp, Y, SituationIdx::AbstractArray{<:Integer,3}; n2t=n_to_t(size(Y, 2), size(hmm, 3))::AbstractVector{<:Integer}, basis=trig_basis(size(hmm, 3), (size(Range_θ, 2) - 1) ÷ 2), solver, adtype=default_adtype(), maxiters=10, solve_kwargs=(;))
     @argcheck size(γ, 1) == size(Y, 2)
     N_obs = size(γ, 1)
     R = hmm.R
@@ -224,10 +76,11 @@ function update_R!(hmm::ARPeriodicHMMSpatial,
             end
         end
 
-        fit_mle_one_R!(view(Range_θ, k, :), B, h, Y, wp, n_pair; n2t=n2t, solver, maxiters=maxiters)
+        fit_mle_one_R!(view(Range_θ, k, :), B, h, Y, wp, n_pair; n2t=n2t, basis, solver, adtype,
+            solve_kwargs=merge((; maxiters), solve_kwargs))
     end
 
     for k in 1:K
-        R[k, :] .= [exp(polynomial_trigo(t / T, view(Range_θ, k, :))) for t = 1:T]
+        R[k, :] .= [exp(_linear_predictor(basis, t, view(Range_θ, k, :))) for t = 1:T]
     end
 end

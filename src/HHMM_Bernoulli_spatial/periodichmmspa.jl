@@ -2,30 +2,37 @@
 #-----------------equivalent to periodichmm.jl  ---------------------------#
 
 """
-    ARPeriodicHMMSpatial([a, ]A, R, B,h) -> ARPeriodicHMMSpatial
+    ARPeriodicHMMSpatial(a, A, R, B, h[, QMC_m = 30]) -> ARPeriodicHMMSpatial
 
-Build an Auto Regressive Periodic Hidden Markov Chain with Spatial Bernoulli emission `ARPeriodicHMMSpatial`.  
-If the initial state distribution `a` is not specified, it does not work. Please give initial state distribution.
+A periodic hidden Markov model whose emission in each state is a [`SpatialBernoulli`](@ref): `D`
+correlated binary sites, with autoregressive marginals.
 
-
-**Arguments**
-- `a::AbstractVector{T}`: initial probabilities vector.
-- `A::AbstractArray{T,3}`: transition matrix.
-- `B`: rain probabilities
-- `R` : range parameter
-- `h` distance matrix.
+- `a`: the initial state distribution, length `K`.
+- `A`: the `K × K × T` transition matrices; `A[:, :, t]` is the step leaving period index `t`.
+- `R`: the `K × T` spatial ranges.
+- `B`: the `K × T × D × 2^order` marginal success probabilities, given each site's memory
+  category.
+- `h`: the `D × D` distance matrix between sites.
+- `QMC_m`: the quasi-Monte-Carlo budget of the emission likelihood, `D * QMC_m` points of
+  `MvNormalCDF.mvnormcdf`; higher is more accurate and slower.
 """
-struct ARPeriodicHMMSpatial{T, AM} <: AbstractPeriodicHMM{Multivariate}
+struct ARPeriodicHMMSpatial{T,AM} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
     R::Array{T,2}
     B::Array{T,4}
     h::AM
+    QMC_m::Int
 end
 
+ARPeriodicHMMSpatial(a::AbstractVector, A::AbstractArray, R::AbstractArray, B::AbstractArray,
+    h::AbstractMatrix) = ARPeriodicHMMSpatial(a, A, R, B, h, 30)
+
 """
-    size(hmm::ARPeriodicHMMSpatial, dim=:)
-(K, D, T, number of memory)
+    size(hmm::ARPeriodicHMMSpatial, [dim]) -> Tuple | Int
+
+`(K, D, T, 2^order)`: the number of states, of sites, the period and the number of memory
+categories.
 """
 size(hmm::ARPeriodicHMMSpatial, dim=:) = (size(hmm.B, 1), size(hmm.B, 3), size(hmm.B, 2), size(hmm.B, 4))[dim]
 
@@ -34,42 +41,58 @@ function rand(rng::AbstractRNG,
     hmm::ARPeriodicHMMSpatial,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=rand(rng, Bool, size(hmm, 2), Int(log2(size(hmm, 4))))
+    Y_past=zeros(Bool, size(hmm, 2), Int(log2(size(hmm, 4))))
 )
     N = length(n2t)
     D = size(hmm, 2)
-    size_order = size(hmm, 4)
-    order = Int(log2(size_order))
+    order = Int(log2(size(hmm, 4)))
     y = Matrix{Bool}(undef, D, N)
 
-    @argcheck size(y_ini) == (D, order) "Initial condition is not correct: You give $(size(y_ini)) instead of $((D, order))"
+    _check_Y_past(hmm, Y_past)
 
-    if order == 0
-        for n in 1:N
-            t = n2t[n]
-            y[:, n] = rand(rng, SpatialBernoulli(hmm.R[z[n], t], hmm.B[z[n], t, :, 1], hmm.h))
-        end
-    else
-        # lag_cat encoding (matches bin2digit): lc = 1 + sum(y_{n-m} * 2^(order-m) for m in 1:order)
-        # most recent lag (m=1) carries the highest bit weight 2^(order-1)
-        # y_ini has shape (D, order): y_ini[d, m] = observation at lag m (column 1 = most recent)
-        y[:, 1:order] = y_ini
-        for n in order+1:N
-            t = n2t[n]
-            lambdas = map(1:D) do d
-                lc = 1
-                for m in 1:order
-                    lc += Int(y[d, n-m]) * 2^(order - m)
-                end
-                hmm.B[z[n], t, d, lc]
+    for n in 1:N
+        t = n2t[n]
+        # memory category of each site, encoded as `bin2digit` does: the most recent value
+        # carries the highest bit
+        lambdas = map(1:D) do d
+            lc = 1
+            for m in 1:order
+                lc += _previous(y, Y_past, d, n - m) * 2^(order - m)
             end
-            y[:, n] = rand(rng, SpatialBernoulli(hmm.R[z[n], t], lambdas, hmm.h))
+            hmm.B[z[n], t, d, lc]
         end
+        y[:, n] = rand(rng, SpatialBernoulli(hmm.R[z[n], t], lambdas, hmm.h))
     end
     return y
 end
 
 rand(hmm::ARPeriodicHMMSpatial, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
+
+"""
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, n2t; z_ini, Y_past, seq = false)
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...)
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, z, n2t; Y_past) -> Matrix{Bool}
+
+Draw a state path and the `D × N` observations along it; `seq = true` returns `(z, y)`. Given
+`z`, only the observations are drawn. Otherwise as for [`ARPeriodicHMM`](@ref).
+"""
+function rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+rand(hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer}; kwargs...) =
+    rand(GLOBAL_RNG, hmm, n2t; kwargs...)
+rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...) =
+    rand(rng, hmm, n_to_t(N, size(hmm, 3)); kwargs...)
+rand(hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwargs...)
 
 # ## peut être pas necessaire car déjà dans rand(rng, hmm, z, n2t, y_ini) pour les AbsractHMM
 # function rand(rng::AbstractRNG,

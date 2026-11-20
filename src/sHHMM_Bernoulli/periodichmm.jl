@@ -1,20 +1,3 @@
-"""
-    sARPeriodicHMM([a, ]A, B) -> sARPeriodicHMM
-
-Build an Auto Regressive Periodic Hidden Markov Chain `sARPeriodicHMM` with transition matrix `A(t)` and observation distributions `B(t)`.  
-If the initial state distribution `a` is not specified, a uniform distribution is assumed. 
-
-Observations distributions can be of different types (for example `Normal` and `Exponential`),  
-but they must be of the same dimension.
-
-Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probability of observing symbol `j` in state `i`.
-
-**Arguments**
-- `a::AbstractVector{T}`: initial probabilities vector.
-- `A::AbstractArray{T,3}`: transition matrix.
-- `B::AbstractMatrix{<:Distribution{F}}`: Y distributions.
-- or `B::AbstractMatrix`: emission matrix.
-"""
 # struct sARPeriodicHMM <: AbstractPeriodicHMM
 #     a::Vector
 #     A::Array
@@ -22,11 +5,27 @@ Alternatively, `B(t)` can be an emission matrix where `B[i,j,t]` is the probabil
 #     # sARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
 # end
 
-struct sARPeriodicHMM{F,T} <: AbstractPeriodicHMM{F}
+"""
+    sARPeriodicHMM([a, ]A, B) -> sARPeriodicHMM
+
+A periodic hidden Markov model with autoregressive emissions whose memory order differs from site
+to site.
+
+- `a`: the initial state distribution, length `K`; uniform if omitted.
+- `A`: the `K × K × T` transition matrices; `A[:, :, t]` is the step leaving period index `t`.
+- `B`: a `K × T × D` array of vectors: `B[k, t, j][h]` is the law of site `j` in state `k` at
+  period index `t` given its memory category `h`, so `length(B[k, t, j]) == 2^order_j`.
+"""
+struct sARPeriodicHMM{F,T,BB<:Array{<:AbstractVector{<:Distribution{F}},3}} <: HMMs.AbstractHMM
     a::Vector{T}
     A::Array{T,3}
-    B::Array{<:AbstractVector{<:Distribution{F}},3}
-    sARPeriodicHMM{F,T}(a, A, B) where {F,T} = assert_hmm(a, A, B) && new(a, A, B)
+    # a parameter for the same reason as `ARPeriodicHMM.B`: an abstractly typed field read
+    # once per observation is a dynamic dispatch per observation
+    B::BB
+    function sARPeriodicHMM{F,T}(a, A, B) where {F,T}
+        B = convert(Array, B)
+        return assert_hmm(a, A, B) && new{F,T,typeof(B)}(a, A, B)
+    end
 end
 
 sARPeriodicHMM(a::AbstractVector{T}, A::AbstractArray{T,3}, B::AbstractArray{<:AbstractVector{<:Distribution{F}},3}) where {F,T} =
@@ -58,32 +57,20 @@ function rand(
     hmm::sARPeriodicHMM,
     z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer};
-    y_ini=[rand(rng, Bernoulli(), Int(log2(size(hmm, 4)[j]))) for j in 1:size(hmm, 2)]
+    Y_past=[zeros(Bool, Int(log2(s))) for s in size(hmm, 4)]
 )
     D = size(hmm, 2)
     y = Matrix{Bool}(undef, D, length(z))
     orders = Int.(log2.(size(hmm, 4)))
-
-    # @argcheck length(n2t) == length(z)
-    # Check the initial conditions
-    @argcheck length(y_ini) == D "Initial condition size is not correct: You give $(length(y_ini)) instead of $(D)"
-    @argcheck length.(y_ini) == orders "Initial condition order is not correct: You give $(length.(y_ini)) instead of $(orders)"
-    previous_day_category = zeros(Int, D)
+    _check_Y_past(hmm, Y_past)
     for j in 1:D
         order = orders[j]
-        if order > 0
-            # One could do some specialized for each value of order e.g. for order = 1, we have simply previous_day_category = y[n-1,:].+1
-            y[j, 1:order] .= y_ini[j]
-            for n in eachindex(z)[order+1:end]
-                t = n2t[n] # periodic t
-                @views previous_day_category = bin2digit([y[j, n-m] for m = 1:order])
-                y[j, n] = rand(rng, hmm.B[z[n], t, j][previous_day_category])
+        for n in eachindex(z)
+            h = 1 # memory category of site j
+            for m = 1:order
+                h += _previous(y, Y_past[j], j, n - m) * 2^(order - m)
             end
-        else
-            for n in eachindex(z)
-                t = n2t[n] # periodic t
-                y[j, n] = rand(rng, hmm.B[z[n], t, j][1])
-            end
+            y[j, n] = rand(rng, hmm.B[z[n], n2t[n], j][h])
         end
     end
     return y
@@ -92,11 +79,40 @@ end
 rand(hmm::sARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 """
-    size(hmm, [dim]) -> Int | Tuple
-Return the number of states in `hmm`, the dimension of the Y and the length of the chain.
+    rand([rng, ]hmm::sARPeriodicHMM, n2t; z_ini, Y_past, seq = false)
+    rand([rng, ]hmm::sARPeriodicHMM, N::Integer; kwargs...)
+    rand([rng, ]hmm::sARPeriodicHMM, z, n2t; Y_past) -> Matrix{Bool}
+
+Draw a state path and the `D × N` observations along it; `seq = true` returns `(z, y)`.
+`Y_past[j]` holds the `order_j` observations of site `j` before `y`, in time order, zeros by
+default. Otherwise as for [`ARPeriodicHMM`](@ref).
+"""
+function rand(rng::AbstractRNG, hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+rand(hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...) =
+    rand(GLOBAL_RNG, hmm, n2t; kwargs...)
+rand(rng::AbstractRNG, hmm::sARPeriodicHMM, N::Integer; kwargs...) =
+    rand(rng, hmm, n_to_t(N, size(hmm, 3)); kwargs...)
+rand(hmm::sARPeriodicHMM, N::Integer; kwargs...) = rand(GLOBAL_RNG, hmm, N; kwargs...)
+
+"""
+    size(hmm::sARPeriodicHMM, [dim]) -> Tuple | Int
+
+`(K, D, T, sizes)`: the number of states, of sites, the period, and the number of memory
+categories of each site.
 """
 size(hmm::sARPeriodicHMM, dim=:) = (size(hmm.B, 1), size(hmm.B, 3), size(hmm.B, 2), length.(hmm.B[1, 1, :]))[dim]
-# K                # D             # T          # number of states
+
 copy(hmm::sARPeriodicHMM) = sARPeriodicHMM(copy(hmm.a), copy(hmm.A), deepcopy(hmm.B))
 
 function sort_wrt_ref!(hmm::sARPeriodicHMM, ref_station)

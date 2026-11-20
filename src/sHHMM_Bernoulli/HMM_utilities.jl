@@ -1,8 +1,9 @@
 """
     conditional_to(Y, Y_past::AbstractVector) -> Matrix{Int}
 
-Memory category `lag_cat[j, n]` for sites that each carry their own memory order: `Y` is `D × N`
-and `Y_past[j]` is the initial condition of site `j`, most recent value first.
+The memory category of every site, for sites that each carry their own memory order. `Y` is
+`D × N` and `Y_past[j]` is the initial condition of site `j`, its `order_j` values before `Y[j, :]` in
+time order.
 """
 function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector)
     D, N = size(Y)
@@ -13,7 +14,7 @@ function conditional_to(Y::AbstractMatrix{<:Bool}, Y_past::AbstractVector)
         for m = 1:order
             w = 2^(order - m)
             for n = 1:N
-                lag_cat[j, n] += w * (n > m ? Y[j, n-m] : y_past[m-n+1])
+                lag_cat[j, n] += w * (n > m ? Y[j, n-m] : y_past[order+n-m])
             end
         end
     end
@@ -28,7 +29,7 @@ function randARPeriodicHMM(rng::AbstractRNG, K, T, orders::AbstractVector; ref_s
     B_rand = [[Bernoulli(rand(rng)) for h in 1:size_order[j]] for k in 1:K, t in 1:T, j in 1:D] # completly random -> bad
     Q_rand = zeros(K, K, T)
     for t in 1:T
-        Q_rand[:, :, t] = PeriodicHiddenMarkovModels.randtransmat(rng, K) # completly random -> bad
+        Q_rand[:, :, t] = randtransmat(rng, K) # completly random -> bad
     end
     hmm_random = sARPeriodicHMM(ξ, Q_rand, B_rand)
     sort_wrt_ref!(hmm_random, ref_station)
@@ -38,9 +39,6 @@ end
 randARPeriodicHMM(K, T, order; ref_station=1, ξ=ones(K) / K) = randARPeriodicHMM(GLOBAL_RNG, K, T, order; ref_station=ref_station, ξ=ξ)
 
 function idx_observation_of_past_cat(lag_cat, size_order::AbstractVector)
-    # Matrix(T,D) of vector that give the index of data of same past.
-    # ie. size_order = 1 (no order) -> every data is in category 1
-    # ie size_order = 2 (order on previous day) -> idx_tj[t,j][1] = vector of index of data where previous day was dry, idx_tj[t,j][2] = index of data where previous day was wet
     D = size(lag_cat, 1)
     idx_j = Vector{Vector{Vector{Int}}}(undef, D)
     for j = 1:D

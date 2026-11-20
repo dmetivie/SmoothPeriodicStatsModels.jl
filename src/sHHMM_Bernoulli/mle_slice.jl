@@ -11,7 +11,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMa
     @argcheck size(Y, 2) == size(n2t, 1)
 
     # assign category for observation depending in the past Y
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     n_in_t = [findall(n2t .== t) for t = 1:T] #
 
@@ -22,7 +22,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMa
 
     for t = 1:T
         n_in_t_extanded = sort(vcat([n_in_t[tt] for tt in cycle.(t .+ Yₜ_extanted, T)]...)) # extend dataset
-        hist[t] = fit_mle_B_slice!(rng, @view(α[:, t]), hmm.B[:, t, :], Y[n_in_t_extanded, :], lag_cat[n_in_t_extanded, :]; kwargs...)
+        hist[t] = fit_mle_B_slice!(rng, @view(α[:, t]), @view(hmm.B[:, t, :]), Y[:, n_in_t_extanded], lag_cat[:, n_in_t_extanded]; kwargs...)
     end
 
     LL = zeros(N, K)
@@ -32,7 +32,7 @@ function fit_mle_all_slices(rng::AbstractRNG, hmm::sARPeriodicHMM, Y::AbstractMa
         LL[n, k] += log(α[k, n2t[n]])
     end
 
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+    robust && _clamp_inf!(LL)
 
     fit_mle_A_from_slice!(hmm.a, hmm.A, LL, n2t, robust=robust)
 
@@ -119,7 +119,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
     for k = 1:K
         LL[:, k] .+= log(α[k])
     end
-    robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+    robust && _clamp_inf!(LL)
     # get posterior of each category
     c[:] = logsumexp(LL, dims=2)
     γ[:, :] = exp.(LL .- c)
@@ -137,7 +137,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
             for j = 1:D
                 for m = 1:size_order[j]
                     if sum(γ[idx_j[j][m], k]) > 0
-                        B[k, j][m] = fit_mle(Bernoulli, Y[idx_j[j][m], j], γ[idx_j[j][m], k])
+                        B[k, j][m] = fit_mle(Bernoulli, Y[j, idx_j[j][m]], γ[idx_j[j][m], k])
                     else
                         B[k, j][m] = Bernoulli(1 / 2)
                     end
@@ -153,7 +153,7 @@ function fit_em_multiD!(α::AbstractVector, B::AbstractMatrix,
         for k = 1:K
             LL[:, k] .+= log(α[k])
         end
-        robust && replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        robust && _clamp_inf!(LL)
         # get posterior of each category
         c[:] = logsumexp(LL, dims=2)
         γ[:, :] = exp.(LL .- c)

@@ -22,6 +22,17 @@ function likelihoods!(L::AbstractMatrix, B::AbstractArray{F,4} where {F<:Univari
     end
 end
 
+"""
+    loglikelihoods!(LL, hmm::ARPeriodicHMM, Y, lag_cat; n2t)
+    loglikelihoods!(LL, B, Y, lag_cat; n2t)
+    loglikelihoods!(LL, B, Y; n2t)
+
+Fill `LL[n, k]` with the emission loglikelihood of observation `n` in state `k`, the
+distributions taken at period index `n2t[n]`. With `lag_cat`, `B` is `K × T × D × 2^order` and
+site `j` uses memory category `lag_cat[j, n]`; without it, `B[k, t]` is one distribution per
+state and period index, multivariate for a matrix `Y`, univariate for a vector `Y`. Also defined
+for `sARPeriodicHMM` and, with the keyword `QMC_m`, for `ARPeriodicHMMSpatial`.
+"""
 function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,2} where {F<:MultivariateDistribution}, Y::AbstractMatrix; n2t=n_to_t(size(Y, 2), size(B, 2))::AbstractVector{<:Integer})
     N, K = size(Y, 2), size(B, 1)
     @argcheck size(LL) == (N, K)
@@ -64,25 +75,41 @@ function loglikelihoods!(LL::AbstractMatrix, B::AbstractArray{F,4} where {F<:Uni
         end
     end
 end
+"""
+    loglikelihoods(hmm, Y, Y_past; n2t, robust = false) -> Matrix
+    loglikelihoods(hmm::ARPeriodicHMMSpatial, Y, Y_past; n2t, robust = false, QMC_m = hmm.QMC_m) -> Matrix
 
-
+The `N × K` matrix of emission loglikelihoods of the `D × N` observations `Y`, given the `D ×
+order` initial observations `Y_past`: entry `[n, k]` is that of observation `n` in state `k`.
+Defined for `ARPeriodicHMM`, `sARPeriodicHMM`, `ARPeriodicHMMSpatial` and their smooth versions.
+`robust = true` gives an observation that is impossible in every state the same finite value,
+`log(floatmin())`, in all of them, and caps `Inf` at `log(floatmax())`. For the spatial model the
+loglikelihood is a quasi-Monte-Carlo estimate with `QMC_m` points.
+"""
 function loglikelihoods(hmm::ARPeriodicHMM, Y::AbstractMatrix{<:Bool}, Y_past::AbstractMatrix{<:Bool}; robust = false, n2t=n_to_t(size(Y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
     N, K = size(Y, 2), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
-    lag_cat = conditional_to(Y, Y_past)
+    lag_cat = _lag_cat(hmm, Y, Y_past)
 
     loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t)
     if robust
-        replace!(LL, -Inf => nextfloat(-Inf), Inf => log(prevfloat(Inf)))
+        _clamp_inf!(LL)
     end
     return LL
 end
 
 # * Bayesian Criterion * #
 
+"""
+    complete_loglikelihood(hmm, y, y_past, z; n2t) -> Float64
+
+The joint loglikelihood of the observations `y` and the state path `z`. It sums the transition
+terms `log A[z[n], z[n+1], n2t[n]]` and the emission terms, given the `D × order` initial observations
+`y_past`. Defined for `ARPeriodicHMM`, `ARPeriodicHMMSpatial` and their smooth versions.
+"""
 function complete_loglikelihood(hmm::ARPeriodicHMM, y::AbstractMatrix, y_past::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
-    lag_cat = conditional_to(y, y_past)
+    lag_cat = _lag_cat(hmm, y, y_past)
     N = size(y, 2)
 
     return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) +
@@ -108,13 +135,23 @@ function emission_loglikelihood(B::AbstractArray{F,4} where {F<:UnivariateDistri
     return ll
 end
 
-function complete_loglikelihood(hmm::PeriodicHMM, y::AbstractMatrix, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer})
-    D, N = size(y)
+"""
+    nb_param(K, memory, d, D) -> Int
+    nb_param(K, orders::AbstractVector, d) -> Int
 
-    return sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:N-1) + sum(logpdf(product_distribution(hmm.B[CartesianIndex.(z[n], n2t[n], 1:D)]), view(y, :, n)) for n = 1:N)
-end
-
+The number of trigonometric coefficients of a `K`-state periodic HMM of degree `d`: `(2d+1)` per
+transition and per emission. `memory` is the order shared by the `D` sites; `orders` gives one
+order per site.
+"""
 nb_param(K, memory::Integer, d, D) = (2d + 1) * (K * 2^memory * D + K * (K - 1))
+
+"""
+    bic_sel(LL, K, memory, d, D, penalty) -> Real
+    bic_sel(LL, K, orders, d, penalty) -> Real
+
+The penalized loglikelihood `LL - penalty * nb_param(...) / 2`; `penalty = log(N)` gives
+`-BIC/2`, to maximize over models.
+"""
 bic_sel(LL, K, memory::Integer, d, D, penality) = LL - penality * nb_param(K, memory, d, D) / 2
 
 # function complete_loglikelihood(hmm::HMM, y::AbstractMatrix, z::AbstractVector)

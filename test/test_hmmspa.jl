@@ -2,6 +2,8 @@ using SmoothPeriodicStatsModels
 using Distributions
 using Optimization, OptimizationOptimJL, LineSearches
 using ForwardDiff
+import HiddenMarkovModels as HMMs
+const SPSM = SmoothPeriodicStatsModels
 import Random
 
 begin
@@ -110,30 +112,143 @@ end
     a = fill(1 / K, K)
     n2t = n_to_t(N, T)
 
-    model = Trig2ARPeriodicHMMSpatial(a, trans_θ, Bernoulli_θ, Range_θ, T, distance)
+    model = Trig2ARPeriodicHMMSpatial(a, trans_θ, Bernoulli_θ, Range_θ, T, distance; QMC_m=10)
     @test size(model) == (K, D, T, size_order)
+    @test model isa HMMs.AbstractHMM
+    @test model.QMC_m == 10
 
     # rand
     Y_past = rand(Bool, D, autoregressive_order)
-    z, Y = rand(model, n2t; seq=true, y_ini=Y_past)
+    z, Y = rand(model, n2t; seq=true, Y_past=Y_past)
 
     @test size(Y) == (D, N)
 
-    # initial guess close to truth (cheating) for fast convergence in test
-    thetaA = copy(trans_θ)
-    thetaB = copy(Bernoulli_θ)
-    thetaR = copy(Range_θ)
+    # --- the HiddenMarkovModels.jl interface
+    #
+    # The deterministic halves are asserted exactly; the emission cannot be, because it is a
+    # randomized quasi-Monte-Carlo estimate of a `D`-dimensional orthant probability. It is
+    # compared against the error `mvnormcdf` itself reports rather than a tolerance pulled from
+    # the air.
+    lag_cat = SPSM.conditional_to(Y, Y_past)
+    controls = SeasonalControls(n2t, lag_cat)
+    @test length(controls) == N
+    @test controls[7] == (n2t[7], lag_cat[:, 7], 7, n2t[6])
+    @test HMMs.initialization(model) == model.a
+    @test HMMs.transition_matrix(model, controls[5]) == model.A[:, :, n2t[4]]
+    @test_throws ArgumentError rand(model, controls)
 
-    hmm = Trig2ARPeriodicHMMSpatial(fill(1 / K, K), thetaA, thetaB, thetaR, T, distance)
+    # the model's own QMC budget is the default; the estimate is reproducible under a seed, and
+    # the state of the global generator is restored so the draws below do not change
+    let state = copy(Random.default_rng())
+        Random.seed!(3)
+        LL_default = SPSM.loglikelihoods(model, Y, Y_past; n2t=n2t)
+        Random.seed!(3)
+        @test LL_default == SPSM.loglikelihoods(model, Y, Y_past; n2t=n2t, QMC_m=model.QMC_m)
+        copy!(Random.default_rng(), state)
+    end
 
+    let n = 11, k = 1, t = n2t[n], obs = view(Y, :, n)
+        d = HMMs.obs_distributions(model, controls[n])[k]
+        val, err = pdf(d, obs; m=length(d) * 400, return_error=true)
+        LL1 = zeros(N, K)
+        SPSM.loglikelihoods!(LL1, model, Y, lag_cat; n2t=n2t, QMC_m=400)
+        # both estimate the same integral; agreement is bounded by the QMC error, not by `eps`
+        @test abs(exp(LL1[n, k]) - val) < 20 * max(err, 1e-12)
+    end
+
+    # `complete_loglikelihood` could never run before: `D, N = size(y)` was the wrong way round
+    # and `logpdf(::SpatialBernoulli, …)` did not exist.
+    @test isfinite(complete_loglikelihood(model, Y, Y_past, z; n2t=n2t, QMC_m=10))
+    # the marginal loglikelihood, on the evaluated model as on the smooth one
+    @test isfinite(loglikelihood(model, Y, Y_past; n2t=n2t))
+
+    # --- fitting, from a guess at the truth (cheating) so the test stays short
     solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
+    m0 = SmoothARPeriodicHMMSpatial(fill(1 / K, K), trans_θ, Bernoulli_θ, Range_θ, T,
+        distance; QMC_m=10)
+    ps0 = copy(parameters(m0))
+    @test_throws ArgumentError rand(m0, controls)
 
-    history, _, _, _ = fit_mle!(hmm, thetaA, thetaB, thetaR, Y, Y_past;
-        solver, n2t=n2t, maxiter=10, tol=1e-4, maxiters_R=20, display=:none, tdist=1.1, QMC_m=10)
+    m, history = fit_mle(m0, Y, Y_past; solver, n2t=n2t, maxiter=10, tol=1e-4, ps_iters=true,
+        maxiters_R=20, display=:none, tdist=1.1)
 
-    logtots = history["logtots"]
+    logtots = history.logtots
     println("logtots: ", logtots)
     @test length(logtots) > 0
     # loglikelihood should generally increase; allow small decreases (tolerance 1% of |logtot|)
+    # — the emission is a QMC estimate, so the path is genuinely noisy
     @test all(diff(logtots) .>= -1e-2 * abs(logtots[1]))
+
+    # the guess is not modified in place
+    @test parameters(m0) == ps0
+
+    # `fit_mle` returns the *best* iterate here, not the last, because of that noise; the start
+    # (iteration 0) is one of the candidates
+    @test 0 <= history.best_iteration <= length(logtots)
+    @test loglikelihood(history) >= maximum(logtots)
+    history.best_iteration > 0 && @test loglikelihood(history) == logtots[history.best_iteration]
+    @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
+
+    # the twin, the curves and the accessors all follow from the fitted coefficients
+    twin = ARPeriodicHMMSpatial(m)
+    @test twin isa ARPeriodicHMMSpatial
+    @test size(twin) == (K, D, T, size_order)
+    @test SPSM.assert_hmm(twin.a, twin.A, Bernoulli.(twin.B))
+    @test size(curve(m, :R)) == (K, T)
+    @test all(>(0), curve(m, :R))          # the log link keeps the range positive
+    @test curve(m, :R) == twin.R
+    @test_throws ArgumentError curve(m, :nosuch)
+    @test length(viterbi(m, Y, Y_past; n2t=n2t)) == N
+end
+
+@testset "ARPeriodicHMMSpatial: general bases and several sequences" begin
+    Random.seed!(99)
+    K, T, order = 2, 8, 0
+    sites = 1:5
+    h = distance[sites, sites]
+    D = length(sites)
+    θᴬ = 0.5 * (rand(K, K - 1, 3) .- 0.5)
+    θᴮ = rand(K, D, 2^order, 3) .- 0.5
+    θᴿ = rand(K, 3) .- 0.5
+    θᴿ[:, 1] = log.(100.0 .* (1:K))
+    a = fill(1 / K, K)
+
+    # the generic constructor and its trigonometric alias
+    hmm = ARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m=10)
+    trig = Trig2ARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿ, T, h; QMC_m=10)
+    @test hmm.A == trig.A && hmm.B == trig.B && hmm.R == trig.R
+
+    # a range on cyclic B-splines; they sum to one, so constant coefficients give a constant range
+    bR = CyclicBSplineBasis(T, 4)
+    θᴿs = repeat(log.(100.0 .* (1:K)), 1, nbasis(bR))
+    m0 = SmoothARPeriodicHMMSpatial(a, θᴬ, θᴮ, θᴿs, T, h; QMC_m=10, basis_R=bR)
+    @test curve(m0, :R) ≈ repeat(100.0 .* (1:K), 1, T)
+    @test m0.basis_R === bR
+    @test_throws ArgumentError degrees(m0)
+
+    G = 6
+    n2ts = [n_to_t(2T, T) for _ = 1:G]
+    Y_pasts = [zeros(Bool, D, order) for _ = 1:G]
+    Ys = [last(rand(ARPeriodicHMMSpatial(m0), n2ts[g]; Y_past=Y_pasts[g], seq=true)) for g = 1:G]
+
+    solver = Optim.LBFGS(linesearch=LineSearches.BackTracking())
+    before = copy(Random.default_rng())
+    m, history = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=3, maxiters_R=5, ps_iters=true)
+    @test m.basis_R === bR
+    @test 0 <= history.best_iteration <= length(history.logtots)
+    @test NamedTuple(parameters(m)) == history.ps_iters[history.best_iteration+1]
+    # From the same random state, a fit stopped at the best iteration follows the same path and
+    # returns the same model, initial probabilities included.
+    after = copy(Random.default_rng())
+    copy!(Random.default_rng(), before)
+    m_b, h_b = fit_mle(m0, Ys, Y_pasts; n2t=n2ts, solver, maxiter=history.best_iteration, maxiters_R=5)
+    copy!(Random.default_rng(), after)
+    @test h_b.logtots == history.logtots[1:history.best_iteration]
+    @test loglikelihood(h_b) == loglikelihood(history)
+    @test parameters(m_b) == parameters(m)
+    @test HMMs.initialization(m_b) == HMMs.initialization(m)
+    @test all(>(0), curve(m, :R))
+    @test isfinite(loglikelihood(m, Ys, Y_pasts; n2t=n2ts))
+    paths = viterbi(m, Ys, Y_pasts; n2t=n2ts)
+    @test length(paths) == G && all(length.(paths) .== 2T)
 end
