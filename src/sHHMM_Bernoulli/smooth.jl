@@ -38,7 +38,8 @@ function SmoothsARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     θᴮ::AbstractMatrix, T::Integer;
     basis_A=TrigBasis(T, _trig_order(size(θᴬ, 3), "θᴬ")),
     basis_B=TrigBasis(T, _trig_order(length(first(first(θᴮ))), "θᴮ")), cfg=nothing)
-    θᴬ, θᴮ = collect(float.(θᴬ)), deepcopy(θᴮ)
+    θᴬ = collect(float.(θᴬ))
+    θᴮ = map(θ -> [collect(float.(θh)) for θh in θ], θᴮ)   # a copy, in floats the fit can write
     stored = sARPeriodicHMM(a, θᴬ, θᴮ, T; basis_A, basis_B)
     return SmoothsARPeriodicHMM(θᴬ, θᴮ, stored, Int(T), basis_A, basis_B, cfg)
 end

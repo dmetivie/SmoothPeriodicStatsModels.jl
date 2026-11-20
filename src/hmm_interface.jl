@@ -213,8 +213,8 @@ Fill `logb[k]` with the loglikelihood of `obs` in state `k`, the orthant probabi
 [`loglikelihoods!`](@ref) computes, for one observation. For many observations,
 `loglikelihoods!` is faster: it runs over observations in parallel.
 """
-function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMMSpatial, obs,
-    c::Tuple; error_if_not_finite::Bool=true) where {T}
+function HMMs.obs_logdensities!(logb::AbstractVector{T}, hmm::ARPeriodicHMMSpatial,
+    obs::AbstractVector{<:Bool}, c::Tuple; error_if_not_finite::Bool=true) where {T}
     t, h = c[1], c[2]
     K, D = size(hmm.B, 1), size(hmm.B, 3)
     zerosvec = zeros(D)

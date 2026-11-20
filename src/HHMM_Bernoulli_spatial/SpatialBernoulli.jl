@@ -16,6 +16,7 @@ struct SpatialBernoulli{TR<:Real,AV<:AbstractVector,AM<:AbstractMatrix,AAM<:Abst
 end
 
 Base.length(d::SpatialBernoulli) = length(d.λ)
+Base.eltype(::Type{<:SpatialBernoulli}) = Bool   # draws are `Bool` vectors, which `pdf` takes
 
 function SpatialBernoulli(range, λ, h)
     C_GS = expkernel.(h; range=range)
@@ -42,12 +43,12 @@ end
 """
     pdf(d::SpatialBernoulli, y; m = 500length(d), return_error = false)
 
-The probability of the binary vector `y`: the probability that the latent Gaussian vector lies in
+The probability of the `Bool` vector `y`: the probability that the latent Gaussian vector lies in
 the orthant `y` selects, estimated by quasi-Monte-Carlo with `m` points
 (`MvNormalCDF.mvnormcdf`). `return_error = true` returns `(estimate, error)`. `logpdf` is its
 logarithm.
 """
-function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; m=length(d) * 500, return_error=false, a=zeros(length(d)), b=zeros(length(d)), finite_bounds=zeros(length(d)), zerosvec=fill(0, length(d)))
+function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Bool}; m=length(d) * 500, return_error=false, a=zeros(length(d)), b=zeros(length(d)), finite_bounds=zeros(length(d)), zerosvec=fill(0, length(d)))
     finite_bounds .= quantile.(Normal(), d.λ)
     a .= ifelse.(y .== 0, finite_bounds, -Inf)
     b .= ifelse.(y .== 1, finite_bounds, Inf)
@@ -62,10 +63,10 @@ end
 #
 # The orthant probability is a quasi-Monte-Carlo estimate, so taking the log afterwards is the
 # best available: there is no log-domain version of the integral.
-function Distributions._logpdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; kwargs...)
+function Distributions._logpdf(d::SpatialBernoulli, y::AbstractVector{<:Bool}; kwargs...)
     return log(pdf(d, y; kwargs...))
 end
 
-function Distributions.logpdf(d::SpatialBernoulli, y::AbstractVector{<:Real}; kwargs...)
+function Distributions.logpdf(d::SpatialBernoulli, y::AbstractVector{<:Bool}; kwargs...)
     return Distributions._logpdf(d, y; kwargs...)
 end

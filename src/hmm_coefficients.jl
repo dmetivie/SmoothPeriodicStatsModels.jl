@@ -16,13 +16,17 @@ function _linear_predictor(X::AbstractMatrix, t::Integer, θ::AbstractVector)
 end
 
 # Row `k` of `A[:, :, t]`: the softmax of `X[t, :] ⋅ θᴬ[k, l, :]` over `l < K`, state `K` the
-# reference. With one state, `A` is all ones.
+# reference, whose predictor is 0. With one state, `A` is all ones.
 function _transitions!(A::AbstractArray{<:Real,3}, θᴬ::AbstractArray{<:Real,3}, X::AbstractMatrix)
     K, T = size(A, 1), size(A, 3)
     for k = 1:K, t = 1:T
-        A[k, K, t] = 1
+        A[k, K, t] = 0
         for l = 1:K-1
-            A[k, l, t] = exp(_linear_predictor(X, t, view(θᴬ, k, l, :)))
+            A[k, l, t] = _linear_predictor(X, t, view(θᴬ, k, l, :))
+        end
+        shift = maximum(view(A, k, :, t))   # so that `exp` cannot overflow
+        for l = 1:K
+            A[k, l, t] = exp(A[k, l, t] - shift)
         end
         s = sum(view(A, k, :, t))
         for l = 1:K

@@ -1,4 +1,4 @@
-function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
     N, K, D = size(Y, 2), size(hmm, 1), size(hmm, 2)
     @argcheck size(L) == (N, K)
 
@@ -13,7 +13,7 @@ function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractM
     end
 end
 
-function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
     N, K, D, T = size(Y, 2), size(hmm, 1), size(hmm, 2), size(hmm, 3)
     @argcheck size(LL) == (N, K)
 
@@ -75,7 +75,7 @@ nb_param_HMMSpa(K, memory, d, D) =(2d + 1) * (K * 2^memory * D + K * (K - 1) + K
 The loglikelihood of the observations `y` and the state path `z` jointly. Each emission term is
 a quasi-Monte-Carlo estimate with `D * QMC_m` points; the observations are split across threads.
 """
-function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractArray, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractMatrix{<:Bool}, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
     D, N = size(y)
     lag_cat = _lag_cat(hmm, y, y_past)
 

@@ -52,12 +52,15 @@ function transition_residual(p, (A, K, X))
     T = size(A, 2)
     r = similar(p, K * T)
     for t = 1:T
-        e = ntuple(l -> exp(_linear_predictor(X, t, @view(pm[l, :]))), K - 1)
-        den = 1 + sum(e)
+        η = ntuple(l -> _linear_predictor(X, t, @view(pm[l, :])), K - 1)
+        shift = reduce(max, η; init=zero(eltype(r)))   # the reference's predictor is 0
+        e = map(x -> exp(x - shift), η)                 # so that `exp` cannot overflow
+        e_ref = exp(-shift)
+        den = e_ref + sum(e)
         for k = 1:K-1
             r[(t-1)*K+k] = e[k] / den - A[k, t]
         end
-        r[(t-1)*K+K] = 1 / den - A[K, t]
+        r[(t-1)*K+K] = e_ref / den - A[K, t]
     end
     return r
 end
