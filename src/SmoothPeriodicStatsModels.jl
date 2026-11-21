@@ -23,10 +23,13 @@ using LogExpFunctions: logsumexp, log1pexp, logistic
 
 # ## The time-varying parametrization
 # `θⱼ(t) = linkⱼ⁻¹(Bⱼ(t) · βⱼ)` — one basis and one link per named parameter — is the thing
-# every model here is built out of, and it lives in its own package. Imported by name rather
+# every model here is built out of, and it lives in its own package, TimeVaryingParameters.jl.
+# That package is not registered yet, so a copy of it is included as a submodule; its first
+# lines say where it comes from and how to switch back to the package. Imported by name rather
 # than wholesale: `TimeVaryingParameters` also exports `fit`, `coef` and `params`, and `fit` in
 # this namespace is PeriodicHiddenMarkovModels'.
-using TimeVaryingParameters: TimeVaryingParameters,
+include("TimeVaryingParameters/TimeVaryingParameters.jl")
+using .TimeVaryingParameters: TimeVaryingParameters,
     ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis,
     BSplineBasis, CyclicBSplineBasis, CombinedBasis,
     PeriodicDesign, linear_predictors, design_matrix, nbasis,

@@ -18,11 +18,12 @@ and two parameters of one model can have different bases.
 
 !!! note "TimeVaryingParameters.jl, not registered yet"
     The bases, with `ParamSpec` and `TimeVaryingFamily`, come from
-    [TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl), which
-    this package re-exports. That package is not registered yet: this package currently uses
-    the unregistered version on the `harden-for-spsm` branch of
-    [dmetivie/TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl),
-    declared in the `[sources]` section of its `Project.toml`.
+    [TimeVaryingParameters.jl](https://github.com/arnaud-ma/TimeVaryingParameters.jl), which
+    this package re-exports. That package is not registered yet, so this package includes a
+    copy of it, with the changes of
+    [pull request #10](https://github.com/arnaud-ma/TimeVaryingParameters.jl/pull/10), as the
+    submodule `SmoothPeriodicStatsModels.TimeVaryingParameters`. Take these names from this
+    package: types from a separately installed TimeVaryingParameters.jl are different types.
 
 ## The bases
 

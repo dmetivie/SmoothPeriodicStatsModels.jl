@@ -89,6 +89,8 @@ end
 
 makedocs(;
     modules = [SmoothPeriodicStatsModels, OptimizationExt],
+    # the vendored TimeVaryingParameters.jl: its docstrings are that package's, not this manual's
+    checkdocs_ignored_modules = [SmoothPeriodicStatsModels.TimeVaryingParameters],
     authors = "David Métivier <david.metivier@inrae.fr> and Caroline Cognot",
     repo = "https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/blob/{commit}{path}#{line}",
     sitename = "SmoothPeriodicStatsModels.jl",
