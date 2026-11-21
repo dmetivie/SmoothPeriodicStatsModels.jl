@@ -7,6 +7,7 @@ authors = ["David Métivier <david.metivier@inrae.fr> and Caroline Cognot"]
 projects = ["test", "benchmark"]
 
 [deps]
+ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"
 ArgCheck = "dce04be8-c92d-5529-be00-80e4d2c0e197"
 ComponentArrays = "b0b7db55-cfe3-40fc-9ded-d10e2dbeff66"
 Copulas = "ae264745-0b69-425e-9d9d-cf662c5eec93"
@@ -21,19 +22,16 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 SciMLBase = "0bca4576-84f4-4d90-8ffe-ffa030f20462"
 SpecialFunctions = "276daf66-3868-5448-9aa4-cd146d93841b"
 StatsAPI = "82ae8749-77ed-4fe6-ae5f-f523153014b0"
-TimeVaryingParameters = "c3441385-f229-4866-8817-bbca1834e4b8"
 
 [weakdeps]
 Optimization = "7f7a1694-90dd-40f0-9382-eb1efda571ba"
 SimpleNonlinearSolve = "727e6d20-b764-4bd8-a329-72de5adea6c7"
 
-[sources]
-TimeVaryingParameters = {url = "https://github.com/dmetivie/TimeVaryingParameters.jl", rev = "harden-for-spsm"}
-
 [extensions]
 SmoothPeriodicStatsModelsOptimizationExt = ["Optimization", "SimpleNonlinearSolve"]
 
 [compat]
+ADTypes = "1"
 ArgCheck = "2"
 ComponentArrays = "0.15"
 Copulas = "0.1, 1"
@@ -50,5 +48,4 @@ SciMLBase = "3"
 SimpleNonlinearSolve = "2"
 SpecialFunctions = "2"
 StatsAPI = "1.8"
-TimeVaryingParameters = "0.0.2"
 julia = "1.12"

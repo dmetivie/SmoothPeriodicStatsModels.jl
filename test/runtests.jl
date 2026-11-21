@@ -2105,3 +2105,6 @@ addprocs(2)
 end
 
 include("test_hmmspa.jl")
+
+# The tests of the vendored TimeVaryingParameters.jl, in `src/TimeVaryingParameters/`
+include("timevaryingparameters.jl")

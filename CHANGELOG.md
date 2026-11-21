@@ -24,9 +24,10 @@ of version 3 is not kept.
 - `fit_mle_all_slices` for `SmoothPeriodicHMM`: a starting point estimated from the data, one
   period index at a time.
 - Bases other than trigonometric polynomials, from
-  [TimeVaryingParameters.jl](https://github.com/dmetivie/TimeVaryingParameters.jl), such as
+  [TimeVaryingParameters.jl](https://github.com/arnaud-ma/TimeVaryingParameters.jl), such as
   `BSplineBasis` and `CyclicBSplineBasis`, and one basis and one link per parameter with
-  `ParamSpec`.
+  `ParamSpec`. That package is not registered yet, so a copy of it is included as the
+  submodule `SmoothPeriodicStatsModels.TimeVaryingParameters`.
 - Seasonal families. Mixture components and HMM emissions can be `Exponential`, `Rayleigh`,
   `Gamma`, `Weibull`, `Normal`, `LogNormal`, `Bernoulli` or `Poisson`, a mixture can hold
   components of different families, and `seasonal_family` declares more.
@@ -61,8 +62,8 @@ of version 3 is not kept.
   before `Y` in time order, for `rand`, the fits, the likelihoods and `viterbi` alike.
 - The fit of the spatial HMM returns the iterate with the highest loglikelihood,
   `history.best_iteration`, and the model holds its quasi-Monte-Carlo budget `QMC_m`.
-- New dependencies: TimeVaryingParameters.jl, HiddenMarkovModels.jl, LinkFunctions.jl,
-  ComponentArrays.jl and StatsAPI.jl. SciMLBase 3 is required.
+- New dependencies: HiddenMarkovModels.jl, LinkFunctions.jl, ComponentArrays.jl, StatsAPI.jl
+  and ADTypes.jl. SciMLBase 3 is required.
 
 ### Removed
 
