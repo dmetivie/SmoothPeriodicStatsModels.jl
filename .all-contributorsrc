@@ -1,5 +1,27 @@
 {
-  "projectName": "SmoothPeriodicStatsModels",
+  "projectName": "SmoothPeriodicStatsModels.jl",
   "projectOwner": "dmetivie",
-  "files": ["README.md", "docs/src/index.md"]
+  "repoType": "github",
+  "repoHost": "https://github.com",
+  "files": ["README.md", "docs/src/index.md"],
+  "imageSize": 100,
+  "contributorsPerLine": 7,
+  "commit": false,
+  "commitConvention": "none",
+  "contributors": [
+    {
+      "login": "dmetivie",
+      "name": "David Métivier",
+      "avatar_url": "https://avatars.githubusercontent.com/u/46794064?v=4",
+      "profile": "https://github.com/dmetivie",
+      "contributions": ["code", "doc", "research", "maintenance"]
+    },
+    {
+      "login": "caroline-cognot",
+      "name": "Caroline Cognot",
+      "avatar_url": "https://github.com/caroline-cognot.png",
+      "profile": "https://github.com/caroline-cognot",
+      "contributions": ["code", "research"]
+    }
+  ]
 }

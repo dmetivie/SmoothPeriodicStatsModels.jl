@@ -95,6 +95,14 @@ If you use SmoothPeriodicStatsModels.jl in your work, please cite using the refe
 <!-- ALL-CONTRIBUTORS-LIST:START - Do not remove or modify this section -->
 <!-- prettier-ignore-start -->
 <!-- markdownlint-disable -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/dmetivie"><img src="https://avatars.githubusercontent.com/u/46794064?v=4&s=100" width="100px;" alt="David Métivier"/><br /><sub><b>David Métivier</b></sub></a><br /><a href="https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/commits?author=dmetivie" title="Code">💻</a> <a href="https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/commits?author=dmetivie" title="Documentation">📖</a> <a href="#research-dmetivie" title="Research">🔬</a> <a href="#maintenance-dmetivie" title="Maintenance">🚧</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/caroline-cognot"><img src="https://github.com/caroline-cognot.png?size=100" width="100px;" alt="Caroline Cognot"/><br /><sub><b>Caroline Cognot</b></sub></a><br /><a href="https://github.com/dmetivie/SmoothPeriodicStatsModels.jl/commits?author=caroline-cognot" title="Code">💻</a> <a href="#research-caroline-cognot" title="Research">🔬</a></td>
+    </tr>
+  </tbody>
+</table>
 
 <!-- markdownlint-restore -->
 <!-- prettier-ignore-end -->

@@ -4,7 +4,24 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [4.0.0] - Unreleased
+## [4.0.1] - Unreleased
+
+### Added
+
+- `SmoothAR1(d, T; init)`: the starting point of the fit, in the forms the other models take,
+  shared by the hidden states or one per state. `init = parameters(m)` starts from another fit.
+- The AR(1) fits warn when `ρ(t)` reaches ±1. From a start far from the data, such as the zero
+  start on temperatures, the fit could end there silently, at a random walk.
+
+### Fixed
+
+- A start given as a coefficient vector, `init[k]` in `SmoothSeasonalMixture` and
+  `SmoothPeriodicHMM`, works for families with several parameters, as documented; it threw a
+  `NamedTuple` error.
+- A start given as a `ComponentArray` is read by name, like a `NamedTuple`, rather than by
+  position.
+
+## [4.0.0] - 2026-11-21
 
 Version 4 gives every model the same shape: a model holds its coefficients,
 `fit_mle(model, data...)` returns the fitted model and a history, and the hidden Markov models
