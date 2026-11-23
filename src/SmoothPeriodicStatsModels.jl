@@ -45,7 +45,7 @@ using LinkFunctions: IdentityLink, LogLink, LogitLink
 using StatsAPI: StatsAPI, StatisticalModel, fit, coef, dof, nobs, aic, aicc, bic
 # One named container per model that is also a plain `AbstractVector`, so the same object reads
 # as `ps.ρ` to a person and goes straight into an `OptimizationProblem`.
-using ComponentArrays: ComponentArray
+using ComponentArrays: ComponentArray, ComponentVector
 
 # Re-exported so that a seasonal family can be declared with nothing but this package loaded.
 export ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis

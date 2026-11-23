@@ -142,6 +142,10 @@ end
     @test component_range(m0, 2) == 2:7        # two parameters at degree 1
     @test nparams(m0) == 10                    # 7 for the components, 3 for the weights
     @test_throws ArgumentError component_range(m0, 3)
+    # a start given as coefficients, both of a two-parameter family's blocks end to end
+    θγ = [log(3.0), 0, 0, 0, 0, 0]
+    @test component_coefs(SmoothSeasonalMixture([Exponential => 0, Gamma => 1], T; init=[1.0, θγ]), 2) == θγ
+    @test_throws ArgumentError SmoothSeasonalMixture([Exponential => 0, Gamma => 1], T; init=[1.0, θγ[1:3]])
 
     m, h = fit_mle(m0, y; solver=SOLVER, n2t=n2t, maxiter=500, tol=1e-6)
     @test h.converged
@@ -692,6 +696,26 @@ end
     warm, _ = fit_mle(SmoothAR1(ar1_spec(d, T), T, seasonal_params(ar1_spec(d, T), vcat(θμ, θρ, θσ))),
         y, z; solver=SOLVER, n2t)
     @test maximum(abs, parameters(warm) - parameters(m)) < 1e-4
+
+    # `init`: constant starting curves, shared by the states or one per state
+    mi = SmoothAR1(d, T; init=(μ=5.0, ρ=0.7, σ=2.0))
+    @test curve(mi, :μ) ≈ fill(5.0, T) && curve(mi, :ρ) ≈ fill(0.7, T) && curve(mi, :σ) ≈ fill(2.0, T)
+    @test curve(SmoothAR1(d, T; K, init=(μ=5.0, ρ=0.7, σ=2.0)), :ρ) ≈ fill(0.7, K, T)
+    mk = SmoothAR1(d, T; K, init=[(μ=1.0, ρ=0.5, σ=1.0), (μ=-1.0, ρ=0.2, σ=2.0)])
+    @test curve(mk, :ρ) ≈ repeat([0.5, 0.2], 1, T)
+    θ1 = vcat(θμ[:, 1], θρ[:, 1], θσ[:, 1])             # the coefficients themselves, either way
+    @test collect(parameters(SmoothAR1(d, T; init=θ1))) == θ1
+    @test parameters(SmoothAR1(d, T; init=[θ1, (μ=1.0, ρ=0.5, σ=1.0)])).ρ[:, 1] == θρ[:, 1]
+    # a `ComponentArray` is read by name, so `parameters` of a fit starts another, one per state
+    @test collect(parameters(SmoothAR1(d, T; init=ComponentArray(σ=θσ[:, 1], μ=θμ[:, 1], ρ=θρ[:, 1])))) == θ1
+    @test collect(parameters(SmoothAR1(d, T; K, init=parameters(m)))) == collect(parameters(m))
+    @test_throws ArgumentError SmoothAR1(d, T; init=θ1[1:end-1])
+    @test_throws ArgumentError SmoothAR1(d, T; K=3, init=[(μ=1.0, ρ=0.5, σ=1.0), (μ=1.0, ρ=0.2, σ=1.0)])
+    @test_throws ArgumentError SmoothAR1(d, T; init=(μ=1.0, ρ=1.0, σ=1.0))   # ρ outside (-1, 1)
+    @test_throws ArgumentError SmoothAR1(d, T; init=(μ=1.0, ρ=0.5))          # σ missing
+    # a fit that ends at ρ = ±1 warns: here ρ's coefficient starts where the link rounds to 1
+    stuck = SmoothAR1(ar1_spec(d, T), T, seasonal_params(ar1_spec(d, T), [0, 0, 0, 50, 0, 0, 0, 0, 0]))
+    @test_logs (:warn, r"reaches ±1") match_mode = :any fit_mle(stuck, y; solver=SOLVER, n2t)
 
     @test_throws ArgumentError params(m, 3)          # ambiguous with K columns
     @test_throws ArgumentError fit_mle(m0, y; solver=SOLVER, n2t)   # the single-model method

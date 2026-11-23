@@ -1,10 +1,10 @@
 name = "SmoothPeriodicStatsModels"
 uuid = "3d8e1505-165e-443f-a184-83a230b5a9e5"
-version = "4.0.0"
+version = "4.1.0"
 authors = ["David Métivier <david.metivier@inrae.fr> and Caroline Cognot"]
 
 [workspace]
-projects = ["test", "benchmark"]
+projects = ["test", "benchmark", "docs"]
 
 [deps]
 ADTypes = "47edcb42-4c32-4615-8424-f2b9edc5f35b"

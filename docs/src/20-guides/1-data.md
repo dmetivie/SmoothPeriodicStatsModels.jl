@@ -54,18 +54,20 @@ In [`SmoothsARPeriodicHMM`](@ref) the series have different orders, so `Y_past` 
 
 ## [Starting values: `init`](@id starting-values)
 
-No model guesses the parameters of its laws: there are no default values. The models built from
+No model guesses the parameters of its laws from the data. The models built from
 families, [`SmoothSeasonalMixture`](@ref) and [`SmoothPeriodicHMM`](@ref), require `init`, one
-starting value per component or hidden state, in one of three forms:
+starting value per component or hidden state, in one of these forms:
 
 | `init[k]` | for | meaning |
 |:--|:--|:--|
 | a number | a family with one parameter | that parameter, `1.0` for `Exponential` is the scale ``\theta = 1`` |
 | a `NamedTuple` | any family | every parameter by name, `(α=1.5, θ=3.0)` for `Gamma` |
-| a vector | any family | the coefficients themselves, link scale, in the order of the family's parameters |
+| a `ComponentArray` | any family | the same, read by name: `ComponentArray(α=1.5, θ=[1.0, 0.2, 0.0])` |
+| a vector | any family | the coefficients themselves, link scale, every parameter's block end to end in the order of the family's parameters |
 
-A number or a `NamedTuple` gives a *flat* start, the parameter constant over the cycle: the link
-is inverted and the result put on the constant term, the harmonics being zero. For an
+In a `NamedTuple` or a `ComponentArray`, a parameter given as a vector is its coefficients, link
+scale, rather than a value. A parameter given as a number has a *flat* start, constant over the
+cycle: the link is inverted and the result put on the constant term, the harmonics being zero. For an
 `Exponential` with trigonometric polynomials of degree 1, `init = [1.0, 5.0]` gives the
 coefficients `[log(1.0), 0, 0]` and `[log(5.0), 0, 0]`. On a spline basis, every coefficient
 takes the inverted value instead, the spline functions summing to one (see
@@ -78,13 +80,23 @@ data show work well, for example a short and a long scale around the mean waitin
 dry and a wet state around the mean temperature. In an HMM with blocks, `init[k]` holds one
 value per block.
 
+[`SmoothAR1`](@ref) takes `init` too, optionally: one start, a `NamedTuple` or `ComponentArray`
+`(μ = …, ρ = …, σ = …)` or the coefficient vector, as in the table. With hidden states it is
+shared by all of them, and a vector of starts gives one per state. `parameters` of another AR(1)
+with the same parametrization is a start as well, one per state when it has a column per state:
+`SmoothAR1(d, T; K, init = parameters(m))` starts from the fit `m`. The states of an AR(1) are
+given, not estimated, so its starts need not differ. Give `init` on data far from zero, such as
+temperatures: from the zero start, the fit can push ``\rho`` to ``\pm 1``, where it cannot move
+any more, and it warns when that happens. A start such as `ρ = 0.7`,
+`μ = mean(y) * (1 - 0.7)` and `σ = std(y) * sqrt(1 - 0.7^2)` is near enough.
+
 What `init` does not cover starts from zero coefficients:
 
 | model | starts at | so that |
 |:--|:--|:--|
 | `SmoothSeasonalMixture` | weight coefficients zero | the weights are equal, ``1/K`` |
 | `SmoothPeriodicHMM` | `θᴬ = 0`, `a = fill(1/K, K)` | the transitions and the initial distribution are uniform |
-| `SmoothAR1(d, T)` | all coefficients zero | ``\mu = 0``, ``\rho = 0``, ``\sigma = 1`` |
+| `SmoothAR1(d, T)` without `init` | all coefficients zero | ``\mu = 0``, ``\rho = 0``, ``\sigma = 1`` |
 
 The Bernoulli HMMs take no `init`: they are built from their coefficients, `θᴬ` and `θᴮ`, which
 are the start of a fit. The [fitting guide](@ref fitting-guide) lists ways to choose a starting

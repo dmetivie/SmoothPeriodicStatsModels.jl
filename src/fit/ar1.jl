@@ -21,6 +21,8 @@ starting from `parameters(m)`, whose layout `m.spec` describes.
 
 Returns a `SmoothAR1` of the same shape and a [`FitHistory`](@ref). `AR1(m)` is the evaluated
 model to simulate from, `curve(m, :σ)` the seasonal curve, `parameters(m).σ` the coefficients.
+Warns when the fitted `ρ(t)` reaches ±1, the sign of a start too far from the data: build `m`
+with `init` (see [`SmoothAR1`](@ref)).
 """
 function fit_mle(m::SmoothAR1, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
@@ -39,6 +41,7 @@ end
 # would be built at run time on every fit.
 function _ar1_fitted(m::SmoothAR1, sol, N::Integer)
     fitted = SmoothAR1(m.spec, m.nT, _params_like(m.spec, parameters(m), sol.u))
+    _warn_if_unit_root(fitted)
     history = FitHistory(;
         converged=successful_retcode(sol.retcode),
         iterations=sol.stats.iterations,
@@ -57,7 +60,8 @@ Maximum likelihood fit of one periodic AR(1) per hidden state, given the state s
 `SmoothAR1(d, T)` rather than `SmoothAR1(d, T; K)` starts every state from the same column.
 
 `history.retcode` is the `K` return codes. Pass `ensemble = EnsembleThreads()` to run the `K`
-fits in parallel. A state that `z` never visits has no data and keeps its starting value.
+fits in parallel. A state that `z` never visits has no data and keeps its starting value. Warns,
+naming the states, when a fitted `ρ(t)` reaches ±1.
 """
 function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
@@ -84,6 +88,7 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
     # The states partition the transitions, so the loglikelihoods add up.
     N = sum(sum(s.N) for s in stats)
     fitted = SmoothAR1(spec, T, seasonal_params(spec, θ))
+    _warn_if_unit_root(fitted)
     history = FitHistory(;
         converged=all(s -> successful_retcode(s.retcode), sol.u),
         iterations=maximum(s -> s.stats.iterations, sol.u),
@@ -104,6 +109,21 @@ function StatsAPI.fit(::Type{SeasonalFit}, m::SmoothAR1, y::AbstractVector, args
     # `nobs` of a conditional likelihood is the number of terms in it, not the number of points.
     N = sum(ar1_sufficient_statistics(y, n2t, m.nT).N)
     return SeasonalFit(fitted, history, N, loglikelihood(history))
+end
+
+# `ρ = ±1` to machine precision. From a start far from the data the optimizer's first steps can
+# push `ρ`'s link to where it rounds to ±1; its gradient is then zero, the fit cannot come back,
+# and it reports success with a random walk. A warning, since the solver does not see it.
+function _warn_if_unit_root(m::SmoothAR1)
+    ρ = curve(m, :ρ)
+    at_one(r) = abs(r) >= 1 - 1e-8
+    if ρ isa AbstractMatrix
+        states = [k for k in axes(ρ, 1) if any(at_one, view(ρ, k, :))]
+        isempty(states) || @warn "AR(1) fit: ρ(t) reaches ±1 in state(s) $states, so the fitted process is a random walk there. The start was probably too far from the data: pass one nearer it, as `SmoothAR1(d, T; K, init = (μ = …, ρ = …, σ = …))`."
+    elseif any(at_one, ρ)
+        @warn "AR(1) fit: ρ(t) reaches ±1, so the fitted process is a random walk there. The start was probably too far from the data: pass one nearer it, as `SmoothAR1(d, T; init = (μ = …, ρ = …, σ = …))`."
+    end
+    return nothing
 end
 
 # The model supplies the number of states when it has them, as `hmm` does for the HMM fits.

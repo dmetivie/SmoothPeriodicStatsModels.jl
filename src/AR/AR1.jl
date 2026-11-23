@@ -187,7 +187,8 @@ ar1_spec(d::Integer, T::Integer) = ParamSpec(
 )
 
 """
-    SmoothAR1(d, T; K = nothing)
+    SmoothAR1(d, T; K = nothing, init = nothing)
+    SmoothAR1(spec::ParamSpec, nT; K = nothing, init = nothing)
     SmoothAR1(spec::ParamSpec, nT, ps)
 
 A periodic AR(1) whose three parameters `μ`, `ρ`, `σ` are smooth functions of the period index.
@@ -196,6 +197,7 @@ It holds the parametrization `spec`, the period `nT` and the coefficients `ps`, 
 
 ```julia
 m  = SmoothAR1(2, 366)                 # degree 2 over a period of 366, coefficients zero
+m  = SmoothAR1(2, 366; init = (μ = 5.0, ρ = 0.7, σ = 2.0))   # constant starting curves
 ps = parameters(m)                     # ComponentArray(μ = …, ρ = …, σ = …)
 ps.ρ .= θρ                             # set one parameter's coefficients
 
@@ -208,6 +210,14 @@ rand(m, 1000; y₁ = 0.0)                # simulate
 `K` gives one column of coefficients per hidden state: `parameters(m).ρ` is then `(2d+1) × K`
 and `curve(m, :ρ)` is `K × T`. Pass `spec` to use a parametrization other than
 [`ar1_spec`](@ref); `σ`'s link must be `LogLink()`.
+
+`init` is the starting point of a fit, in the forms the other models take: a `NamedTuple` or
+`ComponentArray` `(μ = …, ρ = …, σ = …)`, read by name, whose values are numbers, giving
+constant curves, or coefficient vectors; or the plain coefficient vector, the three blocks end to
+end. One start is shared by every hidden state, and a vector of them gives one per state;
+`parameters` of another model with `K` columns gives one per state too. Without it every
+coefficient is zero (`μ = 0`, `ρ = 0`, `σ = 1`), a poor start for data far from zero, such as
+temperatures.
 """
 struct SmoothAR1{S<:ParamSpec,P<:AbstractVector}
     spec::S
@@ -215,10 +225,41 @@ struct SmoothAR1{S<:ParamSpec,P<:AbstractVector}
     ps::P
 end
 
-SmoothAR1(spec::ParamSpec, nT::Integer; K=nothing) =
-    SmoothAR1(spec, Int(nT), K === nothing ? seasonal_params(spec) : seasonal_params(spec, K))
+SmoothAR1(spec::ParamSpec, nT::Integer; K=nothing, init=nothing) =
+    SmoothAR1(spec, Int(nT), _ar1_start(spec, K, init))
 
 SmoothAR1(d::Integer, T::Integer; kwargs...) = SmoothAR1(ar1_spec(d, T), T; kwargs...)
+
+# The coefficients a model starts from: zero, `init` for every state, or `init[k]` for state `k`.
+# One start is a `NamedTuple` or a vector of numbers; any other vector holds one start per state.
+_ar1_start(spec::ParamSpec, K, ::Nothing) = K === nothing ? seasonal_params(spec) : seasonal_params(spec, K)
+function _ar1_start(spec::ParamSpec, K, init::Union{NamedTuple,AbstractVector{<:Real}})
+    θ = _ar1_init_coefs(spec, init)
+    return K === nothing ? seasonal_params(spec, θ) : seasonal_params(spec, θ, K)
+end
+function _ar1_start(spec::ParamSpec, K, init::AbstractVector)
+    @argcheck !isempty(init) && (K === nothing || K == length(init)) "`init` gives $(length(init)) starting points for K = $K states"
+    return seasonal_params(spec, reduce(hcat, [_ar1_init_coefs(spec, v) for v in init]))
+end
+# `parameters` of another AR(1), read by name: one start, or one per state when its blocks are
+# matrices with a column per state.
+function _ar1_start(spec::ParamSpec, K, init::ComponentVector{<:Real})
+    @argcheck Set(propertynames(init)) == Set(paramnames(spec)) "`init` must name exactly $(paramnames(spec)), got $(propertynames(init))"
+    getproperty(init, first(paramnames(spec))) isa AbstractMatrix || return _ar1_start(spec, K, _named_blocks(init))
+    return _ar1_start(spec, K, [column(spec, init, k) for k = 1:ncolumns(spec, init)])
+end
+_ar1_start(::ParamSpec, _, init) = _bad_ar1_init(init)
+
+function _ar1_init_coefs(spec::ParamSpec, v::Union{NamedTuple,AbstractVector{<:Real}})
+    θ = _component_start(spec, v)
+    # a value outside its parameter's domain, such as `ρ = 1` or `σ = 0`, has no finite coefficient
+    @argcheck all(isfinite, θ) "`init = $v` gives a non-finite coefficient: ρ must lie in (-1, 1) and σ be positive"
+    return θ
+end
+_ar1_init_coefs(::ParamSpec, v) = _bad_ar1_init(v)
+
+_bad_ar1_init(v) = throw(ArgumentError(
+    "a start in `init` is a NamedTuple `(μ = …, ρ = …, σ = …)` or a coefficient vector, and `init` is one start or a vector of them, one per state; got a $(typeof(v))"))
 
 parameters(m::SmoothAR1) = m.ps
 

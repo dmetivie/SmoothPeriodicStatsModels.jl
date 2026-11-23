@@ -238,10 +238,18 @@ SmoothSeasonalMixture(pairs::AbstractVector{<:Pair}, T::Integer; dα::Integer=1,
     SmoothSeasonalMixture([seasonal_family(D, TrigBasis(T, d)) for (D, d) in pairs],
         mixture_weight_spec(T, dα), T; init)
 
-# A scalar start names the only parameter, a `NamedTuple` names them all, a vector *is* the
-# coefficient block. All three go through `initial_coefficients`, which inverts each link and
-# leaves the harmonics at zero — the flat start every guess in this package uses.
+# A scalar start names the only parameter, a `NamedTuple` names them all, a `ComponentArray` too
+# (read by name, as the `NamedTuple` of its blocks), and a plain vector of numbers *is* the
+# coefficients, every parameter's block end to end. A number goes through `initial_coefficients`,
+# which inverts the link and leaves the harmonics at zero — the flat start every guess in this
+# package uses; a vector is that parameter's coefficients.
 _component_start(spec::ParamSpec, v::NamedTuple) = initial_coefficients(spec; v...)
+_component_start(spec::ParamSpec, v::ComponentVector{<:Real}) = _component_start(spec, _named_blocks(v))
+function _component_start(spec::ParamSpec, v::AbstractVector{<:Real})
+    @argcheck length(v) == ncoef(spec) "a start given as coefficients needs $(ncoef(spec)) of them, the blocks of $(paramnames(spec)) end to end; got $(length(v))"
+    return Vector{Float64}(v)
+end
+_named_blocks(v::ComponentVector) = NamedTuple{propertynames(v)}(map(n -> getproperty(v, n), propertynames(v)))
 _component_start(spec::ParamSpec, v) =
     initial_coefficients(spec; NamedTuple{paramnames(spec)}((v,))...)
 
