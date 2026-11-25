@@ -8,7 +8,8 @@ Documented functions and types that are not exported: the building blocks of the
 reading or extending the code. They may change without notice.
 
 ```@autodocs
-Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)]
+Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt),
+    Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsSimpleNonlinearSolveExt)]
 Filter = t -> !(applicable(nameof, t) && Base.isexported(SmoothPeriodicStatsModels, nameof(t))) &&
     !(t in (rand, SmoothPeriodicStatsModels.HMMs.transition_matrix,
     SmoothPeriodicStatsModels.HMMs.obs_distributions))

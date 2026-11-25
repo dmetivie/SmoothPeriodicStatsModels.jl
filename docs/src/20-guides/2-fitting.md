@@ -5,13 +5,15 @@ CurrentModule = SmoothPeriodicStatsModels
 ```
 
 Fitting needs the [Optimization.jl](https://docs.sciml.ai/Optimization/stable/) ecosystem. The
-models, simulation and likelihoods work without it, so the fitting methods live in a package
-extension, which loads once these two packages are loaded:
+models, simulation and likelihoods work without it, so the fitting methods live in two package
+extensions, each loaded with its package:
 
 ```julia
-using Optimization          # the interface every fit solves through
-using SimpleNonlinearSolve  # the default solver of fit_θ, fit_θ!, fit_θᴬ! and fit_θᴮ!
+using Optimization          # every fit
+using SimpleNonlinearSolve  # fit_θ, fit_θ!, fit_θᴬ!, fit_θᴮ! and initialize
 ```
+
+Without them, a fit raises an error that names the package to load.
 
 !!! warning "Every fit needs an explicit `solver`"
     There is no default optimization algorithm: every fit takes one as `solver`, from the
@@ -25,9 +27,10 @@ using SimpleNonlinearSolve  # the default solver of fit_θ, fit_θ!, fit_θᴬ! 
 
 `SimpleNonlinearSolve` serves only `fit_θ` and its variants, which fit coefficients by least
 squares to curves already evaluated at each period index, as in the slice method of the
-Bernoulli HMMs; they keep `SimpleGaussNewton()` as their default. It also brings ForwardDiff.jl,
-which the default automatic differentiation, `adtype = AutoForwardDiff()`, uses. The fits
-themselves maximize likelihoods through Optimization.jl.
+Bernoulli HMMs; they keep `SimpleGaussNewton()` as their default. ForwardDiff.jl, which the
+default automatic differentiation, `adtype = AutoForwardDiff()`, uses, is a dependency of this
+package. The fits themselves maximize likelihoods through Optimization.jl; `adtype =
+NoAutoDiff()` fits without derivatives, with a derivative-free `solver`.
 
 Any solver or automatic differentiation backend of Optimization.jl works, once its package is
 loaded:

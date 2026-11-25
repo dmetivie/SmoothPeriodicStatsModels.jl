@@ -35,9 +35,9 @@ import Pkg
 Pkg.add("SmoothPeriodicStatsModels")
 ```
 
-The fitting routines need Optimization.jl and SimpleNonlinearSolve, `using Optimization,
-SimpleNonlinearSolve`, and every fit takes its optimization algorithm explicitly as `solver`,
-from the package of your choice.
+The fitting routines need Optimization.jl, `using Optimization`, and every fit takes its
+optimization algorithm explicitly as `solver`, from the package of your choice; the coefficient
+fits `fit_θ*` need SimpleNonlinearSolve.
 
 ## Example
 

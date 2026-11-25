@@ -4,7 +4,51 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the versions follow
 [Semantic Versioning](https://semver.org/).
 
-## [4.0.1] - Unreleased
+## [4.2.0] - Unreleased
+
+Additive: every call of 4.1 works as before and gives the same numbers. The new forms are those
+5.0 keeps; the [4.2 to 5.0 guide](https://dmetivie.github.io/SmoothPeriodicStatsModels.jl/dev/20-guides/6-api-4.2-to-5.0/)
+lists them.
+
+### Added
+
+- `OneHot(z, K)`, a state sequence as an `N × K` matrix of state weights, and typed weights:
+  `fit_mle(m::SmoothAR1, y, W)` with `OneHot`, an `N × K` matrix, or for one state a vector of
+  floats; `loglikelihood(m::SmoothAR1, y, OneHot(z, K))`. The mixture takes an `N × 1` matrix
+  or `OneHot(z, 1)`, and refuses more columns, its components not being states.
+- `past = (; Y, z)`, the observations before the first and the state of the step before: in
+  the AR(1) fits, likelihoods and `rand`, and in the HMM fits, likelihoods, `viterbi` and `rand`
+  (`fit_mle(m, Y; past)`, `fit_mle(m, Ys; past)`, `fit(SeasonalFit, m, Y; past)`). `rand` and
+  `viterbi` read `past.z`; the fits and the marginal loglikelihood refuse it.
+- `seq_ends` for the HMM fits, likelihoods and `viterbi`: several sequences end to end.
+- `loglikelihoods(m, y; n2t, past)`, one column per hidden state, for `SmoothAR1`, `AR1`, the
+  mixture (one column), `SmoothDistribution`, and the HMMs without `Y_past`.
+- The keyword `rand`: `rand(m, n2t; z, past)` for the AR(1) and the mixture, and for the HMMs,
+  where it returns `(; z, Y)`. `rand(::AR1, N)` of a model with one process per state no longer
+  throws a `MethodError`.
+- `SmoothDistribution(D, T; K, season, init)`: a seasonal distribution per hidden state, any law
+  with a `seasonal_family` declaration, with `curve`, `m(t; state)`, `loglikelihoods`,
+  `loglikelihood`, `rand`, `fit_mle` (with `penalty` and `adtype`) and `fit(SeasonalFit, …)`.
+  Its fit returns the model alone and averages the objective of each state.
+- `SmoothARPeriodicHMM(K, D, T; memory, season)`, a model of a given size with equal states.
+- `initialize(m0, Y; past, n2t, method = SliceEM(window, n_random, dirichlet))`, the slice
+  starting point of the Bernoulli HMM, and of `SmoothPeriodicHMM`.
+- `fit_mle(m::SmoothARPeriodicHMM, Y, W; past, n2t, fixed = (:A,))`, the fit given state
+  weights; from a model of zero coefficients its emissions are those of `fit_mle_RO`.
+- `curve(m, :A)` and `curve(m, :p)` for the Bernoulli HMMs, with `times` and `state`.
+- `coef(m)` for every model, the same object as `parameters(m)`.
+- `rng` for the spatial HMM's likelihoods, `viterbi`, `complete_loglikelihood` and fit, which
+  makes them reproducible whatever the number of threads.
+- `adtype = NoAutoDiff()` in `solve_unconstrained`, for a derivative-free solver.
+
+### Changed
+
+- The fits load with `using Optimization` alone; `fit_θ`, its variants and `initialize` with
+  `using SimpleNonlinearSolve`, in an extension of their own. ForwardDiff is a dependency.
+- A fit called without its extension raises an error naming the package to load, and a fit
+  with wrong arguments once it is loaded a `MethodError`.
+
+## [4.1.0] - 2026-11-23
 
 ### Added
 

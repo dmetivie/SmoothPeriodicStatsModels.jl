@@ -1,5 +1,5 @@
 using SmoothPeriodicStatsModels
-# The fitting routines live in a package extension, loaded by these four packages.
+# The fitting routines live in two package extensions, loaded by Optimization and SimpleNonlinearSolve.
 using Optimization, OptimizationOptimJL, SimpleNonlinearSolve, ForwardDiff
 using Documenter
 using DocumenterLandingPage   # renders the hero and feature tiles of index.md
@@ -20,6 +20,7 @@ GITHUB = "https://github.com/dmetivie/SmoothPeriodicStatsModels.jl"
 DocMeta.setdocmeta!(SmoothPeriodicStatsModels, :DocTestSetup, :(using SmoothPeriodicStatsModels); recursive = true)
 
 const OptimizationExt = Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt)
+const NonlinearSolveExt = Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsSimpleNonlinearSolveExt)
 
 # Tutorials: the Literate scripts in `examples/`, rendered as pages of `docs/src/10-tutorials/`
 const tutorials_jl = joinpath(dirname(@__DIR__), "examples")
@@ -88,7 +89,7 @@ function list_pages()
 end
 
 makedocs(;
-    modules = [SmoothPeriodicStatsModels, OptimizationExt],
+    modules = [SmoothPeriodicStatsModels, OptimizationExt, NonlinearSolveExt],
     # the vendored TimeVaryingParameters.jl: its docstrings are that package's, not this manual's
     checkdocs_ignored_modules = [SmoothPeriodicStatsModels.TimeVaryingParameters],
     authors = "David Métivier <david.metivier@inrae.fr> and Caroline Cognot",

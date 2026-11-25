@@ -175,13 +175,13 @@ import Pkg
 Pkg.add("SmoothPeriodicStatsModels")
 ```
 
-The models, simulation and likelihoods need nothing else. Fitting needs Optimization.jl and
-SimpleNonlinearSolve, and the package of the optimization algorithm every fit takes as
-`solver`, for example OptimizationOptimJL for `LBFGS()`:
+The models, simulation and likelihoods need nothing else. Fitting needs Optimization.jl, and
+the package of the optimization algorithm every fit takes as `solver`, for example
+OptimizationOptimJL for `LBFGS()`; the coefficient fits `fit_θ*` need SimpleNonlinearSolve:
 
 ```julia
-using Optimization, SimpleNonlinearSolve
-using OptimizationOptimJL   # solver = LBFGS()
+using Optimization, OptimizationOptimJL   # every fit, with solver = LBFGS()
+using SimpleNonlinearSolve                # fit_θ, fit_θ!, fit_θᴬ!, fit_θᴮ!, initialize
 ```
 
 The [fitting guide](@ref fitting-guide) says more.
