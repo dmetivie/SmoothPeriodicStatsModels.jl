@@ -82,29 +82,28 @@ end
 rand(hmm::ARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 """
+    rand([rng, ]hmm::ARPeriodicHMM, n2t; z = nothing, past = nothing) -> (; z, Y)
     rand([rng, ]hmm::ARPeriodicHMM, n2t; z_ini, Y_past, seq = false)
     rand([rng, ]hmm::ARPeriodicHMM, N::Integer; kwargs...)
     rand([rng, ]hmm::ARPeriodicHMM, z, n2t; Y_past) -> Matrix{Bool}
 
-Draw a state path and the `D × N` observations along it: `seq = true` returns `(z, y)`,
-otherwise just `y`. `n2t[n]` is the period index of step `n`; a length `N` gives
-`n2t = n_to_t(N, T)`. Given a state path `z`, only the observations are drawn.
+Draw a state path and the `D × N` observations along it. `n2t[n]` is the period index of step
+`n`; a length `N` gives `n2t = n_to_t(N, T)`. The step from `n-1` to `n` uses
+`A[:, :, n2t[n-1]]`.
 
-`z_ini` is the state of the first observation, drawn from `hmm.a` by default. `Y_past` is the
-`D × order` initial condition, all zeros by default: the `order` observations before `y`, in
-time order, so that `[Y_past y]` is the simulated series. It is the `Y_past` that `fit_mle`,
-`loglikelihood` and `viterbi` take with `y`. The step from `n-1` to `n` uses `A[:, :, n2t[n-1]]`.
+With the keywords `z` or `past`, the result is the `NamedTuple` `(; z, Y)`.
+`past = (; Y = Y_past, z = k₀)` gives the observations before the first, at least as many as
+the memory, zeros by default, and the state of the step before the first: `z[1]` is then drawn
+from `A[k₀, :, mod1(n2t[1] - 1, T)]` rather than from `hmm.a`. Given `z`, only `Y` is drawn.
+
+The positional form returns `(z, y)` with `seq = true`, otherwise just `y`. `z_ini` is the state
+of the first observation, drawn from `hmm.a` by default, and `Y_past` the `D × order` initial
+condition, all zeros by default: the `order` observations before `y`, in time order, so that
+`[Y_past y]` is the simulated series. Given a state path `z`, only the observations are drawn.
 """
-function rand(rng::AbstractRNG, hmm::ARPeriodicHMM, n2t::AbstractVector{<:Integer};
-    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
-    N = length(n2t)
-    z = zeros(Int, N)
-    (N >= 1) && (z[1] = z_ini)
-    for n = 2:N
-        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
-    end
-    y = rand(rng, hmm, z, n2t; kwargs...)
-    return seq ? (z, y) : y
+function rand(rng::AbstractRNG, hmm::ARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...)
+    _keyword_rand(kwargs) && return _rand_keyword(rng, hmm, n2t; kwargs...)
+    return _rand_sequence(rng, hmm, n2t; kwargs...)
 end
 
 rand(hmm::ARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...) =

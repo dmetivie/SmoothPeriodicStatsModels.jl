@@ -114,14 +114,22 @@ E-step, so that an observation impossible in every state does not stop the fit.
 
 The emission fit of each state leaves out the observations whose posterior probability in that
 state is at most `1e-10`.
+
+With `seq_ends`, `Y` is several independent sequences end to end. `past` is checked and unused,
+the model having no memory; a `past.z` is refused, every sequence starting from the fitted
+initial distribution.
 """
 function fit_mle(m::SmoothPeriodicHMM, Y::AbstractVecOrMat{<:Real};
-    n2t=n_to_t(_ncols(Y), m.nT)::AbstractVector{<:Integer}, kwargs...)
-    return _fit_mle(m, _sequences(Y, n2t)...; kwargs...)
+    n2t=n_to_t(_ncols(Y), m.nT)::AbstractVector{<:Integer}, past=nothing, seq_ends=nothing, kwargs...)
+    Yc, n2tc, ends = _sequences(Y, n2t)
+    seq_ends === nothing || (ends = _check_seq_ends(seq_ends, size(Yc, 2)))
+    _memoryless_pasts(m, past, seq_ends === nothing ? nothing : length(ends))
+    return _fit_mle(m, Yc, n2tc, ends; kwargs...)
 end
 
 function fit_mle(m::SmoothPeriodicHMM, Ys::AbstractVector{<:AbstractVecOrMat{<:Real}};
-    n2t=[n_to_t(_ncols(Y), m.nT) for Y in Ys], kwargs...)
+    n2t=[n_to_t(_ncols(Y), m.nT) for Y in Ys], past=nothing, kwargs...)
+    _memoryless_pasts(m, past, length(Ys))
     return _fit_mle(m, _sequences(Ys, n2t)...; kwargs...)
 end
 

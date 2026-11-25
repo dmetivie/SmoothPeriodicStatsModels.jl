@@ -79,24 +79,18 @@ end
 rand(hmm::sARPeriodicHMM, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 """
+    rand([rng, ]hmm::sARPeriodicHMM, n2t; z = nothing, past = nothing) -> (; z, Y)
     rand([rng, ]hmm::sARPeriodicHMM, n2t; z_ini, Y_past, seq = false)
     rand([rng, ]hmm::sARPeriodicHMM, N::Integer; kwargs...)
     rand([rng, ]hmm::sARPeriodicHMM, z, n2t; Y_past) -> Matrix{Bool}
 
 Draw a state path and the `D × N` observations along it; `seq = true` returns `(z, y)`.
 `Y_past[j]` holds the `order_j` observations of site `j` before `y`, in time order, zeros by
-default. Otherwise as for [`ARPeriodicHMM`](@ref).
+default; `past.Y` may also be a `D × m` matrix. Otherwise as for [`ARPeriodicHMM`](@ref).
 """
-function rand(rng::AbstractRNG, hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer};
-    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
-    N = length(n2t)
-    z = zeros(Int, N)
-    (N >= 1) && (z[1] = z_ini)
-    for n = 2:N
-        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
-    end
-    y = rand(rng, hmm, z, n2t; kwargs...)
-    return seq ? (z, y) : y
+function rand(rng::AbstractRNG, hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...)
+    _keyword_rand(kwargs) && return _rand_keyword(rng, hmm, n2t; kwargs...)
+    return _rand_sequence(rng, hmm, n2t; kwargs...)
 end
 
 rand(hmm::sARPeriodicHMM, n2t::AbstractVector{<:Integer}; kwargs...) =

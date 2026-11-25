@@ -15,15 +15,20 @@ Starts from `parameters(m)` and returns the fitted mixture and a [`FitHistory`](
 
 Keywords: `maxiter = 100`, `tol = 1e-3`, `rtol`, `robust`, `display` (`:none`, `:iter` or
 `:final`), `method` (`ClassicEM()` or `StochasticEM(rng)`), and the solver settings `solver`,
-`adtype`, `solve_kwargs` of the M-step. `w` gives each observation a weight. Any family with a
-[`seasonal_family`](@ref) declaration can be fitted.
+`adtype`, `solve_kwargs` of the M-step. Any family with a [`seasonal_family`](@ref) declaration
+can be fitted. `past` is accepted and unused: the observations are independent.
+
+`w` gives each observation a weight: a vector, an `N × 1` matrix, or `OneHot(z, 1)`. A mixture
+is one hidden state, and its components are not states: to fit the mixture of state `k` given
+`N × K` state weights `W`, pass `W[:, k]`.
 """
 function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
-    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing,
     display=:none, maxiter=100, tol=1e-3, rtol=nothing, robust=false, method=ClassicEM(),
     solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
     K = ncomponents(m)
     ps = parameters(m)
+    weights = _mixture_weights(weights, length(y))
 
     # The driver works in the loose coefficient layout the M-step kernels were written for:
     # `θ_α` row-per-category, `θ_Y` one vector per component. `ps` is the same numbers.
@@ -42,6 +47,18 @@ function fit_mle(m::SmoothSeasonalMixture, y::AbstractVector, weights...;
     history = FitHistory(;
         converged=h["converged"], iterations=h["iterations"], logtots=h["logtots"])
     return fitted, history
+end
+
+# The observation weights of a mixture: a vector, as in version 4, or one column of state weights.
+_mixture_weights(weights::Tuple, N) = weights
+_mixture_weights((W,)::Tuple{AbstractMatrix}, N) = (_mixture_column(W, N),)
+
+function _mixture_column(W::AbstractMatrix, N)
+    size(W, 2) == 1 || throw(ArgumentError(
+        "a mixture is one hidden state, and its components are not states: these weights have $(size(W, 2)) columns. To fit the mixture of state `k`, pass `W[:, k]`."))
+    W isa OneHot || _state_weights(W, N, 1)
+    @argcheck size(W, 1) == N "the weights have $(size(W, 1)) rows for $N observations"
+    return float.(vec(W))
 end
 
 """

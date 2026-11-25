@@ -46,6 +46,14 @@ end
 
 degrees(m::SmoothsARPeriodicHMM) = (_trig_degree(m.basis_A), _trig_degree(m.basis_B))
 
+# `:p` is a `K × D` matrix whose entry `[k, j]` is the `2^memory_j × length(times)` matrix of site
+# `j` in state `k`, the sites differing in memory.
+function TimeVaryingParameters.curve(m::SmoothsARPeriodicHMM, name::Symbol, times=1:m.nT; state=:)
+    name === :A && return _select_state(_curve_A(m.θᴬ, m.basis_A, times), state)
+    name === :p && return _select_state(_curve_p(m.θᴮ, m.basis_B, times), state)
+    throw(ArgumentError("`$name` is not a curve of this model; its curves are `:A` and `:p`"))
+end
+
 parameters(m::SmoothsARPeriodicHMM) = (A=m.θᴬ, B=m.θᴮ)
 nparams(m::SmoothsARPeriodicHMM) =
     length(m.θᴬ) + sum(length(θh) for θ in m.θᴮ for θh in θ)

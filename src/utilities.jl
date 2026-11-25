@@ -160,3 +160,44 @@ end
 # such as one ending in `@argcheck`, the loop of `ar1_sufficient_statistics` runs 70% slower.
 @noinline _period_index_error(n2t, T) = throw(ArgumentError(
     "every entry of `n2t` must lie in 1:$T, and they run over $(extrema(n2t))"))
+
+# ## `past`, what precedes the observations
+#
+# One keyword for every model, `past = (; Y = D × m, z = k₀)`: the last column of `Y` is the step
+# before the first observation and `z` the hidden state there. A bare array is `(; Y = array)`.
+_past_fields(::Nothing) = (Y=nothing, z=nothing)
+_past_fields(Y::AbstractArray) = (Y=Y, z=nothing)
+function _past_fields(past::NamedTuple)
+    for k in keys(past)
+        k in (:Y, :z) || throw(ArgumentError("`past` has the fields `Y` and `z`, not `$k`"))
+    end
+    return (Y=get(past, :Y, nothing), z=get(past, :z, nothing))
+end
+_past_fields(past) = throw(ArgumentError(
+    "`past` is `(; Y = observations, z = state)`, or the observations alone; got a $(typeof(past))"))
+
+# ## Several sequences laid end to end
+
+# `seq_ends`, the last index of each sequence, checked against `N` observations.
+function _check_seq_ends(seq_ends, N::Integer)
+    seq_ends isa Union{AbstractVector{<:Integer},Tuple{Vararg{Integer}}} || throw(ArgumentError(
+        "`seq_ends` is the last index of each sequence, a vector of integers; got a $(typeof(seq_ends))"))
+    ends = collect(Int, seq_ends)
+    isempty(ends) && throw(ArgumentError("`seq_ends` is empty"))
+    first(ends) >= 1 && all(>(0), diff(ends)) ||
+        throw(ArgumentError("`seq_ends` must increase strictly from at least 1, with no empty sequence; got $ends"))
+    last(ends) == N || throw(ArgumentError("`seq_ends` ends at $(last(ends)), and there are $N observations"))
+    return ends
+end
+
+# The indices of each sequence.
+_seq_ranges(ends) = [(k == 1 ? 1 : ends[k-1] + 1):ends[k] for k in eachindex(ends)]
+
+# The pasts of `n` sequences: a vector of them, or `nothing` for none.
+function _pasts(past, n::Integer)
+    past === nothing && return fill(nothing, n)
+    past isa AbstractVector && !(past isa AbstractArray{<:Real}) || throw(ArgumentError(
+        "with several sequences, `past` is a vector of their pasts, one per sequence"))
+    length(past) == n || throw(ArgumentError("$(length(past)) pasts for $n sequences"))
+    return past
+end

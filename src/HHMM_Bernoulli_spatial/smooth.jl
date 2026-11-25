@@ -65,15 +65,19 @@ degrees(m::SmoothARPeriodicHMMSpatial) =
     (_trig_degree(m.basis_A), _trig_degree(m.basis_B), _trig_degree(m.basis_R))
 
 """
-    curve(m::SmoothARPeriodicHMMSpatial, :R) -> Matrix
+    curve(m::SmoothARPeriodicHMMSpatial, :R, times = 1:m.nT; state = :) -> Matrix
 
-The spatial range `R[k, t]` over one period, one row per hidden state.
+The spatial range `R[k, t]` over `times`, one row per hidden state. `:A` and `:p` are as for
+[`SmoothARPeriodicHMM`](@ref).
 """
-function TimeVaryingParameters.curve(m::SmoothARPeriodicHMMSpatial, name::Symbol)
+function TimeVaryingParameters.curve(m::SmoothARPeriodicHMMSpatial, name::Symbol, times=1:m.nT; state=:)
+    name === :A && return _select_state(_curve_A(m.ps.A, m.basis_A, times), state)
+    name === :p && return _select_state(_curve_p(m.ps.B, m.basis_B, times), state)
     name === :R || throw(ArgumentError(
-        "`$name` is not a curve of this model; `:R` is the spatial range, and the transition " *
-        "and emission arrays are `ARPeriodicHMMSpatial(m).A` and `.B`"))
-    return copy(_current(m).R)
+        "`$name` is not a curve of this model; its curves are `:A`, `:p` and `:R`, the spatial range"))
+    XR = design_matrix(m.basis_R, times)
+    R = [exp(_linear_predictor(XR, i, view(m.ps.R, k, :))) for k in axes(m.ps.R, 1), i in axes(XR, 1)]
+    return _select_state(R, state)
 end
 
 # Rewrite the evaluated arrays from the coefficients, in place.

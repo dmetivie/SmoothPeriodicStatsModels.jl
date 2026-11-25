@@ -214,3 +214,48 @@ function Base.show(io::IO, ::MIME"text/plain", h::FitHistory)
     h.ps_iters === nothing || print(io, ", ", length(h.ps_iters), " parameter iterates kept")
     return
 end
+
+# ## Seasons and starting points of the size constructors
+
+# The basis of `season`: an integer `d` is `TrigBasis(T, d)`, a basis is itself.
+_season_basis(T::Integer, d::Integer) =
+    d >= 0 ? TrigBasis(T, d) : throw(ArgumentError("a season degree is at least 0, not $d"))
+_season_basis(::Integer, basis::AbstractBasis) = basis
+_season_basis(::Integer, s) = throw(ArgumentError(
+    "a season is a degree `d` for `TrigBasis(T, d)` or a basis; got a $(typeof(s))"))
+
+# One basis per name: a `NamedTuple` gives each its own, anything else is shared.
+function _season_bases(T::Integer, season::NamedTuple, names::Tuple)
+    Set(keys(season)) == Set(names) || throw(ArgumentError(
+        "`season` must name exactly $names, got $(keys(season))"))
+    return NamedTuple{names}(map(nm -> _season_basis(T, season[nm]), names))
+end
+_season_bases(T::Integer, season, names::Tuple) =
+    NamedTuple{names}(map(_ -> _season_basis(T, season), names))
+
+# The coefficients of a model with `K` columns: zero, one start repeated, or one start per
+# column. A start is what `_component_start` reads; a `ComponentArray` with one column per state
+# gives one start per column.
+_start_params(spec::ParamSpec, K::Integer, ::Nothing) = seasonal_params(spec, K)
+_start_params(spec::ParamSpec, K::Integer, init::Union{NamedTuple,AbstractVector{<:Real}}) =
+    seasonal_params(spec, _checked_start(spec, init), K)
+function _start_params(spec::ParamSpec, K::Integer, init::ComponentVector{<:Real})
+    getproperty(init, first(propertynames(init))) isa AbstractMatrix || return _start_params(spec, K, _named_blocks(init))
+    return _start_params(spec, K, [column(spec, init, k) for k = 1:ncolumns(spec, init)])
+end
+function _start_params(spec::ParamSpec, K::Integer, init::AbstractVector)
+    length(init) == K || throw(ArgumentError("`init` gives $(length(init)) starts for K = $K states"))
+    return seasonal_params(spec, reduce(hcat, [_checked_start(spec, v) for v in init]))
+end
+_start_params(spec::ParamSpec, ::Integer, init) = _bad_start(spec, init)
+
+function _checked_start(spec::ParamSpec, v::Union{NamedTuple,AbstractVector{<:Real}})
+    θ = _component_start(spec, v)
+    all(isfinite, θ) || throw(ArgumentError(
+        "`init = $v` gives a non-finite coefficient: a value outside its parameter's domain"))
+    return θ
+end
+_checked_start(spec::ParamSpec, v) = _bad_start(spec, v)
+
+_bad_start(spec::ParamSpec, v) = throw(ArgumentError(
+    "a start is a NamedTuple $(paramnames(spec)) or a coefficient vector, and `init` is one start or a vector of them, one per state; got a $(typeof(v))"))

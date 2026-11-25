@@ -1,22 +1,33 @@
-# # Fitting lives in an extension
+# # Fitting lives in two extensions
 #
 # Everything needed to *define* a model, simulate from it and evaluate its likelihood is in this
-# package. Everything needed to *fit* one is in
-# `ext/SmoothPeriodicStatsModelsOptimizationExt.jl`, which loads once the solver stack is
-# available. These are the names that extension provides: declared here so that they exist, are
-# exported, and fail with an instruction rather than a bare `UndefVarError`.
+# package. Everything needed to *fit* one is in two extensions:
+#
+# - `ext/SmoothPeriodicStatsModelsOptimizationExt.jl`, loaded by Optimization.jl: every fit;
+# - `ext/SmoothPeriodicStatsModelsSimpleNonlinearSolveExt.jl`, loaded by SimpleNonlinearSolve.jl:
+#   the nonlinear least squares fits of coefficients to evaluated arrays, `fit_θ*`.
+#
+# These are the names those extensions provide: declared here so that they exist, are exported,
+# and fail with an instruction rather than a bare `UndefVarError` or `MethodError`.
 
-const _SOLVER_STACK = "Optimization, SimpleNonlinearSolve"
+const _OPTIMIZATION_EXT = :SmoothPeriodicStatsModelsOptimizationExt
+const _NLLS_EXT = :SmoothPeriodicStatsModelsSimpleNonlinearSolveExt
 
-@noinline function _needs_solver_stack(name)
-    throw(ArgumentError("""
-    `$name` needs the solver stack, which is a weak dependency of SmoothPeriodicStatsModels.
-    Load it, and the package of the solver you pass to the fits, to enable every fitting routine:
+# A call that no method of `f` takes. When the extension that defines `f` is loaded, the call has
+# the wrong arguments, a `MethodError`; otherwise the extension is what is missing.
+@noinline function _unavailable(f, args, ext::Symbol)
+    Base.get_extension(@__MODULE__, ext) === nothing || throw(MethodError(f, args))
+    throw(ArgumentError(ext === _NLLS_EXT ? """
+    `$(nameof(f))` solves a nonlinear least squares problem, in an extension of
+    SmoothPeriodicStatsModels that loads with SimpleNonlinearSolve. Load it:
 
-        using $_SOLVER_STACK
-        using OptimizationOptimJL   # for example, for `solver = LBFGS()`
+        using SimpleNonlinearSolve""" : """
+    `$(nameof(f))` is a fitting routine, in an extension of SmoothPeriodicStatsModels that loads
+    with Optimization. Load it, and the package of the solver you pass as `solver`:
 
-    (Only simulation and likelihood evaluation work without it.)"""))
+        using Optimization, OptimizationOptimJL   # for `solver = LBFGS()`, for example
+
+    (Simulation and likelihood evaluation work without it.)"""))
 end
 
 # Every fit takes its optimization algorithm explicitly: this is the value of `solver` when the
@@ -28,17 +39,16 @@ end
         using OptimizationOptimJL
         fit_mle(m, data...; n2t, solver = LBFGS())"""))
 
-for f in (:default_nlls_solver, :default_adtype, :default_ensemble,
-    :solve_unconstrained, :solve_nlls,
-    :fit_θ, :fit_θ!, :fit_θᴬ!, :fit_θᴮ!,
-    # `fit_mle` and `fit` are owned by Distributions and StatsAPI respectively and already
-    # imported, so the extension adds methods to those directly.
-    :fit_mle_RO, :fit_loss_optim,
-    :update_B!, :update_α!, :update_dist, :update_R!)
+for (f, ext) in ((:default_adtype, _OPTIMIZATION_EXT), (:default_ensemble, _OPTIMIZATION_EXT),
+    (:solve_unconstrained, _OPTIMIZATION_EXT), (:fit_mle_RO, _OPTIMIZATION_EXT),
+    (:fit_loss_optim, _OPTIMIZATION_EXT), (:update_B!, _OPTIMIZATION_EXT),
+    (:update_α!, _OPTIMIZATION_EXT), (:update_dist, _OPTIMIZATION_EXT), (:update_R!, _OPTIMIZATION_EXT),
+    (:default_nlls_solver, _NLLS_EXT), (:solve_nlls, _NLLS_EXT),
+    (:fit_θ, _NLLS_EXT), (:fit_θ!, _NLLS_EXT), (:fit_θᴬ!, _NLLS_EXT), (:fit_θᴮ!, _NLLS_EXT))
     # A `Vararg` fallback is less specific than every method the extension defines, so the real
     # implementation always wins once the extension has loaded.
     @eval begin
         function $f end
-        $f(args...; kwargs...) = _needs_solver_stack($(QuoteNode(f)))
+        $f(args...; kwargs...) = _unavailable($f, args, $(QuoteNode(ext)))
     end
 end

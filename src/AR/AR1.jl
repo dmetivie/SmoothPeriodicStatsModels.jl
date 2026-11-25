@@ -27,23 +27,24 @@ struct AR1{T} <: AbstractPeriodicAR{T}
     σ::T
 end
 
-function rand(rng::AbstractRNG, AR::AR1, N::Integer; y₁=rand(rng, Normal(0, AR.σ[1])))
-    T = size(AR.μ, 1)
-    n2t = n_to_t(N, T)
-    return rand(rng, AR, n2t; y₁=y₁)
-end
+# The period of the curves, `T`: their length, or their number of columns with one row per state.
+_ar1_period(AR::AR1) = size(AR.μ, ndims(AR.μ))
+
+rand(rng::AbstractRNG, AR::AR1, N::Integer; kwargs...) = rand(rng, AR, n_to_t(N, _ar1_period(AR)); kwargs...)
 
 """
-    rand([rng, ]AR::AR1, N::Integer; y₁) -> Vector
-    rand([rng, ]AR::AR1, n2t; y₁) -> Vector
-    rand([rng, ]AR::AR1, n2t, z; y₁) -> Vector
-    rand([rng, ]AR::AR1, ϵ, n2t, z; y₁) -> Vector
+    rand([rng, ]AR::AR1, n2t; z = nothing, past = nothing, y₁) -> Vector
+    rand([rng, ]AR::AR1, N::Integer; kwargs...) -> Vector
+    rand([rng, ]AR::AR1, n2t, z; y₁, past) -> Vector
+    rand([rng, ]AR::AR1, ϵ, n2t, z; y₁, past) -> Vector
 
-Simulate a periodic AR(1) from `y₁`, step `n` at period index `n2t[n]` (`N` steps give
+Simulate a periodic AR(1), step `n` at period index `n2t[n]` (`N` steps give
 `n2t = n_to_t(N, T)`).
 
-- With `z`, `AR` holds one process per hidden state (`K × T` curves) and step `n` uses state
-  `z[n]`.
+- With `z`, keyword or positional, `AR` holds one process per hidden state (`K × T` curves) and
+  step `n` uses state `z[n]`. A single process takes only `z` of ones.
+- The first value is `y₁`, by default drawn from `Normal(0, σ[1])`. With `past`, the value before
+  the first (a number, or the last of `past.Y`), the first step is an AR(1) step from it instead.
 - With `ϵ`, the standard normal innovations are given rather than drawn.
 
 An array of such processes is simulated jointly by the method below.
@@ -56,32 +57,68 @@ rand(AR::AR1, N::Integer; kwargs...) = rand(GLOBAL_RNG, AR, N; kwargs...)
 # would be a field that the package's only AR(1) fit silently ignores. It waits on a generic
 # conditional-likelihood objective, which needs a notion of covariate (the lagged observation)
 # that `TimeVaryingParameters` does not have yet.
-function rand(rng::AbstractRNG, AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer};
+    z=nothing, past=nothing, y₁=nothing)
     N = length(n2t)
-    y = zeros(eltype(y₁), N)
-    y[1] = y₁
+    z === nothing || _check_state_path(z, N, 1)
+    if past === nothing
+        y₁ === nothing && (y₁ = rand(rng, Normal(0, AR.σ[1])))
+        y = zeros(eltype(y₁), N)
+        y[1] = y₁
+    else
+        x = _ar1_past_value(past, y₁)
+        y = zeros(N)
+        if N >= 1
+            t = n2t[1]
+            y[1] = AR.μ[t] + AR.ρ[t] * x + rand(rng, Normal(0, AR.σ[t]))
+        end
+    end
     for n = 2:N
         y[n] = AR.μ[n2t[n]] + AR.ρ[n2t[n]] * y[n-1] + rand(rng, Normal(0, AR.σ[n2t[n]]))
     end
     return y
 end
 
-rand(AR::AR1{<:AbstractVector}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, n2t; kwargs...)
+# One process per hidden state: the keyword `z` is the positional one.
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer};
+    z=nothing, kwargs...)
+    z === nothing && throw(ArgumentError(
+        "this AR(1) holds one process per hidden state: pass the state path `z`"))
+    _check_state_path(z, length(n2t), size(AR.μ, 1))
+    return rand(rng, AR, n2t, z; kwargs...)
+end
 
-function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
+rand(AR::AR1, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, n2t; kwargs...)
+
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer};
+    y₁=nothing, past=nothing)
+    # `y₁` is drawn before the innovations, as it always was
+    past === nothing && y₁ === nothing && (y₁ = rand(rng, Normal(0, AR.σ[1])))
     N = length(n2t)
     ϵ = randn(rng, N)
-    return rand(rng, AR, ϵ, n2t, z; y₁=y₁)
+    return rand(rng, AR, ϵ, n2t, z; y₁, past)
 end
 
 rand(AR::AR1{<:AbstractMatrix}, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, AR, n2t, z; kwargs...)
 
-function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer}; y₁=rand(rng, Normal(0, AR.σ[1])))
+function rand(rng::AbstractRNG, AR::AR1{<:AbstractMatrix}, ϵ::AbstractVector, n2t::AbstractVector{<:Integer}, z::AbstractVector{<:Integer};
+    y₁=nothing, past=nothing)
     @assert length(z) == length(n2t)
     @assert length(z) == length(ϵ) "got $(length(z)) == $(length(ϵ))"
     N = length(n2t)
-    y = zeros(eltype(y₁), N)
-    y[1] = y₁
+    if past === nothing
+        y₁ === nothing && (y₁ = rand(rng, Normal(0, AR.σ[1])))
+        y = zeros(eltype(y₁), N)
+        y[1] = y₁
+    else
+        x = _ar1_past_value(past, y₁)
+        _check_state_path(z, N, size(AR.μ, 1))
+        y = zeros(N)
+        if N >= 1
+            k, t = z[1], n2t[1]
+            y[1] = AR.μ[k, t] + AR.ρ[k, t] * x + AR.σ[k, t] * ϵ[1]
+        end
+    end
     for n = 2:N
         y[n] = AR.μ[z[n], n2t[n]] + AR.ρ[z[n], n2t[n]] * y[n-1] + AR.σ[z[n], n2t[n]]*ϵ[n]
     end
@@ -373,35 +410,117 @@ end
 
 
 """
-    loglikelihood(m::SmoothAR1, y; n2t) -> Float64
+    loglikelihood(m::SmoothAR1, y; n2t, past = nothing) -> Float64
 
 The loglikelihood of `y` under `m`, conditional on its first observation: a sum over the
-`length(y) - 1` transitions.
+`length(y) - 1` transitions. With `past`, the value before `y[1]`, conditional on that value
+instead: a sum over the `length(y)` transitions.
 """
 function StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector;
-    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing)
     @argcheck ncolumns(m.spec, parameters(m)) == 1 "`m` holds one column of coefficients per hidden state; pass the state sequence `z`"
+    y, n2t = _ar1_with_past(y, n2t, past)
     stats = ar1_sufficient_statistics(y, n2t, m.nT)
     design = PeriodicDesign(m.spec, 1:m.nT)
     return _ar1_loglikelihood(ar1_nll(parameters(m), (stats, design)), sum(stats.N))
 end
 
 """
-    loglikelihood(m::SmoothAR1, y, z; n2t) -> Float64
+    loglikelihood(m::SmoothAR1, y, z; n2t, past = nothing) -> Float64
 
-The loglikelihood of `y` given the state sequence `z`, for a model with one column of
-coefficients per hidden state: transition `n` follows the AR(1) of state `z[n]`.
+The loglikelihood of `y` given the state sequence `z` (or `OneHot(z, K)`), for a model with one
+column of coefficients per hidden state: transition `n` follows the AR(1) of state `z[n]`. With
+`past`, the value before `y[1]`, the transition into `y[1]` counts too.
 """
 function StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
-    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing)
     K = ncolumns(m.spec, parameters(m))
     @argcheck length(z) == length(y) "`z` has $(length(z)) states and `y` $(length(y)) observations"
     @argcheck all(in(1:K), z) "the states in `z` must lie in 1:$K, the columns of `m`"
     design = PeriodicDesign(m.spec, 1:m.nT)
+    yp, n2tp = _ar1_with_past(y, n2t, past)
+    shift = length(yp) - length(y)   # 1 when the value before `y[1]` leads the series
     return sum(1:K) do k
-        stats = ar1_sufficient_statistics(y, n2t, m.nT, [n for n = 2:length(y) if z[n] == k])
+        stats = ar1_sufficient_statistics(yp, n2tp, m.nT, [n + shift for n = 2-shift:length(y) if z[n] == k])
         _ar1_loglikelihood(ar1_nll(column(m.spec, parameters(m), k), (stats, design)), sum(stats.N))
     end
 end
 
-_ar1_loglikelihood(nll, N::Integer) = -nll - N * log(2π) / 2
+_ar1_loglikelihood(nll, N::Real) = -nll - N * log(2π) / 2
+
+StatsAPI.loglikelihood(m::SmoothAR1, y::AbstractVector, W::OneHot; kwargs...) =
+    loglikelihood(m, y, W.z; kwargs...)
+
+# ## `past`: the value before the first observation
+
+# A number, or the last value of `past.Y`, finite; `nothing` without one. `past.z` is not read:
+# the transition into the first observation follows that observation's own state.
+_ar1_past(::Nothing) = nothing
+_ar1_past(x::Real) = _finite_past(x)
+_ar1_past(x::AbstractArray) = _ar1_past((; Y=x))
+function _ar1_past(past::NamedTuple)
+    (; Y) = _past_fields(past)
+    Y === nothing && return nothing
+    Y isa Real && return _finite_past(Y)
+    Y isa AbstractVecOrMat || throw(ArgumentError(
+        "`past.Y` is the value before the first observation, or a vector of the values before it; got a $(typeof(Y))"))
+    Y isa AbstractMatrix && size(Y, 1) != 1 && throw(ArgumentError(
+        "an AR(1) has one row of observations: `past.Y` is 1 × m, not $(size(Y, 1)) × $(size(Y, 2))"))
+    isempty(Y) && throw(ArgumentError("`past.Y` is empty, and an AR(1) has memory 1"))
+    return _finite_past(last(Y))
+end
+_ar1_past(past) = throw(ArgumentError(
+    "`past` is the value before the first observation, as a number or `(; Y = values)`; got a $(typeof(past))"))
+
+_finite_past(x) = x isa Real && isfinite(x) ? float(x) :
+                  throw(ArgumentError("the value before the first observation must be a finite number, not $x"))
+
+# The value `rand` starts from, which `y₁` would contradict.
+function _ar1_past_value(past, y₁)
+    y₁ === nothing || throw(ArgumentError("`y₁` and `past` both set the start of the simulation; pass one"))
+    return _ar1_past(past)
+end
+
+# The series with the value before it in front, and the period indices to match: the transition
+# into `y[1]` is then one more transition, at `n2t[1]`.
+_ar1_with_past(y, n2t, ::Nothing) = y, n2t
+function _ar1_with_past(y, n2t, past)
+    x = _ar1_past(past)
+    x === nothing && return y, n2t
+    isempty(n2t) && return y, n2t
+    return vcat(x, y), vcat(first(n2t), n2t)
+end
+
+"""
+    loglikelihoods(m::SmoothAR1, y; n2t, past = nothing) -> Matrix
+    loglikelihoods(AR::AR1, y; n2t, past = nothing) -> Matrix
+
+The `N × K` conditional loglikelihoods of the transitions: entry `[n, k]` is the logdensity of
+`y[n]` given `y[n-1]` under the AR(1) of state `k` at period index `n2t[n]`. `K` is 1 for a single
+process. The first row is zero, unless `past` gives the value before `y[1]`.
+"""
+function loglikelihoods(AR::AR1, y::AbstractVector{<:Real};
+    n2t=n_to_t(length(y), _ar1_period(AR))::AbstractVector{<:Integer}, past=nothing)
+    N = length(y)
+    _check_n2t(n2t, N, _ar1_period(AR))
+    x0 = _ar1_past(past)
+    K = AR.μ isa AbstractMatrix ? size(AR.μ, 1) : 1
+    LL = zeros(N, K)
+    for n = 1:N
+        x = n == 1 ? x0 : y[n-1]
+        x === nothing && continue
+        t = n2t[n]
+        for k = 1:K
+            μ, ρ, σ = _ar1_at(AR, k, t)
+            LL[n, k] = logpdf(Normal(μ + ρ * x, σ), y[n])
+        end
+    end
+    return LL
+end
+
+_ar1_at(AR::AR1{<:AbstractVector}, _, t) = (AR.μ[t], AR.ρ[t], AR.σ[t])
+_ar1_at(AR::AR1{<:AbstractMatrix}, k, t) = (AR.μ[k, t], AR.ρ[k, t], AR.σ[k, t])
+
+loglikelihoods(m::SmoothAR1, y::AbstractVector{<:Real};
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing) =
+    loglikelihoods(AR1(m), y; n2t, past)

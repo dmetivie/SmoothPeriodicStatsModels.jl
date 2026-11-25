@@ -76,3 +76,26 @@ end
 _trig_degree(::ConstantBasis) = 0
 _trig_degree(b::CombinedBasis{<:Tuple{ConstantBasis,FourierBasis}}) = b.bases[2].order
 _trig_degree(b) = throw(ArgumentError("$b is not a trigonometric basis, so it has no degree"))
+
+# ## Curves of the coefficients over any times
+
+# `A[k, l, i]`, the transition probabilities at `times[i]`.
+_curve_A(θᴬ::AbstractArray{<:Real,3}, basis, times) =
+    _transitions!(zeros(size(θᴬ, 1), size(θᴬ, 1), length(times)), θᴬ, design_matrix(basis, times))
+
+# `p[k, j, h, i]`, the success probabilities at `times[i]`.
+function _curve_p(θᴮ::AbstractArray{<:Real,4}, basis, times)
+    X = design_matrix(basis, times)
+    K, D, H = size(θᴮ, 1), size(θᴮ, 2), size(θᴮ, 3)
+    return [logistic(_linear_predictor(X, i, view(θᴮ, k, j, h, :))) for k = 1:K, j = 1:D, h = 1:H, i in axes(X, 1)]
+end
+
+# `p[k, j][h, i]` with site-dependent memory.
+function _curve_p(θᴮ::AbstractMatrix, basis, times)
+    X = design_matrix(basis, times)
+    return [[logistic(_linear_predictor(X, i, θh)) for (h, θh) in enumerate(θ), i in axes(X, 1)] for θ in θᴮ]
+end
+
+# The whole array, or the slice of state `k` along the first dimension.
+_select_state(arr::AbstractArray, ::Colon) = arr
+_select_state(arr::AbstractArray, k) = copy(selectdim(arr, 1, _check_state(k, size(arr, 1))))

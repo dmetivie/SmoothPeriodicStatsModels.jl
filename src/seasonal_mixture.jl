@@ -362,29 +362,48 @@ The mixture at one period index.
     vec(mixture_weights(m, t:t)))
 
 """
-    loglikelihood(m::SmoothSeasonalMixture, y; n2t) -> Float64
+    loglikelihood(m::SmoothSeasonalMixture, y; n2t, past = nothing) -> Float64
 
 The loglikelihood of `y` under `m`, each observation scored against the mixture at its own
-period index `n2t[n]`.
+period index `n2t[n]`. `past` is accepted and unused: the observations are independent.
 """
 function StatsAPI.loglikelihood(m::SmoothSeasonalMixture, y::AbstractVector;
-    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer})
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing)
     _check_n2t(n2t, length(y), m.nT)
     mix = mixtures(m)
     return sum(logpdf(mix[t], y[n]) for (n, t) in enumerate(n2t))
 end
 
 """
-    rand([rng, ]m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) -> Vector
+    loglikelihoods(m::SmoothSeasonalMixture, y; n2t, past = nothing) -> Matrix
+
+The `N × 1` loglikelihoods of the observations, each under the mixture at its period index. One
+column, because a mixture is one hidden state: its components are not states. `past` is
+accepted and unused.
+"""
+function loglikelihoods(m::SmoothSeasonalMixture, y::AbstractVector{<:Real};
+    n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing)
+    _check_n2t(n2t, length(y), m.nT)
+    mix = mixtures(m)
+    return reshape([logpdf(mix[n2t[n]], y[n]) for n in eachindex(y)], :, 1)
+end
+
+"""
+    rand([rng, ]m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}; z, past) -> Vector
     rand([rng, ]m::SmoothSeasonalMixture, N::Integer) -> Vector
 
 Independent draws, the `n`-th from the mixture at period index `n2t[n]`. With `N`, the period
-indices are `n_to_t(N, m.nT)`.
+indices are `n_to_t(N, m.nT)`. A mixture is one hidden state, so `z` may only be ones; `past`
+is accepted and unused.
 """
-rand(rng::AbstractRNG, m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) =
-    (mix = mixtures(m); [rand(rng, mix[t]) for t in n2t])
+function rand(rng::AbstractRNG, m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer};
+    z=nothing, past=nothing)
+    z === nothing || _check_state_path(z, length(n2t), 1)
+    mix = mixtures(m)
+    return [rand(rng, mix[t]) for t in n2t]
+end
 rand(rng::AbstractRNG, m::SmoothSeasonalMixture, N::Integer) = rand(rng, m, n_to_t(N, m.nT))
-rand(m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}) = rand(GLOBAL_RNG, m, n2t)
+rand(m::SmoothSeasonalMixture, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, m, n2t; kwargs...)
 rand(m::SmoothSeasonalMixture, N::Integer) = rand(GLOBAL_RNG, m, N)
 
 function Base.show(io::IO, ::MIME"text/plain", m::SmoothSeasonalMixture)

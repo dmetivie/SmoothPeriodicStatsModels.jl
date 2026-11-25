@@ -56,7 +56,43 @@ function SmoothARPeriodicHMM(a::AbstractVector, θᴬ::AbstractArray{<:Real,3},
     return SmoothARPeriodicHMM(ps, stored, Int(T), basis_A, basis_B, cfg)
 end
 
+"""
+    SmoothARPeriodicHMM(K, D, T; memory, season = 1)
+
+A model of `K` states, `D` sites, period `T` and memory `memory`, with every transition
+probability `1/K` and every success probability `1/2`. `season` gives the bases of the
+transitions and the emissions: a degree `d` for `TrigBasis(T, d)`, any basis, or
+`(A = …, B = …)`, one each.
+
+All its states are equal, so Baum-Welch cannot separate them: it is a shape for
+[`initialize`](@ref) or for the fit given state weights, `fit_mle(m, Y, W; past, n2t)`.
+"""
+function SmoothARPeriodicHMM(K::Integer, D::Integer, T::Integer; memory::Integer, season=1)
+    @argcheck K >= 1 "the number of states `K` is at least 1, not $K"
+    @argcheck D >= 1 "the number of sites `D` is at least 1, not $D"
+    @argcheck T >= 1 "the period `T` is at least 1, not $T"
+    @argcheck memory >= 0 "the memory is at least 0, not $memory"
+    bases = _season_bases(T, season, (:A, :B))
+    θᴬ = zeros(K, K - 1, nbasis(bases.A))
+    θᴮ = zeros(K, D, 2^memory, nbasis(bases.B))
+    return SmoothARPeriodicHMM(fill(1 / K, K), θᴬ, θᴮ, T; basis_A=bases.A, basis_B=bases.B)
+end
+
 parameters(m::SmoothARPeriodicHMM) = m.ps
+
+"""
+    curve(m::SmoothARPeriodicHMM, name::Symbol, times = 1:m.nT; state = :)
+
+The transition probabilities, `name = :A`, `K × K × length(times)`, or the success
+probabilities, `name = :p`, `K × D × 2^memory × length(times)`, evaluated from the coefficients.
+`state = k` keeps the rows of state `k`. Also defined for `SmoothARPeriodicHMMSpatial`, which
+adds the spatial range `:R`, `K × length(times)`, and for `SmoothsARPeriodicHMM`.
+"""
+function TimeVaryingParameters.curve(m::SmoothARPeriodicHMM, name::Symbol, times=1:m.nT; state=:)
+    name === :A && return _select_state(_curve_A(m.ps.A, m.basis_A, times), state)
+    name === :p && return _select_state(_curve_p(m.ps.B, m.basis_B, times), state)
+    throw(ArgumentError("`$name` is not a curve of this model; its curves are `:A` and `:p`"))
+end
 
 """
     ARPeriodicHMM(m::SmoothARPeriodicHMM) -> ARPeriodicHMM

@@ -160,6 +160,7 @@ emission(hmm::PeriodicHMMDists, k::Integer, t::Integer) = _product(map(Bb -> Bb[
 _obs_eltype(hmm::PeriodicHMMDists) = mapreduce(Bb -> eltype(eltype(Bb)), promote_type, hmm.B)
 
 """
+    rand([rng, ]hmm::PeriodicHMMDists, n2t; z = nothing, past = nothing) -> (; z, Y)
     rand([rng, ]hmm::PeriodicHMMDists, n2t; z_ini, seq = false)
     rand([rng, ]hmm::PeriodicHMMDists, N::Integer; kwargs...)
     rand([rng, ]hmm::PeriodicHMMDists, z, n2t) -> Matrix
@@ -168,6 +169,8 @@ Draw a state path and the `D × N` observations along it: `seq = true` returns `
 otherwise just `Y`. `n2t[n]` is the period index of step `n`; a length `N` gives
 `n2t = n_to_t(N, T)`. Given a state path `z`, only the observations are drawn. `z_ini` is the
 first state, drawn from `hmm.a` by default. The step from `n-1` to `n` uses `A[:, :, n2t[n-1]]`.
+With the keywords `z` or `past = (; z = k₀)`, the result is `(; z, Y)`, as for
+[`ARPeriodicHMM`](@ref).
 """
 function rand(rng::AbstractRNG, hmm::PeriodicHMMDists, z::AbstractVector{<:Integer},
     n2t::AbstractVector{<:Integer})
@@ -194,16 +197,9 @@ function _rand_block!(Y, rng, Bb::AbstractMatrix, r, z, n2t)
     return Y
 end
 
-function rand(rng::AbstractRNG, hmm::PeriodicHMMDists, n2t::AbstractVector{<:Integer};
-    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false)
-    N = length(n2t)
-    z = zeros(Int, N)
-    (N >= 1) && (z[1] = z_ini)
-    for n = 2:N
-        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
-    end
-    Y = rand(rng, hmm, z, n2t)
-    return seq ? (z, Y) : Y
+function rand(rng::AbstractRNG, hmm::PeriodicHMMDists, n2t::AbstractVector{<:Integer}; kwargs...)
+    _keyword_rand(kwargs) && return _rand_keyword(rng, hmm, n2t; kwargs...)
+    return _rand_sequence(rng, hmm, n2t; kwargs...)
 end
 
 rand(rng::AbstractRNG, hmm::PeriodicHMMDists, N::Integer; kwargs...) =
@@ -227,14 +223,16 @@ function _check_rows(hmm::PeriodicHMMDists, Y::AbstractMatrix)
 end
 
 """
-    loglikelihoods(hmm::PeriodicHMMDists, Y; n2t) -> Matrix
+    loglikelihoods(hmm::PeriodicHMMDists, Y; n2t, past = nothing) -> Matrix
 
 The `N × K` emission loglikelihoods: entry `[n, k]` is the logdensity of observation `n` in state
 `k` at period index `n2t[n]`. `Y` is `D × N`, or a vector when `D = 1`. `robust = true` gives an
-observation that is impossible in every state the same finite value in all of them.
+observation that is impossible in every state the same finite value in all of them. `past` is
+checked and unused: the model has no memory.
 """
 function loglikelihoods(hmm::PeriodicHMMDists, Y::AbstractVecOrMat{<:Real};
-    n2t=n_to_t(_ncols(Y), _period(hmm))::AbstractVector{<:Integer}, robust=false)
+    n2t=n_to_t(_ncols(Y), _period(hmm))::AbstractVector{<:Integer}, robust=false, past=nothing)
+    past === nothing || _hmm_past(hmm, past; required=false)
     Y = _check_rows(hmm, _as_rows(Y))
     @argcheck size(Y, 2) == length(n2t) "`Y` has $(size(Y, 2)) observations and `n2t` $(length(n2t)) entries"
     LL = zeros(size(Y, 2), size(hmm, 1))
@@ -256,18 +254,28 @@ function _add_block_loglikelihoods!(LL, Bb, r, Y, n2t)
 end
 
 """
-    viterbi(hmm::PeriodicHMMDists, Y; n2t, robust = false) -> Vector{Int}
-    viterbi(hmm::PeriodicHMMDists, Ys; n2t, robust = false) -> Vector{Vector{Int}}
+    viterbi(hmm::PeriodicHMMDists, Y; n2t, past, seq_ends, robust = false) -> Vector{Int}
+    viterbi(hmm::PeriodicHMMDists, Ys; n2t, past, robust = false) -> Vector{Vector{Int}}
 
 The most likely hidden state path of `Y` (`D × N`, or a vector when `D = 1`), or of each of
-several independent sequences `Ys[i]` with period indices `n2t[i]`.
+several independent sequences `Ys[i]` with period indices `n2t[i]`. `past = (; z = k₀)` is the
+state of the step before the first, as for the Bernoulli HMMs; with `seq_ends`, `Y` is several
+sequences end to end and `past` a vector of their pasts.
 """
-viterbi(hmm::PeriodicHMMDists, Y::AbstractVecOrMat{<:Real};
-    n2t=n_to_t(_ncols(Y), _period(hmm))::AbstractVector{<:Integer}, robust=false) =
-    viterbi(hmm.a, hmm.A, loglikelihoods(hmm, Y; n2t, robust); n2t)
+function viterbi(hmm::PeriodicHMMDists, Y::AbstractVecOrMat{<:Real};
+    n2t=n_to_t(_ncols(Y), _period(hmm))::AbstractVector{<:Integer}, robust=false, past=nothing,
+    seq_ends=nothing)
+    LL = loglikelihoods(hmm, Y; n2t, robust)
+    past === nothing && seq_ends === nothing && return viterbi(hmm.a, hmm.A, LL; n2t)
+    ends = seq_ends === nothing ? (size(LL, 1),) : _check_seq_ends(seq_ends, size(LL, 1))
+    pasts = seq_ends === nothing ? [past] : _pasts(past, length(ends))
+    z0s = [last(_hmm_past(hmm, p; required=false)) for p in pasts]
+    return _viterbi_sequences(hmm.a, hmm.A, LL, n2t, ends, z0s)
+end
 
 function viterbi(hmm::PeriodicHMMDists, Ys::AbstractVector{<:AbstractVecOrMat{<:Real}};
-    n2t=[n_to_t(_ncols(Y), _period(hmm)) for Y in Ys], robust=false)
+    n2t=[n_to_t(_ncols(Y), _period(hmm)) for Y in Ys], robust=false, past=nothing)
     @argcheck length(Ys) == length(n2t) "$(length(Ys)) sequences and $(length(n2t)) period-index vectors"
-    return [viterbi(hmm, Y; n2t=n2tᵢ, robust) for (Y, n2tᵢ) in zip(Ys, n2t)]
+    return [viterbi(hmm, Y; n2t=n2tᵢ, robust, past=pᵢ)
+            for (Y, n2tᵢ, pᵢ) in zip(Ys, n2t, _pasts(past, length(Ys)))]
 end

@@ -1,4 +1,4 @@
-function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(L, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m, rng=nothing)
     N, K, D = size(Y, 2), size(hmm, 1), size(hmm, 2)
     @argcheck size(L) == (N, K)
 
@@ -8,14 +8,17 @@ function likelihoods!(L::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractM
             t = n2t[n] # periodic t
             modelit = SpatialBernoulli(hmm.R[i, t], hmm.B[CartesianIndex.(i, t, 1:D, view(lag_cat, :, n))], hmm.h)
 
-            L[n, i] = pdf(modelit, view(Y, :, n); m=D * QMC_m)
+            L[n, i] = pdf(modelit, view(Y, :, n); m=D * QMC_m, rng)
         end
     end
 end
 
-function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::AbstractMatrix{<:Bool}, lag_cat::AbstractMatrix{<:Integer}; n2t=n_to_t(size(LL, 1), size(hmm, 3))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m, rng=nothing)
     N, K, D, T = size(Y, 2), size(hmm, 1), size(hmm, 2), size(hmm, 3)
     @argcheck size(LL) == (N, K)
+    # One seed per observation, drawn before the threads start: observation `n` then uses its
+    # own generator whatever thread runs it, so the result does not depend on the thread count.
+    seeds = rng === nothing ? nothing : rand(rng, UInt64, N)
 
     Sigmat = zeros(D, D, T, K)
     @threads for t in 1:T
@@ -30,25 +33,26 @@ function loglikelihoods!(LL::AbstractMatrix, hmm::ARPeriodicHMMSpatial, Y::Abstr
         b = fill(Inf, D)
         finite_bounds = zeros(D)
         zerosvec = zeros(D)
+        obs_rng = seeds === nothing ? nothing : Xoshiro(seeds[n])
         for i in 1:K
             # @show n
             t = n2t[n] # periodic t
             finite_bounds .= quantile.(Normal(), hmm.B[CartesianIndex.(i, t, 1:D, view(lag_cat, :, n))])
             a .= ifelse.(view(Y, :, n) .== 0, finite_bounds, -Inf)
             b .= ifelse.(view(Y, :, n) .== 1, finite_bounds, Inf)
-            hy = mvnormcdf(zerosvec, Sigmat[:, :, t, i], a, b; m=D * QMC_m)
+            hy = _mvnormcdf(zerosvec, Sigmat[:, :, t, i], a, b, D * QMC_m, obs_rng)
             LL[n, i] = log(hy[1])
         end
     end
 end
 
-function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust=false, n2t=n_to_t(size(Y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function loglikelihoods(hmm::ARPeriodicHMMSpatial, Y::AbstractArray{<:Bool}, Y_past::AbstractArray{<:Bool}; robust=false, n2t=n_to_t(size(Y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m, rng=nothing)
     N, K = size(Y, 2), size(hmm, 1)
     LL = Matrix{Float64}(undef, N, K)
 
     lag_cat = _lag_cat(hmm, Y, Y_past)
 
-    loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m)
+    loglikelihoods!(LL, hmm, Y, lag_cat; n2t=n2t, QMC_m=QMC_m, rng)
     if robust
         _clamp_inf!(LL)
     end
@@ -70,14 +74,17 @@ The number of trigonometric coefficients of a `K`-state spatial periodic HMM of 
 nb_param_HMMSpa(K, memory, d, D) =(2d + 1) * (K * 2^memory * D + K * (K - 1) + K)
 
 """
-    complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y, y_past, z; n2t, QMC_m = hmm.QMC_m)
+    complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y, y_past, z; n2t, QMC_m = hmm.QMC_m, rng = nothing)
 
 The loglikelihood of the observations `y` and the state path `z` jointly. Each emission term is
 a quasi-Monte-Carlo estimate with `D * QMC_m` points; the observations are split across threads.
+With `rng`, each observation draws from its own generator seeded from `rng`, and the result does
+not depend on the number of threads.
 """
-function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractMatrix{<:Bool}, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m)
+function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractMatrix{<:Bool}, y_past::AbstractArray, z::AbstractVector; n2t=n_to_t(size(y, 2), size(hmm.B, 2))::AbstractVector{<:Integer}, QMC_m=hmm.QMC_m, rng=nothing)
     D, N = size(y)
     lag_cat = _lag_cat(hmm, y, y_past)
+    rng === nothing || return _complete_loglikelihood_seeded(hmm, y, lag_cat, z, n2t, QMC_m, rng)
 
     log_A_sum = sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:(N-1); init=0.0)
 
@@ -111,6 +118,20 @@ function complete_loglikelihood(hmm::ARPeriodicHMMSpatial, y::AbstractMatrix{<:B
         end
     end
     return log_A_sum + sum(fetch, partials)
+end
+
+# The same with one generator per observation, seeded from `rng`, and the terms summed in order.
+function _complete_loglikelihood_seeded(hmm::ARPeriodicHMMSpatial, y, lag_cat, z, n2t, QMC_m, rng::AbstractRNG)
+    D, N = size(y)
+    log_A_sum = sum(log(hmm.A[z[n], z[n+1], n2t[n]]) for n = 1:(N-1); init=0.0)
+    seeds = rand(rng, UInt64, N)
+    terms = zeros(N)
+    Threads.@threads for n in 1:N
+        t = n2t[n]
+        d = SpatialBernoulli(hmm.R[z[n], t], hmm.B[CartesianIndex.(z[n], t, 1:D, view(lag_cat, :, n))], hmm.h)
+        terms[n] = logpdf(d, view(y, :, n); m=D * QMC_m, rng=Xoshiro(seeds[n]))
+    end
+    return log_A_sum + sum(terms)
 end
 
 # for pairwise likelihood : 

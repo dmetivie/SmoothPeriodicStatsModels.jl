@@ -22,6 +22,31 @@ function fit_mle(m::_SmoothHMM, Ys::AbstractVector{<:AbstractMatrix{<:Bool}},
     return _fit_mle(m, _sequences(m, Ys, Y_pasts, n2t)...; kwargs...)
 end
 
+"""
+    fit_mle(m, Y; n2t, past, seq_ends, solver, kwargs...) -> (m, history)
+    fit_mle(m, Ys; n2t, past, solver, kwargs...) -> (m, history)
+
+Fit a smooth periodic Bernoulli HMM, the observations before `Y` given as
+`past = (; Y = Y_past)`, at least as many as the memory (the last are used). With `seq_ends`, `Y`
+is several independent sequences end to end and `past` a vector of their pasts; `Ys` is a vector
+of sequences, with vectors `n2t` and `past`. Same keywords and return as `fit_mle(m, Y, Y_past)`.
+`past.z` is refused: every sequence starts from the fitted initial distribution.
+"""
+function fit_mle(m::_SmoothHMM, Y::AbstractMatrix{<:Bool};
+    n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, past=nothing, seq_ends=nothing,
+    kwargs...)
+    Yc, lag_cat, n2tc, ends, z0s = _keyword_sequences(m, Y, past, n2t, seq_ends)
+    all(isnothing, z0s) || _no_past_z()
+    return _fit_mle(m, Yc, lag_cat, n2tc, ends; kwargs...)
+end
+
+function fit_mle(m::_SmoothHMM, Ys::AbstractVector{<:AbstractMatrix{<:Bool}};
+    n2t=[n_to_t(size(Y, 2), m.nT) for Y in Ys], past=nothing, kwargs...)
+    Yc, lag_cat, n2tc, ends, z0s = _keyword_sequences(m, Ys, past, n2t)
+    all(isnothing, z0s) || _no_past_z()
+    return _fit_mle(m, Yc, lag_cat, n2tc, ends; kwargs...)
+end
+
 # The Baum-Welch loop of the two Bernoulli models; the spatial one has its own, below.
 _snapshot(m::SmoothARPeriodicHMM) = _plain(m.ps)
 _snapshot(m::SmoothsARPeriodicHMM) = (A=copy(m.θᴬ), B=deepcopy(m.θᴮ))
@@ -469,7 +494,9 @@ of every iteration with `ps_iters = true`.
 
 Keywords beyond those of the other HMM fits: `QMC_E` multiplies the model's `QMC_m` for the
 E-step, `maxiters_R` caps the solver iterations of the range M-step, and `tdist`/`wp` choose the
-pairs of sites in its composite likelihood.
+pairs of sites in its composite likelihood. `rng` seeds the quasi-Monte-Carlo estimates of the
+E-steps, which makes the fit reproducible whatever the number of threads; without it they draw
+from the default generator of each task.
 """
 function fit_mle(m::SmoothARPeriodicHMMSpatial, Y::AbstractArray{<:Bool},
     Y_past::AbstractArray{<:Bool};
@@ -480,7 +507,7 @@ end
 function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
     maxiter=100, tol=1e-3, display=:none, robust=false, ps_iters=false,
     tdist=1, wp=1.0 .* (m.stored.h .< maximum(m.stored.h) * tdist),
-    QMC_E=1, maxiters_R=10,
+    QMC_E=1, maxiters_R=10, rng=nothing,
     solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(),
     solve_kwargs=(;))
     @argcheck display in [:none, :iter, :final]
@@ -505,7 +532,7 @@ function _fit_mle(m::SmoothARPeriodicHMMSpatial, Y, lag_cat, n2t, seq_ends;
     # The threaded batch evaluation, which is the whole reason `CachedEmissions` exists.
     function estep!()
         loglikelihoods!(cached.LL, fitted.stored, Y, lag_cat; n2t=n2t,
-            QMC_m=fitted.stored.QMC_m * cfg.QMC_E)
+            QMC_m=fitted.stored.QMC_m * cfg.QMC_E, rng)
         robust && _clamp_inf!(cached.LL)
         HMMs.forward_backward!(storage, cached, obs, controls; seq_ends)
         return sum(storage.logL)
@@ -574,6 +601,22 @@ function StatsAPI.fit(::Type{SeasonalFit}, m::_SmoothHMM, Y, Y_past; kwargs...)
     fitted, history = fit_mle(m, Y, Y_past; kwargs...)
     return SeasonalFit(fitted, history, _nsteps(Y), loglikelihood(history))
 end
+
+"""
+    fit(SeasonalFit, m, Y; n2t, past, seq_ends, solver, kwargs...) -> SeasonalFit
+
+The same with the observations before `Y` given as `past`, as for `fit_mle(m, Y; past)`.
+"""
+function StatsAPI.fit(::Type{SeasonalFit}, m::_SmoothHMM, Y; kwargs...)
+    fitted, history = fit_mle(m, Y; kwargs...)
+    return SeasonalFit(fitted, history, _nsteps(Y), loglikelihood(history))
+end
+
+# A `OneHot` or a matrix of float weights is not a `Y_past`: the fit given state weights has no
+# history to report in 4.2.
+StatsAPI.fit(::Type{SeasonalFit}, ::_SmoothHMM, ::AbstractMatrix{<:Bool},
+    ::Union{OneHot,AbstractMatrix{<:AbstractFloat}}; kwargs...) = throw(ArgumentError(
+    "`fit(SeasonalFit, …)` does not take state weights: call `fit_mle(m, Y, W; past, n2t, solver)`, which returns the model"))
 
 _nsteps(Y::AbstractArray{<:Real}) = _ncols(Y)
 _nsteps(Ys::AbstractVector{<:AbstractArray}) = sum(_ncols, Ys)

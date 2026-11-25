@@ -1,12 +1,13 @@
 """
 Fitting routines for SmoothPeriodicStatsModels.
 
-This extension loads as soon as the solver stack is available:
+This extension loads with Optimization.jl. Every fit takes its optimization algorithm explicitly,
+as `solver`, from whichever package the user loads:
 
-    using Optimization, SimpleNonlinearSolve
+    using Optimization, OptimizationOptimJL   # for `solver = LBFGS()`, for example
 
-Every fit takes its optimization algorithm explicitly, as `solver`, from whichever package the
-user loads. ForwardDiff, for the default `adtype`, comes with SimpleNonlinearSolve.
+ForwardDiff, for the default `adtype`, is a dependency of the parent package. The coefficient
+fits `fit_θ*` are in the SimpleNonlinearSolve extension instead.
 
 It adds the methods behind every `fit_*` name the package exports. The parent package keeps the
 models themselves — construction, `rand`, likelihoods, viterbi — none of which need a solver.
@@ -18,9 +19,7 @@ const SPSM = SmoothPeriodicStatsModels
 
 # Declared in the parent (src/fit_stubs.jl) so that they exist and error helpfully when this
 # extension is not loaded; `import` because we add the real methods to them.
-import SmoothPeriodicStatsModels: default_nlls_solver, default_adtype,
-    default_ensemble, solve_unconstrained, solve_nlls,
-    fit_θ, fit_θ!, fit_θᴬ!, fit_θᴮ!,
+import SmoothPeriodicStatsModels: default_adtype, default_ensemble, solve_unconstrained,
     fit_mle_RO, fit_loss_optim, update_B!, update_α!, update_dist, update_R!,
     fit_mle_all_slices
 
@@ -45,16 +44,20 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     bernoulli_residual, transition_residual, ar1_sufficient_statistics,
     polynomial_trigo, n_to_t, conditional_to, n_per_category, idx_observation_of_past_cat,
     loglikelihoods, loglikelihoods!, likelihoods!, complete_loglikelihood,
-    pairwise_loglikelihood, pairwise_loglikelihood_memory
+    pairwise_loglikelihood, pairwise_loglikelihood_memory,
+    # the engine contract of 4.2: state weights, `past`, sequences
+    OneHot, SmoothDistribution, _state_weights, _check_weight_values, _check_n2t, _hmm_past,
+    _keyword_sequences, _no_past_z, _lag_cat, _ar1_with_past, _ar1_past, _past_fields,
+    _check_seq_ends, _seq_ranges, _pasts, _memoryless_pasts, blockrange, paramnames, ncoef
 
-# The solver stack this extension is triggered by. SimpleNonlinearSolve depends on ForwardDiff,
-# which makes the default `adtype`, `AutoForwardDiff()`, usable.
+# The solver stack this extension is triggered by. ForwardDiff makes the default `adtype`,
+# `AutoForwardDiff()`, usable; it is loaded here so that its Optimization extension is too.
 using Optimization
-using SimpleNonlinearSolve: SimpleGaussNewton
+using ForwardDiff: ForwardDiff
 import HiddenMarkovModels as HMMs
-using SciMLBase: successful_retcode, NonlinearFunction, NonlinearLeastSquaresProblem,
-    EnsembleProblem, EnsembleSerial, EnsembleThreads, EnsembleDistributed, remake,
-    NullParameters
+using SciMLBase: successful_retcode, EnsembleProblem, EnsembleSerial, EnsembleThreads,
+    EnsembleDistributed, remake, NullParameters, NoAD
+using ADTypes: NoAutoDiff
 using LinkFunctions: LogLink
 
 # Shared by the fitting code and the parent package alike
@@ -70,9 +73,9 @@ import StatsAPI: fit
 
 include("../src/fit/solve_interface.jl")
 include("../src/fit/optim_mle.jl")
-include("../src/fit/trig_conversion.jl")
 include("../src/fit/hmm.jl")
 include("../src/fit/smooth_hmm.jl")
+include("../src/fit/weighted_hmm.jl")
 include("../src/fit/smooth_periodic_hmm.jl")
 include("../src/fit/slice_periodic_hmm.jl")
 include("../src/fit/shmm.jl")
@@ -80,5 +83,6 @@ include("../src/fit/add_sites.jl")
 include("../src/fit/spatial.jl")
 include("../src/fit/mixture.jl")
 include("../src/fit/ar1.jl")
+include("../src/fit/distribution.jl")
 
 end # module

@@ -285,6 +285,53 @@ end
     where the observations are given."""))
 end
 
+# ## `rand`: the positional form and the keyword form
+#
+# `rand(rng, hmm, n2t; kwargs...)` takes either the keywords `z` and `past`, and returns
+# `(; z, Y)`, or the older `z_ini`, `Y_past` and `seq`. The older form draws exactly what it
+# always drew, so a seeded simulation does not change.
+
+const _SimulatedHMM = Union{ARPeriodicHMM,sARPeriodicHMM,ARPeriodicHMMSpatial,PeriodicHMMDists}
+
+_keyword_rand(kwargs) = haskey(kwargs, :z) || haskey(kwargs, :past)
+
+function _rand_sequence(rng::AbstractRNG, hmm::_SimulatedHMM, n2t::AbstractVector{<:Integer};
+    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
+    N = length(n2t)
+    z = zeros(Int, N)
+    (N >= 1) && (z[1] = z_ini)
+    for n = 2:N
+        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+    end
+    y = rand(rng, hmm, z, n2t; kwargs...)
+    return seq ? (z, y) : y
+end
+
+function _rand_keyword(rng::AbstractRNG, hmm::_SimulatedHMM, n2t::AbstractVector{<:Integer};
+    z=nothing, past=nothing, kwargs...)
+    isempty(kwargs) || throw(ArgumentError(
+        "`rand` takes either `z` and `past`, and returns `(; z, Y)`, or `z_ini`, `Y_past` and `seq`; not both"))
+    N, K, T = length(n2t), size(hmm.A, 1), size(hmm.A, 3)
+    _check_n2t(n2t, N, T)
+    Y_past, z0 = _hmm_past(hmm, past; required=false)
+    if z === nothing
+        z = zeros(Int, N)
+        if N >= 1
+            a = z0 === nothing ? hmm.a : hmm.A[z0, :, mod1(n2t[1] - 1, T)]
+            z[1] = rand(rng, Categorical(a))
+        end
+        for n = 2:N
+            z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
+        end
+    else
+        _check_state_path(z, N, K)
+    end
+    return (; z, Y=_rand_given(rng, hmm, z, n2t, Y_past))
+end
+
+_rand_given(rng, hmm::PeriodicHMMDists, z, n2t, _) = rand(rng, hmm, z, n2t)
+_rand_given(rng, hmm, z, n2t, Y_past) = rand(rng, hmm, z, n2t; Y_past)
+
 # ## Batched emissions
 #
 # Every model here computes its emission loglikelihoods for all `N` observations at once —

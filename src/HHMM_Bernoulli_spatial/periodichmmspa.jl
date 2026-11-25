@@ -69,6 +69,7 @@ end
 rand(hmm::ARPeriodicHMMSpatial, z::AbstractVector{<:Integer}, n2t::AbstractVector{<:Integer}; kwargs...) = rand(GLOBAL_RNG, hmm, z, n2t; kwargs...)
 
 """
+    rand([rng, ]hmm::ARPeriodicHMMSpatial, n2t; z = nothing, past = nothing) -> (; z, Y)
     rand([rng, ]hmm::ARPeriodicHMMSpatial, n2t; z_ini, Y_past, seq = false)
     rand([rng, ]hmm::ARPeriodicHMMSpatial, N::Integer; kwargs...)
     rand([rng, ]hmm::ARPeriodicHMMSpatial, z, n2t; Y_past) -> Matrix{Bool}
@@ -76,16 +77,9 @@ rand(hmm::ARPeriodicHMMSpatial, z::AbstractVector{<:Integer}, n2t::AbstractVecto
 Draw a state path and the `D × N` observations along it; `seq = true` returns `(z, y)`. Given
 `z`, only the observations are drawn. Otherwise as for [`ARPeriodicHMM`](@ref).
 """
-function rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer};
-    z_ini=rand(rng, Categorical(hmm.a))::Integer, seq=false, kwargs...)
-    N = length(n2t)
-    z = zeros(Int, N)
-    (N >= 1) && (z[1] = z_ini)
-    for n = 2:N
-        z[n] = rand(rng, Categorical(hmm.A[z[n-1], :, n2t[n-1]]))
-    end
-    y = rand(rng, hmm, z, n2t; kwargs...)
-    return seq ? (z, y) : y
+function rand(rng::AbstractRNG, hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer}; kwargs...)
+    _keyword_rand(kwargs) && return _rand_keyword(rng, hmm, n2t; kwargs...)
+    return _rand_sequence(rng, hmm, n2t; kwargs...)
 end
 
 rand(hmm::ARPeriodicHMMSpatial, n2t::AbstractVector{<:Integer}; kwargs...) =

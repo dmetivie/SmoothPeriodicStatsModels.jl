@@ -41,20 +41,25 @@ function Distributions._rand!(rng::AbstractRNG, d::SpatialBernoulli, x::Abstract
 end
 
 """
-    pdf(d::SpatialBernoulli, y; m = 500length(d), return_error = false)
+    pdf(d::SpatialBernoulli, y; m = 500length(d), return_error = false, rng = nothing)
 
 The probability of the `Bool` vector `y`: the probability that the latent Gaussian vector lies in
 the orthant `y` selects, estimated by quasi-Monte-Carlo with `m` points
-(`MvNormalCDF.mvnormcdf`). `return_error = true` returns `(estimate, error)`. `logpdf` is its
+(`MvNormalCDF.mvnormcdf`). `return_error = true` returns `(estimate, error)`. `rng` draws the
+randomization of the estimate, the default generator of the task without it. `logpdf` is its
 logarithm.
 """
-function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Bool}; m=length(d) * 500, return_error=false, a=zeros(length(d)), b=zeros(length(d)), finite_bounds=zeros(length(d)), zerosvec=fill(0, length(d)))
+function Distributions.pdf(d::SpatialBernoulli, y::AbstractVector{<:Bool}; m=length(d) * 500, return_error=false, a=zeros(length(d)), b=zeros(length(d)), finite_bounds=zeros(length(d)), zerosvec=fill(0, length(d)), rng=nothing)
     finite_bounds .= quantile.(Normal(), d.λ)
     a .= ifelse.(y .== 0, finite_bounds, -Inf)
     b .= ifelse.(y .== 1, finite_bounds, Inf)
-    hy = mvnormcdf(zerosvec, d.ΣU, a, b; m=m)
+    hy = _mvnormcdf(zerosvec, d.ΣU, a, b, m, rng)
     return return_error ? hy : hy[1]
 end
+
+# `mvnormcdf` with `rng`, or exactly as before without one.
+_mvnormcdf(μ, Σ, a, b, m, ::Nothing) = mvnormcdf(μ, Σ, a, b; m)
+_mvnormcdf(μ, Σ, a, b, m, rng::AbstractRNG) = mvnormcdf(μ, Σ, a, b; m, rng)
 
 # Log of `pdf`. Defined because `Distributions`' generic fallback for a multivariate
 # distribution goes through `_logpdf`, which this type did not provide — without it

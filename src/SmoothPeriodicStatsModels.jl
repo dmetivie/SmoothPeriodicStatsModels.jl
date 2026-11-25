@@ -6,9 +6,10 @@ module SmoothPeriodicStatsModels
 using ArgCheck
 using Base: OneTo
 # ## Optimization
-# The solver stack lives in `ext/SmoothPeriodicStatsModelsOptimizationExt.jl`: simulating from a
-# model and evaluating its likelihood need none of it, and it is about half of this package's
-# load time. `SciMLBase` stays here because `OptimMLE` and the retcode checks are light.
+# The solver stack lives in two extensions, `ext/SmoothPeriodicStatsModelsOptimizationExt.jl` and
+# `ext/SmoothPeriodicStatsModelsSimpleNonlinearSolveExt.jl`: simulating from a model and evaluating
+# its likelihood need none of it, and it is about half of this package's load time. `SciMLBase`
+# stays here because `OptimMLE` and the retcode checks are light.
 using SciMLBase: successful_retcode, AbstractSciMLSolution
 
 # ## Multivariate
@@ -16,7 +17,7 @@ using Copulas
 
 # Random and Distributions
 using Distributions
-using Random: AbstractRNG, GLOBAL_RNG, rand!
+using Random: AbstractRNG, GLOBAL_RNG, rand!, Xoshiro
 
 # ## Special function
 using LogExpFunctions: logsumexp, log1pexp, logistic
@@ -30,7 +31,7 @@ using LogExpFunctions: logsumexp, log1pexp, logistic
 # this namespace is PeriodicHiddenMarkovModels'.
 include("TimeVaryingParameters/TimeVaryingParameters.jl")
 using .TimeVaryingParameters: TimeVaryingParameters,
-    ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis,
+    ParamSpec, AbstractBasis, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis,
     BSplineBasis, CyclicBSplineBasis, CombinedBasis,
     PeriodicDesign, linear_predictors, design_matrix, nbasis,
     paramnames, ncoef, coefs, blockindex, blockrange, parameters_at, apply_link, curve,
@@ -95,6 +96,10 @@ include("utilities.jl")
 include("params.jl")
 export parameters, nparams, ncolumns, column, FitHistory, converged
 
+# ## State weights, the third argument of the fits given the hidden states
+include("onehot.jl")
+export OneHot
+
 # ## The second tier, for model selection
 include("fitted.jl")
 # `params` and `loglikelihood` are `StatsAPI`'s, the same functions `Distributions` extends, so
@@ -115,6 +120,10 @@ include("seasonal_mixture.jl")
 export SmoothSeasonalMixture, seasonal_family, mixture_weight_spec, mixture_weights, mixtures
 export component_coefs, component_range
 export ncomponents, components
+
+# ## A seasonal distribution per hidden state
+include("smooth_distribution.jl")
+export SmoothDistribution
 
 # ## Generic MLE problem solved with Optimization
 include("optim_mle_type.jl")
@@ -167,6 +176,9 @@ include("sHHMM_Bernoulli/smooth.jl")
 include("HHMM_Bernoulli_spatial/smooth.jl")
 include("HMM_Dists/smooth.jl")
 include("smooth_hmm_sequences.jl")
+# ## Starting points of the smooth HMMs
+include("initialize.jl")
+export initialize, SliceEM
 export SmoothARPeriodicHMM, SmoothsARPeriodicHMM, SmoothARPeriodicHMMSpatial, degrees
 export SmoothPeriodicHMM, PeriodicHMMDists, emission_coefs, emission_range
 # for HMMMspa 
@@ -198,6 +210,8 @@ export μₜ, ρₜ, σₜ, αₜ
 export n_to_t
 export fit_loss_optim, fit_mle
 
-
+# ## Every model's coefficients, and the stubs of the fits, once all the model types exist
+include("model_coef.jl")
+include("fit_model_stubs.jl")
 
 end

@@ -2128,7 +2128,15 @@ addprocs(2)
     @test all(diff(hist.logtots) .> -1e-8 * abs(hist.logtots[1]))
 end
 
+# The engine contract of 4.2 on the models above: state weights, `past`, `loglikelihoods`, the
+# keyword `rand`, and the two extensions
+include("engine_contract.jl")
+
 include("test_hmmspa.jl")
+
+# The engine types of 4.2: `SmoothDistribution`, the size constructor, `initialize`, the fit
+# given state weights, `curve` and `coef`, and the spatial `rng`
+include("engine_types.jl")
 
 # The tests of the vendored TimeVaryingParameters.jl, in `src/TimeVaryingParameters/`
 include("timevaryingparameters.jl")
