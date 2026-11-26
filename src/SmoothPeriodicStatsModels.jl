@@ -46,7 +46,7 @@ using LinkFunctions: IdentityLink, LogLink, LogitLink
 using StatsAPI: StatsAPI, StatisticalModel, fit, coef, dof, nobs, aic, aicc, bic
 # One named container per model that is also a plain `AbstractVector`, so the same object reads
 # as `ps.ρ` to a person and goes straight into an `OptimizationProblem`.
-using ComponentArrays: ComponentArray, ComponentVector
+using ComponentArrays: ComponentArray, ComponentVector, getaxes
 
 # Re-exported so that a seasonal family can be declared with nothing but this package loaded.
 export ParamSpec, TrigBasis, ConstantBasis, FourierBasis, PolynomialBasis, IndicatorBasis
@@ -111,6 +111,10 @@ export loglikelihood, dof, nobs, aic, aicc, bic
 include("fit_stubs.jl")
 export default_nlls_solver, default_adtype, default_ensemble
 export solve_unconstrained, solve_nlls
+
+# ## An additional loss on the fits, the `additional_loss` keyword
+include("penalty.jl")
+export RidgePenalty, DifferencePenalty, CurvePenalty
 
 # ## M-step objectives shared by the seasonal EM algorithms
 include("trig_kernels.jl")

@@ -2138,5 +2138,8 @@ include("test_hmmspa.jl")
 # given state weights, `curve` and `coef`, and the spatial `rng`
 include("engine_types.jl")
 
+# The `additional_loss` keyword of every fit: penalized likelihood
+include("penalty.jl")
+
 # The tests of the vendored TimeVaryingParameters.jl, in `src/TimeVaryingParameters/`
 include("timevaryingparameters.jl")

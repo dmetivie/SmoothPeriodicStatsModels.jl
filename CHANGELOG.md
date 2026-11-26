@@ -28,7 +28,7 @@ lists them.
   throws a `MethodError`.
 - `SmoothDistribution(D, T; K, season, init)`: a seasonal distribution per hidden state, any law
   with a `seasonal_family` declaration, with `curve`, `m(t; state)`, `loglikelihoods`,
-  `loglikelihood`, `rand`, `fit_mle` (with `penalty` and `adtype`) and `fit(SeasonalFit, …)`.
+  `loglikelihood`, `rand`, `fit_mle` (with `additional_loss` and `adtype`) and `fit(SeasonalFit, …)`.
   Its fit returns the model alone and averages the objective of each state.
 - `SmoothARPeriodicHMM(K, D, T; memory, season)`, a model of a given size with equal states.
 - `initialize(m0, Y; past, n2t, method = SliceEM(window, n_random, dirichlet))`, the slice
@@ -40,6 +40,18 @@ lists them.
 - `rng` for the spatial HMM's likelihoods, `viterbi`, `complete_loglikelihood` and fit, which
   makes them reproducible whatever the number of threads.
 - `adtype = NoAutoDiff()` in `solve_unconstrained`, for a derivative-free solver.
+- `additional_loss`, a keyword of every fit with an optimizer step, after NeuralPDE.jl's: a
+  function `additional_loss(phi, θ, p)` added to the negative loglikelihood of each M-step
+  subproblem, for penalized likelihoods. `phi(t, θ)` gives the subproblem's parameters on their
+  natural scale, `θ` its coefficients and `p = (; part, index, T)` which subproblem it is. It is
+  in `fit_mle` and `fit(SeasonalFit, …)` of `SmoothAR1`, `SmoothDistribution`,
+  `SmoothSeasonalMixture`, `SmoothARPeriodicHMM`, `SmoothsARPeriodicHMM`, `SmoothPeriodicHMM`
+  and `SmoothARPeriodicHMMSpatial` (its range included), and in the fit of an HMM given its
+  states. `RidgePenalty(λ)`, `DifferencePenalty(λ; order, cyclic)` (P-splines) and
+  `CurvePenalty(λ; order)` (smooth curves for any basis) are ready-made terms. The loss counts
+  on the scale of the summed loglikelihood, and the EM fits record and increase the penalized
+  loglikelihood (`history.penalized`). `aic`, `aicc` and `bic` of a penalized `SeasonalFit`
+  throw: compare by held-out loglikelihood. Without it, every fit gives the same numbers.
 
 ### Changed
 

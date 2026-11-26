@@ -62,6 +62,17 @@ Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsMode
 Filter = t -> t in (fit_mle, OneHot, FitHistory, converged)
 ```
 
+## Additional loss
+
+The `additional_loss` keyword of the fits, and ready-made terms for it; see the
+[fitting guide](@ref additional-loss-guide).
+
+```@autodocs
+Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt),
+    Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsSimpleNonlinearSolveExt)]
+Filter = t -> t in (SmoothPeriodicStatsModels.additional_loss, RidgePenalty, DifferencePenalty, CurvePenalty)
+```
+
 ## Starting points for the HMMs
 
 ```@autodocs
@@ -84,7 +95,7 @@ Filter = t -> t in (loglikelihood, loglikelihoods, viterbi)
 ```@autodocs
 Modules = [SmoothPeriodicStatsModels, Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsOptimizationExt),
     Base.get_extension(SmoothPeriodicStatsModels, :SmoothPeriodicStatsModelsSimpleNonlinearSolveExt)]
-Filter = t -> t in (SeasonalFit, fit, dof, nobs)
+Filter = t -> t in (SeasonalFit, fit, dof, nobs, aic)
 ```
 
 ## HiddenMarkovModels.jl interface

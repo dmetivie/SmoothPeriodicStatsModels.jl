@@ -2,10 +2,12 @@
 #
 # One solve per state, of the weighted negative loglikelihood divided by the total weight of the
 # state: an average, which leaves the optimum where it is and keeps the first gradient of order
-# one, so that the line search cannot push a log link into underflow on its first step.
+# one, so that the line search cannot push a log link into underflow on its first step. An
+# additional loss is divided by the same total, so that it counts as added to the summed
+# negative loglikelihood.
 
 """
-    fit_mle(m::SmoothDistribution, y[, w]; n2t, past, solver, adtype, penalty, solve_kwargs) -> SmoothDistribution
+    fit_mle(m::SmoothDistribution, y[, w]; n2t, past, solver, adtype, additional_loss, solve_kwargs) -> SmoothDistribution
 
 Maximum likelihood fit of the seasonal distribution `m` to the observations `y`, `y[n]` at period
 index `n2t[n]`, starting from `parameters(m)`. Returns the fitted model.
@@ -13,8 +15,9 @@ index `n2t[n]`, starting from `parameters(m)`. Returns the fitted model.
 - `w` are the state weights, `OneHot(z, K)` or an `N × K` matrix, required when `K > 1`; for a
   model of one state, a vector of float weights. Weights are finite and nonnegative, and not all
   zero. A state of zero weight keeps its start, with a warning.
-- `penalty(θ)`, added to the average negative loglikelihood of each state, takes that state's
-  coefficient vector in the order of the parameters.
+- `additional_loss(phi, θ, p)` is added to the negative loglikelihood of each state, with
+  `part = :distribution` and `index = k`, see
+  [`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss).
 - `adtype = NoAutoDiff()` with a derivative-free `solver` fits a family whose constructor cannot
   take dual numbers.
 - `past` is accepted and unused: the observations are independent given the state.
@@ -51,13 +54,15 @@ end
 # The fit and its history. The objective of state `k` is `PeriodicNLL` over the observations of
 # positive weight in that state, divided by their total weight.
 function _fit_distribution(m::SmoothDistribution, y::AbstractVector{<:Real}, w, n2t::AbstractVector{<:Integer};
-    solver=_required_solver(), adtype=default_adtype(), penalty=nothing, solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), additional_loss=nothing, solve_kwargs=(;))
     fam, T = m.family, m.nT
+    loss = _resolve_loss(additional_loss)
     spec = fam.spec
     K, N = ncolumns(spec, m.ps), length(y)
     _check_n2t(n2t, N, T)
     W = w === nothing ? nothing : _state_weights(w, N, K)
     design = PeriodicDesign(spec, 1:T)
+    phi = _FamilyPhi(spec, design)
 
     ps = copy(m.ps)
     sols = []
@@ -81,11 +86,13 @@ function _fit_distribution(m::SmoothDistribution, y::AbstractVector{<:Real}, w, 
         wk = W === nothing || W isa OneHot ? nothing : view(W, :, k)
         total = wk === nothing ? length(keep) : sum(wk[n] for n in keep)
         nll = PeriodicNLL(fam, design, y, groups, wk)
-        sol = solve_unconstrained(_StateNLL(nll, total, penalty), column(spec, m.ps, k), NullParameters();
+        start = column(spec, m.ps, k)
+        _check_loss(loss, phi, start, :distribution, k, T)
+        sol = solve_unconstrained(_StateNLL(nll, total, loss, phi, k, T), start, NullParameters();
             solver, adtype, solve_kwargs, return_sol=true)
         _set_column!(ps, spec, k, sol.u)
         push!(sols, sol)
-        logtot -= nll(sol.u)
+        logtot -= nll(sol.u) + _loss_float(loss, phi, sol.u, :distribution, k, T)
     end
     isempty(empty) || @warn "SmoothDistribution fit: state(s) $empty have no weight and keep their starting coefficients"
     fitted = SmoothDistribution(fam, T, ps)
@@ -93,18 +100,22 @@ function _fit_distribution(m::SmoothDistribution, y::AbstractVector{<:Real}, w, 
         converged=all(s -> successful_retcode(s.retcode), sols),
         iterations=isempty(sols) ? 0 : maximum(s -> s.stats.iterations, sols),
         logtots=[logtot],
-        solution=[s for s in sols])
+        solution=[s for s in sols], penalized=loss !== nothing)
     return fitted, history
 end
 
-# The objective of one state: the average negative loglikelihood, and the penalty.
-struct _StateNLL{L,W,P}
-    nll::L
+# The objective of one state: the average negative loglikelihood, and the additional loss over the
+# total weight.
+struct _StateNLL{N,W,L,PH}
+    nll::N
     total::W
-    penalty::P
+    loss::L
+    phi::PH
+    index::Int
+    T::Int
 end
 (o::_StateNLL{<:Any,<:Any,Nothing})(θ, _) = o.nll(θ) / o.total
-(o::_StateNLL)(θ, _) = o.nll(θ) / o.total + o.penalty(θ)
+(o::_StateNLL)(θ, _) = o.nll(θ) / o.total + _loss_value(o.loss, o.phi, θ, :distribution, o.index, o.T) / o.total
 
 # Write the flat coefficients `θ` of state `k` into its column of every block.
 function _set_column!(ps, spec, k, θ)

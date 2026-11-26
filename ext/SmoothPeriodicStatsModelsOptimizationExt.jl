@@ -48,7 +48,10 @@ using SmoothPeriodicStatsModels: ARPeriodicHMM, sARPeriodicHMM, ARPeriodicHMMSpa
     # the engine contract of 4.2: state weights, `past`, sequences
     OneHot, SmoothDistribution, _state_weights, _check_weight_values, _check_n2t, _hmm_past,
     _keyword_sequences, _no_past_z, _lag_cat, _ar1_with_past, _ar1_past, _past_fields,
-    _check_seq_ends, _seq_ranges, _pasts, _memoryless_pasts, blockrange, paramnames, ncoef
+    _check_seq_ends, _seq_ranges, _pasts, _memoryless_pasts, blockrange, paramnames, ncoef,
+    # the additional loss of the fits
+    _resolve_loss, _penalized, _penalized_data, _loss_value, _loss_float, _check_loss,
+    _BernoulliPhi, _RangePhi, _FamilyPhi, _SoftmaxPhi
 
 # The solver stack this extension is triggered by. ForwardDiff makes the default `adtype`,
 # `AutoForwardDiff()`, usable; it is loaded here so that its Optimization extension is too.
@@ -73,6 +76,7 @@ import StatsAPI: fit
 
 include("../src/fit/solve_interface.jl")
 include("../src/fit/optim_mle.jl")
+include("../src/fit/model_loss.jl")
 include("../src/fit/hmm.jl")
 include("../src/fit/smooth_hmm.jl")
 include("../src/fit/weighted_hmm.jl")

@@ -52,11 +52,13 @@ instead of iteratively reweighted least squares. In the same way:
 
 ### What GLMs and GAMs offer that this package does not (yet)
 
-- **Penalized smoothness.** A GAM takes many basis functions and penalizes their roughness,
-  with the amount of smoothing estimated by REML or GCV. This package has no penalty: a curve is
-  smooth because its basis is small, and the degree or the number of knots is chosen by
-  comparing fits by BIC (see the [fitting guide](@ref fitting-guide)). The fit stays a plain
-  maximum likelihood, but the choice is discrete and made by hand.
+- **Estimated smoothness.** A GAM takes many basis functions and penalizes their roughness,
+  with the amount of smoothing estimated by REML or GCV. This package penalizes through
+  `additional_loss` (`DifferencePenalty` is the P-spline penalty, see the
+  [fitting guide](@ref additional-loss-guide)), but the weight is yours to set and to compare by
+  held-out loglikelihood: there is no automatic choice of it, and no `bic` for a penalized fit.
+  Without a penalty, a curve is smooth because its basis is small, and the degree or the number
+  of knots is chosen by comparing fits by BIC.
 - **Covariates.** The parameters depend on the period index only, and on the previous
   observations in the models with memory. A GLM takes any covariate, such as a temperature or a
   climate index.

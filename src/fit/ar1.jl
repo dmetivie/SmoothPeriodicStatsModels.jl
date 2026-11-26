@@ -14,7 +14,7 @@
 # `OneHot(z, K)` is the fit given `z` to the last bit.
 
 """
-    fit_mle(m::SmoothAR1, y; n2t, past, solver, adtype, solve_kwargs) -> (m, history)
+    fit_mle(m::SmoothAR1, y; n2t, past, solver, adtype, additional_loss, solve_kwargs) -> (m, history)
 
 Maximum likelihood fit of a periodic AR(1)
 
@@ -28,38 +28,49 @@ Warns when the fitted `ρ(t)` reaches ±1, the sign of a start too far from the 
 with `init` (see [`SmoothAR1`](@ref)).
 
 `past`, the value before `y[1]` (a number, or `(; Y = values)` whose last is used), adds the
-transition into `y[1]`; without it the fit is conditional on `y[1]`.
+transition into `y[1]`; without it the fit is conditional on `y[1]`. An
+[`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss) is added to the negative
+loglikelihood, with `part = :AR` and `index = 1`.
 """
 function fit_mle(m::SmoothAR1, y::AbstractVector;
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing,
-    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), additional_loss=nothing, solve_kwargs=(;))
     @argcheck ncolumns(m.spec, parameters(m)) == 1 "`m` holds one column of coefficients per hidden state; pass `z` to fit them"
     design = PeriodicDesign(m.spec, 1:m.nT)
     y, n2t = _ar1_with_past(y, n2t, past)
     stats = ar1_sufficient_statistics(y, n2t, m.nT)
+    return _solve_ar1(m, design, stats; solver, adtype, additional_loss, solve_kwargs)
+end
 
-    sol = solve_unconstrained(ar1_nll, collect(float.(parameters(m))), (stats, design);
+# One solve of a model of one state from its statistics.
+function _solve_ar1(m::SmoothAR1, design, stats; solver, adtype, additional_loss, solve_kwargs)
+    loss = _resolve_loss(additional_loss)
+    phi = _FamilyPhi(m.spec, design)
+    u0 = collect(float.(parameters(m)))
+    _check_loss(loss, phi, u0, :AR, 1, m.nT)
+    sol = solve_unconstrained(_penalized(ar1_nll, loss, phi, :AR, m.nT),
+        u0, _penalized_data(loss, (stats, design), 1);
         solver, adtype, solve_kwargs, return_sol=true)
-    return _ar1_fitted(m, sol, sum(stats.N))
+    return _ar1_fitted(m, sol, sum(stats.N), loss)
 end
 
 # A function barrier. `solve`'s return type is not inferred, so in `fit_mle` itself every use of
 # `sol` would be a dynamic dispatch, and `FitHistory`'s type -- which holds the whole solution's --
 # would be built at run time on every fit.
-function _ar1_fitted(m::SmoothAR1, sol, N::Real)
+function _ar1_fitted(m::SmoothAR1, sol, N::Real, loss=nothing)
     fitted = SmoothAR1(m.spec, m.nT, _params_like(m.spec, parameters(m), sol.u))
     _warn_if_unit_root(fitted)
     history = FitHistory(;
         converged=successful_retcode(sol.retcode),
         iterations=sol.stats.iterations,
         logtots=[_ar1_loglikelihood(sol.objective, N)],
-        solution=sol)
+        solution=sol, penalized=loss !== nothing)
     return fitted, history
 end
 
 """
-    fit_mle(m::SmoothAR1, y, z; n2t, K, past, solver, adtype, ensemble, solve_kwargs) -> (m, history)
-    fit_mle(m::SmoothAR1, y, W; n2t, past, solver, adtype, ensemble, solve_kwargs) -> (m, history)
+    fit_mle(m::SmoothAR1, y, z; n2t, K, past, solver, adtype, ensemble, additional_loss, solve_kwargs) -> (m, history)
+    fit_mle(m::SmoothAR1, y, W; n2t, past, solver, adtype, ensemble, additional_loss, solve_kwargs) -> (m, history)
 
 Maximum likelihood fit of one periodic AR(1) per hidden state, given the state sequence `z`, or
 `W = OneHot(z, K)`, or given state weights: an `N × K` matrix `W` whose row `n` weights the
@@ -71,7 +82,10 @@ transition into `y[n]` in each state.
 
 `history.retcode` is the `K` return codes. Pass `ensemble = EnsembleThreads()` to run the `K`
 fits in parallel. A state that `z` never visits, or whose weights are all zero, has no data and
-keeps its starting value. Warns, naming the states, when a fitted `ρ(t)` reaches ±1.
+keeps its starting value. Warns, naming the states, when a fitted `ρ(t)` reaches ±1. An
+[`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss) is added to the negative
+loglikelihood of each state, with `part = :AR` and `index = k`; a state without data then goes to
+the minimizer of the loss.
 
 A model of one state also takes a vector of float weights, one per transition, and returns a
 model of one state. Weights must be finite and nonnegative, and not all zero. `past` is as for
@@ -80,21 +94,21 @@ the fit of one AR(1); the first row of `W` counts only with it.
 function fit_mle(m::SmoothAR1, y::AbstractVector, z::AbstractVector{<:Integer};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer},
     K=_nstates(m, z), past=nothing,
-    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), additional_loss=nothing, solve_kwargs=(;))
     @argcheck length(z) == length(y) "`z` has $(length(z)) states and `y` $(length(y)) observations"
     @argcheck all(in(1:K), z) "the states in `z` must lie in 1:$K"
     T = m.nT
     yp, n2tp = _ar1_with_past(y, n2t, past)
     shift = length(yp) - length(y)   # 1 when the value before `y[1]` leads the series
     stats = [ar1_sufficient_statistics(yp, n2tp, T, [n + shift for n = 2-shift:length(y) if z[n] == k]) for k = 1:K]
-    return _fit_ar1_states(m, stats; solver, adtype, ensemble, solve_kwargs)
+    return _fit_ar1_states(m, stats; solver, adtype, ensemble, additional_loss, solve_kwargs)
 end
 
 fit_mle(m::SmoothAR1, y::AbstractVector, W::OneHot; kwargs...) = fit_mle(m, y, W.z; K=W.K, kwargs...)
 
 function fit_mle(m::SmoothAR1, y::AbstractVector, W::AbstractMatrix{<:Real};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing,
-    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), additional_loss=nothing, solve_kwargs=(;))
     cols = ncolumns(m.spec, parameters(m))
     K = cols > 1 ? cols : size(W, 2)
     N = length(y)
@@ -102,12 +116,12 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, W::AbstractMatrix{<:Real};
     W = _state_weights(W, N, K)
     yp, n2tp = _ar1_with_past(y, n2t, past)
     stats = [_ar1_weighted_statistics(yp, n2tp, m.nT, _transition_weights(view(W, :, k), length(yp) - N)) for k = 1:K]
-    return _fit_ar1_states(m, stats; solver, adtype, ensemble, solve_kwargs)
+    return _fit_ar1_states(m, stats; solver, adtype, ensemble, additional_loss, solve_kwargs)
 end
 
 function fit_mle(m::SmoothAR1, y::AbstractVector, w::AbstractVector{<:AbstractFloat};
     n2t=n_to_t(length(y), m.nT)::AbstractVector{<:Integer}, past=nothing,
-    solver=_required_solver(), adtype=default_adtype(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), additional_loss=nothing, solve_kwargs=(;))
     cols = ncolumns(m.spec, parameters(m))
     cols == 1 || throw(ArgumentError(
         "`m` holds $cols columns of coefficients, one per hidden state: pass an N × $cols matrix of weights, or OneHot(z, $cols)"))
@@ -116,10 +130,7 @@ function fit_mle(m::SmoothAR1, y::AbstractVector, w::AbstractVector{<:AbstractFl
     _state_weights(w, N, 1)
     yp, n2tp = _ar1_with_past(y, n2t, past)
     stats = _ar1_weighted_statistics(yp, n2tp, m.nT, _transition_weights(w, length(yp) - N))
-    design = PeriodicDesign(m.spec, 1:m.nT)
-    sol = solve_unconstrained(ar1_nll, collect(float.(parameters(m))), (stats, design);
-        solver, adtype, solve_kwargs, return_sol=true)
-    return _ar1_fitted(m, sol, sum(stats.N))
+    return _solve_ar1(m, PeriodicDesign(m.spec, 1:m.nT), stats; solver, adtype, additional_loss, solve_kwargs)
 end
 
 fit_mle(::SmoothAR1, ::AbstractVector, w::AbstractVector; kwargs...) = throw(ArgumentError(
@@ -150,14 +161,22 @@ function _ar1_weighted_statistics(y::AbstractVector, n2t::AbstractVector{<:Integ
 end
 
 # One solve per state, from the statistics of each, as an ensemble.
-function _fit_ar1_states(m::SmoothAR1, stats::AbstractVector; solver, adtype, ensemble, solve_kwargs)
+function _fit_ar1_states(m::SmoothAR1, stats::AbstractVector; solver, adtype, ensemble, additional_loss=nothing, solve_kwargs)
     spec, T, K = m.spec, m.nT, length(stats)
     design = PeriodicDesign(spec, 1:T)
     starts = _starting_points(spec, parameters(m), K)
+    loss = _resolve_loss(additional_loss)
 
-    base = OptimizationProblem(OptimizationFunction(ar1_nll, _optimization_adtype(adtype)), starts[1], (stats[1], design))
+    phi = _FamilyPhi(spec, design)
+    for k = 1:K
+        _check_loss(loss, phi, starts[k], :AR, k, T)
+    end
+    objective = _penalized(ar1_nll, loss, phi, :AR, T)
+    base = OptimizationProblem(OptimizationFunction(objective, _optimization_adtype(adtype)), starts[1],
+        _penalized_data(loss, (stats[1], design), 1))
     eprob = EnsembleProblem(base;
-        prob_func=(prob, ctx) -> remake(prob; u0=starts[ctx.sim_id], p=(stats[ctx.sim_id], design)))
+        prob_func=(prob, ctx) -> remake(prob; u0=starts[ctx.sim_id],
+            p=_penalized_data(loss, (stats[ctx.sim_id], design), ctx.sim_id)))
     sol = solve(eprob, solver, ensemble; trajectories=K, solve_kwargs...)
 
     θ = Matrix{Float64}(undef, ncoef(spec), K)
@@ -174,7 +193,7 @@ function _fit_ar1_states(m::SmoothAR1, stats::AbstractVector; solver, adtype, en
         converged=all(s -> successful_retcode(s.retcode), sol.u),
         iterations=maximum(s -> s.stats.iterations, sol.u),
         logtots=[_ar1_loglikelihood(sum(s.objective for s in sol.u), N)],
-        solution=sol.u)
+        solution=sol.u, penalized=loss !== nothing)
     return fitted, history
 end
 

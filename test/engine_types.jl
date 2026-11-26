@@ -127,10 +127,11 @@ end
     f3 = @test_logs (:warn, r"no weight") fit_mle(m3, y, OneHot(z, 3); n2t, solver=SOLVER)
     @test column(f3.family.spec, parameters(f3), 3) == column(m3.family.spec, parameters(m3), 3)
 
-    # a penalty of zero changes nothing; a stiff one pins the coefficients
-    @test parameters(fit_mle(m0, y, W; n2t, solver=SOLVER, penalty=θ -> 0.0)) == parameters(m)
+    # an additional loss of zero changes nothing; a stiff one pins the coefficients, being added to
+    # the summed negative loglikelihood
+    @test parameters(fit_mle(m0, y, W; n2t, solver=SOLVER, additional_loss=(phi, θ, p) -> 0.0)) == parameters(m)
     c = [0.5, 0.0, 0.0, 0.2, 0.0, 0.0]
-    mp = fit_mle(m0, y, W; n2t, solver=SOLVER, penalty=θ -> 1e4 * sum(abs2, θ .- c))
+    mp = fit_mle(m0, y, W; n2t, solver=SOLVER, additional_loss=(phi, θ, p) -> 1e7 * sum(abs2, θ .- c))
     @test column(mp.family.spec, parameters(mp), 1) ≈ c atol = 1e-2
 
     # without derivatives, for a solver that needs none or a family that cannot take dual numbers

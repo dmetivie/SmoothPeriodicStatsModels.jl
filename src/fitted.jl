@@ -89,19 +89,35 @@ given state sequence, are not counted.
 """
 StatsAPI.dof(f::SeasonalFit) = nparams(f.model) + _ninitial(f.model)
 
+"""
+    aic(f::SeasonalFit)
+    aicc(f::SeasonalFit)
+    bic(f::SeasonalFit)
+
+The information criteria of the fit, from its loglikelihood and [`dof`](@ref). They throw for a fit
+with an [`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss), whose effective
+degrees of freedom are not available.
+"""
+StatsAPI.aic(f::SeasonalFit) = (_unpenalized(f, "aic"); invoke(StatsAPI.aic, Tuple{StatisticalModel}, f))
+StatsAPI.aicc(f::SeasonalFit) = (_unpenalized(f, "aicc"); invoke(StatsAPI.aicc, Tuple{StatisticalModel}, f))
+StatsAPI.bic(f::SeasonalFit) = (_unpenalized(f, "bic"); invoke(StatsAPI.bic, Tuple{StatisticalModel}, f))
+
+_unpenalized(f::SeasonalFit, name) = f.penalized ? throw(ArgumentError(
+    "`$name` is not available for a penalized fit: its effective degrees of freedom are not computed, and `dof` is the nominal number of coefficients. Compare penalized fits by held-out loglikelihood.")) : nothing
+
 # The free initial probabilities a fit estimates besides the coefficients; the HMMs have `K - 1`.
 _ninitial(m) = 0
 
 converged(f::SeasonalFit) = converged(f.history)
 
 @inline function Base.getproperty(f::SeasonalFit, name::Symbol)
-    if name === :retcode || name === :objective || name === :stats
+    if name === :retcode || name === :objective || name === :stats || name === :penalized
         return getproperty(getfield(f, :history), name)
     end
     return getfield(f, name)
 end
 
-Base.propertynames(f::SeasonalFit) = (fieldnames(SeasonalFit)...,
+Base.propertynames(f::SeasonalFit) = (fieldnames(SeasonalFit)..., :penalized,
     filter(!=(:solution), _solver_properties(getfield(f, :history)))...)
 
 # v3 returned bare tuples here, so `θμ, θρ, θσ = fit_mle_AR1(...)` was the idiom, and v4's own
@@ -123,7 +139,8 @@ function Base.show(io::IO, ::MIME"text/plain", f::SeasonalFit)
     model = sprint(show, MIME"text/plain"(), f.model; context=io)
     print(io, model, endswith(model, '\n') ? "" : "\n")
     show(io, MIME"text/plain"(), f.history)
-    print(io, "\n  loglikelihood ", round(loglikelihood(f); digits=2),
-        "   dof ", dof(f), "   nobs ", nobs(f), "   bic ", round(bic(f); digits=2))
+    print(io, "\n  ", f.penalized ? "penalized loglikelihood " : "loglikelihood ", round(loglikelihood(f); digits=2),
+        "   dof ", dof(f), "   nobs ", nobs(f))
+    f.penalized || print(io, "   bic ", round(bic(f); digits=2))
     return
 end

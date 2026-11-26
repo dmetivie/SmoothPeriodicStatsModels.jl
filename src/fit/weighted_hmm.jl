@@ -7,12 +7,14 @@
 # not an average.
 
 """
-    fit_mle(m::SmoothARPeriodicHMM, Y, W; n2t, past, fixed = (:A,), solver, adtype, ensemble, solve_kwargs) -> SmoothARPeriodicHMM
+    fit_mle(m::SmoothARPeriodicHMM, Y, W; n2t, past, fixed = (:A,), solver, adtype, ensemble, additional_loss, solve_kwargs) -> SmoothARPeriodicHMM
 
 The emission coefficients, and the transitions unless they are `fixed`, of the HMM `m` fitted to
 the `D × N` observations `Y` given the state weights `W`: `OneHot(z, K)` for a known state path,
 or an `N × K` matrix of floats. Starts from `parameters(m)` and returns the fitted model alone.
 
+- `additional_loss` is added to the negative loglikelihood of the emissions and of the transitions,
+  see [`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss).
 - `past = (; Y = Y_past)` holds the observations before `Y`, at least as many as the memory.
 - `fixed` lists the parts kept as in `m`: `:A`, the transitions and the initial distribution,
   and `:B`, the emissions. Fitting `:A` needs `W = OneHot(z, K)`: the transitions are then fitted
@@ -26,8 +28,9 @@ function fit_mle(m::SmoothARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     W::Union{OneHot,AbstractMatrix{<:AbstractFloat}};
     n2t=n_to_t(size(Y, 2), m.nT)::AbstractVector{<:Integer}, past=nothing, fixed=(:A,),
     solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(),
-    solve_kwargs=(;))
+    solve_kwargs=(;), additional_loss=nothing)
     K, D, T, size_order = size(m)
+    loss = _resolve_loss(additional_loss)
     N = size(Y, 2)
     @argcheck size(Y, 1) == D "`Y` has $(size(Y, 1)) rows for $D sites"
     _check_n2t(n2t, N, T)
@@ -42,7 +45,7 @@ function fit_mle(m::SmoothARPeriodicHMM, Y::AbstractMatrix{<:Bool},
     if !(:B in fixed)
         cfg = SmoothHMMContext(fitted, Y, lag_cat, n2t; solver, adtype, ensemble, solve_kwargs)
         update_B!(fitted.stored.B, fitted.ps.B, W, zeros(K, D, size_order, T, 2), Y, cfg.n_all,
-            cfg.basis_B; solver, adtype, ensemble, solve_kwargs)
+            cfg.basis_B; solver, adtype, ensemble, solve_kwargs, additional_loss=loss)
     end
     if !(:A in fixed) && K >= 2
         W isa OneHot || throw(ArgumentError(
@@ -53,7 +56,7 @@ function fit_mle(m::SmoothARPeriodicHMM, Y::AbstractMatrix{<:Bool},
             counts[n2t[n], z[n], z[n+1]] += 1
         end
         _update_transitions!(fitted, counts,
-            (; basis_A=design_matrix(m.basis_A, 1:T), solver, adtype, ensemble, solve_kwargs))
+            (; basis_A=design_matrix(m.basis_A, 1:T), solver, adtype, ensemble, solve_kwargs, loss))
         N >= 1 && (fill!(fitted.stored.a, 0); fitted.stored.a[z[1]] = 1)
     end
     return _refresh!(fitted)

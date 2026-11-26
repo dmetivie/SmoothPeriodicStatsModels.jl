@@ -6,14 +6,15 @@
 # probabilities of that state, through `update_dist`.
 
 """
-    DistHMMContext(n_in_t, basis_A, designs, ys, solver, adtype, ensemble, solve_kwargs)
+    DistHMMContext(n_in_t, basis_A, designs, ys, solver, adtype, ensemble, solve_kwargs, loss)
 
 What the M-step of a [`SmoothPeriodicHMM`](@ref) needs besides the posteriors. It holds the
 observations of each period index, the transition design matrix, the design of each emission block, the
-observations of each block, and the solver settings. [`fit_mle`](@ref) builds it and stores it in
+observations of each block, the solver settings and the
+[`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss), `loss`. [`fit_mle`](@ref) builds it and stores it in
 the model's `cfg` field.
 """
-struct DistHMMContext{A,DS<:Tuple,YS<:Tuple,AD,E,S}
+struct DistHMMContext{A,DS<:Tuple,YS<:Tuple,AD,E,S,L}
     n_in_t::Vector{Vector{Int}}
     basis_A::A       # `nothing` when K == 1: a one-state chain has no transition to fit
     designs::DS
@@ -22,15 +23,16 @@ struct DistHMMContext{A,DS<:Tuple,YS<:Tuple,AD,E,S}
     adtype::AD
     ensemble::E
     solve_kwargs::NamedTuple
+    loss::L
 end
 
 function DistHMMContext(m::SmoothPeriodicHMM, Y::AbstractMatrix, n2t::AbstractVector{<:Integer};
-    solver, adtype, ensemble, solve_kwargs)
+    solver, adtype, ensemble, solve_kwargs, additional_loss=nothing)
     K, T = size(m.stored.A, 1), m.nT
     designs = map(f -> PeriodicDesign(f.spec, 1:T), m.families)
     ys = map((Bb, r) -> _block_observations(Bb, Y, r), m.stored.B, m.stored.blocks)
     return DistHMMContext(group_by_time(n2t, T), K ≥ 2 ? design_matrix(m.basis_A, 1:T) : nothing,
-        designs, ys, solver, adtype, ensemble, solve_kwargs)
+        designs, ys, solver, adtype, ensemble, solve_kwargs, _resolve_loss(additional_loss))
 end
 
 # A univariate block is one row of `Y`, a multivariate block one view of its rows per observation.
@@ -79,8 +81,9 @@ function _update_emission_blocks!(m::SmoothPeriodicHMM, γ, cfg)
     function solve_job(i)
         k, b = jobs[i]
         θ = emission_coefs(m, k, b)
+        penalized = cfg.loss === nothing ? (;) : (; additional_loss=cfg.loss, part=:B, index=(k, b))
         _, θ̂ = update_dist(m.families[b], cfg.designs[b], θ, view(γ, k, :), cfg.ys[b], groups[k];
-            cfg.solver, cfg.adtype, cfg.solve_kwargs)
+            cfg.solver, cfg.adtype, cfg.solve_kwargs, penalized...)
         θ .= θ̂
         return nothing
     end
@@ -109,7 +112,9 @@ fitted model and a [`FitHistory`](@ref).
 Keywords: `maxiter`, `tol` (absolute change of the loglikelihood), `display`,
 `ps_iters = true` to keep the coefficients of every iteration, and the solver settings `solver`,
 `adtype`, `ensemble` and `solve_kwargs` of the M-step (`ensemble = EnsembleThreads()` fits the
-emission blocks in parallel). `robust = true` clamps infinite emission loglikelihoods in the
+emission blocks in parallel). An [`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss)
+is added to the negative loglikelihood of the emissions and of the transitions; the loglikelihood
+of the history is then penalized. `robust = true` clamps infinite emission loglikelihoods in the
 E-step, so that an observation impossible in every state does not stop the fit.
 
 The emission fit of each state leaves out the observations whose posterior probability in that
@@ -136,15 +141,15 @@ end
 function _fit_mle(m::SmoothPeriodicHMM, Y, n2t, seq_ends;
     maxiter=100, tol=1e-3, display=:none, robust=false, ps_iters=false,
     solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(),
-    solve_kwargs=(;))
+    solve_kwargs=(;), additional_loss=nothing)
     @argcheck display in [:none, :iter, :final]
     @argcheck maxiter >= 0
     @argcheck size(Y, 1) == size(m, 2) "the observations have $(size(Y, 1)) rows and the emission blocks cover $(size(m, 2))"
-    cfg = DistHMMContext(m, Y, n2t; solver, adtype, ensemble, solve_kwargs)
+    cfg = DistHMMContext(m, Y, n2t; solver, adtype, ensemble, solve_kwargs, additional_loss)
     fitted = SmoothPeriodicHMM(copy(m.ps), m.families, copy(m.stored), m.nT, m.basis_A, cfg)
     _refresh!(fitted)   # the coefficients may have been edited in place since `m` was built
     return _baum_welch!(fitted, _columns(Y), SeasonalControls(n2t), seq_ends;
-        maxiter, tol, display, robust, ps_iters)
+        maxiter, tol, display, robust, ps_iters, loss=cfg.loss)
 end
 
 """

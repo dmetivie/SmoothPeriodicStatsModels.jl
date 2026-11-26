@@ -11,10 +11,11 @@ function γₛ!(γₛ::AbstractVector, γ, n_all::AbstractVector)
 end
 
 function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::AbstractMatrix, γₛ::AbstractVector, Y, n_all, basis::AbstractMatrix;
-    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;))
+    solver=_required_solver(), adtype=default_adtype(), ensemble=default_ensemble(), solve_kwargs=(;), additional_loss=nothing)
     @argcheck size(γ, 1) == size(Y, 2)
     @argcheck size(γ, 2) == size(B, 1)
     K, T, D = size(B)
+    loss = _resolve_loss(additional_loss)
     ## For periodicHMM only the n Y corresponding to B(t) are used to update B(t)
     ## Aggregate the posteriors that the M-step fits against
 
@@ -23,8 +24,12 @@ function update_B!(B::AbstractArray{T,3} where {T}, θᴮ::AbstractMatrix, γ::A
     # One independent problem per (state, site, memory), as in the dense `update_B!`; the sites
     # may each carry their own memory order, so the index list is ragged.
     idx = vcat(vec([[(k, j, h) for h = 1:length(θᴮ[k, j])] for j = 1:D, k = 1:K])...)
-    emission_data(k, s, h) = (view(γₛ[s], k, h, :, :), basis)
-    base = OptimizationProblem(OptimizationFunction(bernoulli_logit_nll, adtype),
+    emission_data(k, s, h) = _penalized_data(loss, (view(γₛ[s], k, h, :, :), basis), (k, s, h))
+    phi = _BernoulliPhi(basis)
+    for (k, s, h) in idx
+        _check_loss(loss, phi, collect(θᴮ[k, s][h]), :B, (k, s, h), T)
+    end
+    base = OptimizationProblem(OptimizationFunction(_penalized(bernoulli_logit_nll, loss, phi, :B, T), adtype),
         collect(θᴮ[idx[1][1], idx[1][2]][idx[1][3]]), emission_data(idx[1]...))
     eprob = EnsembleProblem(base;
         prob_func=(prob, ctx) -> remake(prob;

@@ -193,6 +193,8 @@ bic.(fits)
 ```
 
 `dof` is the number of coefficients, plus the `K - 1` free initial probabilities for the HMMs.
+A fit with an `additional_loss` has no `aic`, `aicc` or `bic`, see
+[Additional loss terms](@ref additional-loss-guide).
 `nobs` is the number of terms of the likelihood: the
 transitions for the AR(1), the observations for the mixture, and the observed steps, summed over
 the sequences, for the HMMs.
@@ -202,6 +204,66 @@ the sequences, for the HMMs.
 `fit_mle(m, y, z; n2t, solver)` fits one AR(1) per hidden state given the state sequence `z`, for
 example a temperature given the weather regimes an HMM decoded. Build `m` with
 `SmoothAR1(d, T; K)`: `parameters(m).ρ` is then `(2d+1) × K`, and `curve(m, :ρ)` is `K × T`.
+
+## [Additional loss terms (penalized fits)](@id additional-loss-guide)
+
+Every fit takes `additional_loss`, a function `additional_loss(phi, θ, p)` whose value is added to
+the negative loglikelihood. It mirrors the `additional_loss` of
+[NeuralPDE.jl](https://docs.sciml.ai/NeuralPDE/stable/), and gives a penalized likelihood: a
+roughness penalty on a spline (P-splines), a ridge that keeps a coefficient finite, or a
+constraint written on the curves.
+
+The loss is called once per subproblem of the fit: one emission of one hidden state, the
+transitions out of one state, one AR(1), one component of a mixture. `θ` holds the coefficients
+of that subproblem, `phi(t, θ)` its parameters at the period index `t` on their natural scale (a
+probability, a mean and a standard deviation, …), `t` being an integer or a vector of integers,
+and `p = (; part, index, T)` says which subproblem it is. The
+[`additional_loss`](@ref SmoothPeriodicStatsModels.additional_loss) docstring lists the `part`,
+`index`, `θ` and `phi` of every fit. Three ready-made terms are provided:
+
+| | |
+|:--|:--|
+| `RidgePenalty(λ)` | `λ * sum(abs2, θ)` |
+| `DifferencePenalty(λ; order = 2, cyclic = true)` | `λ` times the squared differences of the coefficients of each block: the P-spline penalty of a `CyclicBSplineBasis` |
+| `CurvePenalty(λ; order = 2)` | `λ` times the squared cyclic differences of the curves `phi(1:T, θ)` themselves, for any basis, a `TrigBasis` included |
+
+For example, a Bernoulli HMM whose emissions are cyclic B-splines with many knots, kept smooth
+by a second-difference penalty on the emissions alone:
+
+```julia
+m0 = SmoothARPeriodicHMM(K, D, T; memory = 1, season = (A = 1, B = CyclicBSplineBasis(T, 12)))
+
+pspline(phi, θ, p) = p.part === :B ? DifferencePenalty(50.0)(phi, θ, p) : 0.0
+m, history = fit_mle(m0, Y, Y_past; n2t, solver = LBFGS(), additional_loss = pspline)
+```
+
+Any function of `(phi, θ, p)` is a loss. This one keeps the probabilities of rain between 2 % and
+98 % at every period index:
+
+```julia
+bounded(phi, θ, p) = p.part === :B ?
+    1e4 * sum(abs2, max.(0, 0.02 .- phi(1:p.T, θ))) + 1e4 * sum(abs2, max.(0, phi(1:p.T, θ) .- 0.98)) : 0.0
+```
+
+The loss is added to the *summed* negative loglikelihood, whatever average a fit minimizes
+inside, so its weight is on the scale of the loglikelihood: a loss of 1 weighs as much as one nat of
+loglikelihood. For an EM fit, `history.logtots` and `loglikelihood(history)` are the
+penalized loglikelihood, the loglikelihood of the model less the loss at its coefficients, which
+the EM increases; `history.penalized` says so. The loss must be finite at the starting
+coefficients, or the fit raises an `ArgumentError`; away from them a non-finite value is left to
+the line search, as is a non-finite loglikelihood. The solvers may work on a copy of the loss, and
+with `ensemble = EnsembleThreads()` call it from several threads: it should keep no state.
+
+The effective degrees of freedom of a penalized fit are not computed: `aic`, `aicc` and `bic` of
+a [`SeasonalFit`](@ref) fitted with an `additional_loss` throw an `ArgumentError`, and `dof` stays
+the nominal number of coefficients. Choose the weight, and compare penalized fits, by held-out
+loglikelihood:
+
+```julia
+fits = [fit_mle(m0, Y, Y_past; n2t, solver = LBFGS(), additional_loss = DifferencePenalty(λ))[1]
+        for λ in (1.0, 10.0, 100.0)]
+loglikelihood.(fits, Ref(Y_test), Ref(Y_past_test); n2t = n2t_test)
+```
 
 ## Saving a fit
 

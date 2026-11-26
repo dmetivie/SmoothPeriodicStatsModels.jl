@@ -97,7 +97,21 @@ function loglikelihoods!(LL::AbstractMatrix, dists, α::SeasonalWeights, y::Seas
             LL[n, k] = log(α.α[k, t]) + logpdf(dₖ[t], y.y[n])
         end
     end
+    # With an additional loss, the loglikelihood the driver sums is the penalized one: the loss of
+    # the current coefficients, spread evenly over the total weight of the sample.
+    loss = get(α.cfg, :additional_loss, nothing)
+    loss === nothing || (LL .-= _mixture_loss(α, dists, loss) / α.cfg.neff)
     return LL
+end
+
+# The additional loss at the current coefficients of a mixture: the weights', and each component's.
+function _mixture_loss(α::SeasonalWeights, dists, loss)
+    T, K = size(α.α, 2), size(α.α, 1)
+    total = _loss_float(loss, _SoftmaxPhi(α.basis, K), vec(α.θ), :mixture, nothing, T)
+    for (k, c) in enumerate(dists)
+        total += _loss_float(loss, _FamilyPhi(c.fam.spec, c.design), c.θ, :component, k, T)
+    end
+    return total
 end
 
 # # The seasonal mixture as a model: structure apart from coefficients

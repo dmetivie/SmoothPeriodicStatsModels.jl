@@ -125,7 +125,7 @@ _link_curve(link, B::AbstractMatrix, β::AbstractMatrix) = apply_link.(Ref(link)
 # ## What a fit reports
 
 """
-    FitHistory(; converged, iterations, logtots, solution, ps_iters, best_iteration, loglikelihood)
+    FitHistory(; converged, iterations, logtots, solution, ps_iters, best_iteration, loglikelihood, penalized)
 
 How a fit went: the second value every `fit_mle` in this package returns.
 
@@ -141,6 +141,8 @@ How a fit went: the second value every `fit_mle` in this package returns.
                 by default `argmax(logtots)`
 - `loglikelihood` the loglikelihood of the model the fit returned; by default the last of
                 `logtots`, `-Inf` when there is none
+- `penalized`   whether the fit had an `additional_loss`, in which case `logtots` and
+                `loglikelihood` are penalized loglikelihoods
 
 When there is a `solution`, `history.retcode`, `history.objective` and `history.stats` read the
 solver's report, as a vector when there were several problems. The fits return their last
@@ -154,13 +156,14 @@ struct FitHistory{S,P}
     ps_iters::P
     best_iteration::Int
     loglik::Float64
+    penalized::Bool
 end
 
 function FitHistory(; converged, iterations, logtots=Float64[], solution=nothing, ps_iters=nothing,
     best_iteration=isempty(logtots) ? 0 : argmax(logtots),
-    loglikelihood=isempty(logtots) ? -Inf : last(logtots))
+    loglikelihood=isempty(logtots) ? -Inf : last(logtots), penalized=false)
     return FitHistory(converged, Int(iterations), collect(Float64, logtots), solution, ps_iters,
-        Int(best_iteration), Float64(loglikelihood))
+        Int(best_iteration), Float64(loglikelihood), penalized)
 end
 
 """
@@ -178,7 +181,7 @@ StatsAPI.loglikelihood(h::FitHistory) = h.loglik
 end
 
 Base.propertynames(h::FitHistory) = (:converged, :iterations, :logtots, _solver_properties(h)...,
-    :ps_iters, :best_iteration)
+    :ps_iters, :best_iteration, :penalized)
 
 _solver_properties(::FitHistory) = (:solution, :retcode, :objective, :stats)
 _solver_properties(::FitHistory{Nothing}) = ()
@@ -210,7 +213,7 @@ converged(h::FitHistory) = h.converged
 function Base.show(io::IO, ::MIME"text/plain", h::FitHistory)
     print(io, "FitHistory: ", h.converged ? "converged" : "did NOT converge",
         " in ", h.iterations, " iteration", h.iterations == 1 ? "" : "s")
-    isfinite(h.loglik) && print(io, ", loglikelihood ", round(h.loglik; digits=4))
+    isfinite(h.loglik) && print(io, h.penalized ? ", penalized loglikelihood " : ", loglikelihood ", round(h.loglik; digits=4))
     h.ps_iters === nothing || print(io, ", ", length(h.ps_iters), " parameter iterates kept")
     return
 end
